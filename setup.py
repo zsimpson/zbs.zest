@@ -7,7 +7,7 @@ HERE = pathlib.Path(__file__).parent
 # The text of the README file
 README = (HERE / "README.md").read_text()
 
-exec(open('zest/version.py').read())
+exec(open("zest/version.py").read())
 
 setup(
     name="zbs.zest",
@@ -29,10 +29,6 @@ setup(
     packages=["zest"],
     include_package_data=True,
     install_requires=[],
-    entry_points={
-        "console_scripts": [
-            "zest=zest.__main__:main",
-        ]
-    },
-    python_requires='>=3.6',
+    entry_points={"console_scripts": ["zest=zest.zest_runner:main",]},
+    python_requires=">=3.6",
 )

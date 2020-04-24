@@ -6,7 +6,7 @@ import sys
 import traceback
 import ast
 from importlib import import_module
-from .zest import zest
+from zest import zest
 
 blue = "\u001b[34m"
 yellow = "\u001b[33m"
@@ -162,7 +162,7 @@ class ZestRunner:
             s(red, bold, f"{n_errors} ERROR(s)\n")
 
     def walk(self):
-        for root in self.include_dir:
+        for root in self.include_dirs:
             for curr, dirs, files in os.walk(os.path.abspath(root)):
                 dirs[:] = [d for d in dirs if d[0] != "."]
                 if curr.endswith("/zests"):
@@ -241,7 +241,7 @@ class ZestRunner:
     def __init__(
         self,
         verbose=1,
-        include_dir=None,
+        include_dirs=None,
         match_string=None,
         recurse=0,
         groups=None,
@@ -261,7 +261,7 @@ class ZestRunner:
 
         self.verbose = verbose
         self.callback_depth = 0
-        self.include_dir = include_dir
+        self.include_dirs = include_dirs.split(",")
         self.timings = []
 
         if groups is not None:
@@ -355,17 +355,22 @@ class ZestRunner:
             self.display_warnings(zest._call_warnings)
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--verbose", help="Watch tests run", action="store_const", const=2, default=1
     )
-    parser.add_argument("--include_dir", nargs="+", default=os.getcwd())
+    parser.add_argument(
+        "--include_dirs",
+        nargs="?",
+        default=os.getcwd(),
+        help="Comma delimited list of directories to search",
+    )
     parser.add_argument(
         "match_string", type=str, nargs="?", help="Optional substring to match"
     )
     parser.add_argument(
-        "group",
+        "groups",
         type=str,
         nargs="?",
         help="Run these comma-separated groups. Empty list runs un-grouped only.",
@@ -374,3 +379,7 @@ if __name__ == "__main__":
 
     runner = ZestRunner(**kwargs)
     sys.exit(runner.retcode)
+
+
+if __name__ == "__main__":
+    main()
