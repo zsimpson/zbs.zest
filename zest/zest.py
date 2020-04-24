@@ -1,52 +1,6 @@
 """
 A function-oriented testing framework for Python 3.
-
-TODO: Move this stuff to README
-
-Notes:
-    Unless zest._disable_shuffle is True it will randomized run order
-    to prevent accidental order dependencies.
-
-Gotchas:
-
-    Don't do this:
-
-        def zest_something():
-            with zest.mock(...):
-                def it_does_something():
-                    assert something
-
-                def it_does_something_else():
-                    assert something
-
-            # This will execute outside of the with statement so
-            # the two above tests will not pick up the mock as expected.
-            zest()
-
-    Don't do this:
-
-        def zest_something():
-            with zest.mock(...):
-                def it_does_something():
-                    assert something
-
-                def it_does_something_else():
-                    assert something
-
-                # This is fine...
-                zest()
-
-            with zest.mock(...):
-                def it_does_yet_another_thing():
-                    assert something
-
-                # This is BAD.  Because in this case
-                # this second zest() will RE-EXECUTE the
-                # above it_does_something() and it_does_something_else()
-                # Because zest() doesn't know that it is inside of
-                # the with statement.
-                zest()
-
+See README.
 """
 import time
 import inspect
