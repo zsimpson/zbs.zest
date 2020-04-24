@@ -97,15 +97,25 @@ $ zest --verbose=2  # Show hierarchical full progress
 
 Search only inside the specific dirs
 ```bash
-$ zest --include_dirs=
+$ zest --include_dirs=./abc:./def
 ```
 
+Run only tests that are in the "integration" or "slow" groups
+```bash
+$ zest --groups=integration:slow
+```
 
-Notes:
-    Unless zest._disable_shuffle is True it will randomized run order
-    to prevent accidental order dependencies.
+Run only tests that contain the string "foobar". This also
+runs any parent test function needed to execute the match.
+```bash
+$ zest foobar
+```
 
-
+Disable test order shuffling which is on by default to increase the
+liklihood that accidental order-dependencies are manifest.
+```bash
+$ zest --disable_shuffle
+```
 
 # Gotchas
 
@@ -194,4 +204,4 @@ You will need the user and password and credentials for Pypi.org
 
 
 # TODO
- * Add --version option
+* Add --rng_seed option

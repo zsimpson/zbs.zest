@@ -246,6 +246,7 @@ class ZestRunner:
         recurse=0,
         groups=None,
         disable_shuffle=False,
+        **kwargs,
     ):
         """
         verbose=0 if you want no output
@@ -254,18 +255,18 @@ class ZestRunner:
 
         groups:
             None runs all
-            comma separated list to run certain kinds
+            colon-delimited list to run certain kinds
             "unit" is assumed on all un-grouped tests.
         """
         zest._disable_shuffle = disable_shuffle
 
         self.verbose = verbose
         self.callback_depth = 0
-        self.include_dirs = include_dirs.split(",")
+        self.include_dirs = include_dirs.split(":")
         self.timings = []
 
         if groups is not None:
-            groups = groups.split(",")
+            groups = groups.split(":")
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
@@ -357,24 +358,45 @@ class ZestRunner:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--verbose", help="Watch tests run", action="store_const", const=2, default=1
+        "--verbose",
+        action="store_const",
+        const=2,
+        default=1,
+        help="Watch tests run",
     )
     parser.add_argument(
         "--include_dirs",
         nargs="?",
         default=os.getcwd(),
-        help="Comma delimited list of directories to search",
+        help="Colon-delimited list of directories to search",
+    )
+    parser.add_argument(
+        "--groups",
+        type=str,
+        nargs="?",
+        help="Run these colon-delimited groups. Empty list runs un-grouped only.",
+    )
+    parser.add_argument(
+        "--disable_shuffle",
+        type=bool,
+        nargs="?",
+        default=False,
+        help="Disable the shuffling of test order",
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version and exit",
     )
     parser.add_argument(
         "match_string", type=str, nargs="?", help="Optional substring to match"
     )
-    parser.add_argument(
-        "groups",
-        type=str,
-        nargs="?",
-        help="Run these comma-separated groups. Empty list runs un-grouped only.",
-    )
     kwargs = vars(parser.parse_args())
+
+    if kwargs.get("version"):
+        from version import __version__
+        print(__version__)
+        sys.exit(0)
 
     runner = ZestRunner(**kwargs)
     sys.exit(runner.retcode)
