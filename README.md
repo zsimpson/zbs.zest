@@ -117,6 +117,24 @@ liklihood that accidental order-dependencies are manifest.
 $ zest --disable_shuffle
 ```
 
+
+
+
+        You can assert keys like this:
+
+            with zest.raises(SomeException, property="something") as e:
+                something_that_raises()
+            # The above zest.raises will fail if the exception does not have
+            # a key "property" that equals "something"
+
+            with zest.raises(SomeException, in_property="something") as e:
+                something_that_raises()
+            # The above zest.rasises will fail if the exception does not have
+            # a key "property" that CONTAINS the string "something"
+
+
+
+
 # Gotchas
 
 Don't do mock outside of test functions:
@@ -174,6 +192,49 @@ def zest_something():
 ```
 
 
+When asserting on properties of an expected exception,
+be sure to do assert outside the scope of the "with" as demonstrated:
+
+Bad:
+```python
+with zest.raises(SomeException) as e:
+    something_that_raises()
+    assert e.exception.property == "something"
+    # The above "assert" will NOT be run because the exception thrown by 
+    # something_that_raises() will be caught and never get to execute the assert!
+```
+
+Good:
+```python
+with zest.raises(SomeException) as e:
+    something_that_raises()
+assert e.exception.property == "something"
+    # (Note the reference to "e.exception." as opposed to "e."
+```
+
+Remember that the exception returned from a zest.raises() is
+NOT of the type you are expecting but rather of a wrapper
+class called `TrappedException`. To get to the properties
+of interest you need to ask for e.exception.*
+
+Bad:
+```python
+with zest.raises(SomeException) as e:
+    something_that_raises()
+
+assert e.property == "something"
+# Wrong! e is of type TrappedException therefore the above will not work as expected.
+```
+
+Good:
+```python
+with zest.raises(SomeException) as e:
+    something_that_raises()
+
+assert e.exception.property == "something"
+# Yes, .exception reference to get original exception from the `e` TrappedException wrapper.
+```
+
 # Development
 
 ## Setup
@@ -205,3 +266,4 @@ You will need the user and password and credentials for Pypi.org
 
 # TODO
 * Add --rng_seed option
+* Move raises docs into README

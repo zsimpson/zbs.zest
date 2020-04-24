@@ -192,8 +192,7 @@ class ZestRunner:
     @staticmethod
     def _recurse_ast(func_body, parent_name):
         n_test_funcs = 0
-        found_trialing_zest_call = False
-        n_parts = len(func_body)
+        found_zest_call = False
         child_list = []
         for i, part in enumerate(func_body):
             if isinstance(part, ast.FunctionDef):
@@ -219,22 +218,30 @@ class ZestRunner:
                     n_test_funcs += 1
                     child_list += ZestRunner._recurse_ast(part.body, full_name)
 
-            if i == n_parts - 1:
-                if isinstance(part, ast.Expr):
-                    if isinstance(part.value, ast.Call):
-                        if isinstance(part.value.func, ast.Name):
-                            if part.value.func.id == "zest":
-                                found_trialing_zest_call = True
+                if found_zest_call:
+                    found_zest_call_before_final_func_def = True
+
+            if isinstance(part, ast.Expr):
+                if isinstance(part.value, ast.Call):
+                    if isinstance(part.value.func, ast.Name):
+                        if part.value.func.id == "zest":
+                            found_zest_call = True
 
         if (
             n_test_funcs > 0
             and parent_name is not None
-            and not found_trialing_zest_call
+            and not found_zest_call
         ):
-            s(
-                red,
-                f"ERROR: Zest function {parent_name} did not terminate with a call to zest()\n",
-            )
+            if found_zest_call_before_final_func_def:
+                s(
+                    red,
+                    f"ERROR: Zest function {parent_name} did had a call to zest() before all functions were defined\n",
+                )
+            else:
+                s(
+                    red,
+                    f"ERROR: Zest function {parent_name} did not terminate with a call to zest()\n",
+                )
 
         return child_list
 

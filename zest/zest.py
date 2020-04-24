@@ -1,6 +1,7 @@
 """
 A function-oriented testing framework for Python 3.
-See README.
+
+See README.md
 """
 import time
 import inspect
@@ -299,59 +300,7 @@ class zest:
     def raises(expected_exception=Exception, **kwargs):
         """
         Use this in the inner most test. Do not attempt to encapsulate
-        more than one test with this context.
-
-        Good:
-            def my_test_1():
-                with zest.raises(ValueError):
-                    something_that_raises()
-
-            def my_test_2():
-                with zest.raises(ValueError):
-                    something_that_raises()
-
-        Bad:
-            with zest.raises(ValueError):
-                def my_test_1():
-                    something_that_raises()
-
-                def my_test_2():
-                    something_that_raises()
-
-
-        Note, when asserting on properties of the exception
-        be sure to do this outside the scope of the with as follows.
-        (Note the reference to "e.exception." as opposed to "e."
-
-        Good:
-            with zest.raises(SomeException) as e:
-                something_that_raises()
-            assert e.exception.property == "something"
-
-        Bad:
-            with zest.raises(SomeException) as e:
-                something_that_raises()
-                assert e.exception.property == "something"  # This will NOT be run!
-
-            with zest.raises(SomeException) as e:
-                something_that_raises()
-
-            # e is of type TrappedException. This following wil not work
-            # because it does not check the e.exception property.
-            assert e.property == "something"
-
-        You can assert keys like this:
-
-            with zest.raises(SomeException, property="something") as e:
-                something_that_raises()
-            # The above zest.raises will fail if the exception does not have
-            # a key "property" that equals "something"
-
-            with zest.raises(SomeException, in_property="something") as e:
-                something_that_raises()
-            # The above zest.rasises will fail if the exception does not have
-            # a key "property" that CONTAINS the string "something"
-
+        more than one test with this context. See README.
         """
         got_expected_exception = False
         trapped_exception = TrappedException()
