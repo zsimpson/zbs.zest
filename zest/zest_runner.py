@@ -326,7 +326,6 @@ class ZestRunner:
                 (module_name, package, member_groups),
             ) in root_zest_funcs.items():
                 if group in member_groups and not has_run.get(root_name):
-
                     imported = import_module("." + module_name, package=package)
                     func = getattr(imported, root_name)
 
