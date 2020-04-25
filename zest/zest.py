@@ -313,7 +313,16 @@ class zest:
         if got_expected_exception:
             # Check keys in the exception
             for key, val in kwargs.items():
-                if key.startswith("in_"):
+                if key.startswith("in_args"):
+                    for arg in trapped_exception.exception.args:
+                        if val in arg:
+                            break
+                    else:
+                        raise AssertionError(
+                            f"expected exception to have '{val}' in some arg but not found in "
+                            f"{trapped_exception.exception.args}"
+                        )
+                elif key.startswith("in_"):
                     key = key[3:]
                     if val not in getattr(trapped_exception.exception, key):
                         raise AssertionError(

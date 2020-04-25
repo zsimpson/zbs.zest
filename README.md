@@ -82,6 +82,10 @@ def zest_my_test():
         assert state.foo == 2
 ```
 
+# Examples
+
+See `./zests/zest_examples.py` for more examples.  
+
 # Usage
 
 Search recursively all directories for def zest_*() functions and execute them.
@@ -255,7 +259,7 @@ fi
 To run all the example tests (which actually test the tester itself).
 ```bash
 $ zest
-```  
+```
 
 ## Deploy
 ```bash

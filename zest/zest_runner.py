@@ -44,6 +44,8 @@ class ZestRunner:
     because the import_module parses the path to inform the package argument.
     """
 
+    n_zest_missing_errors = 0
+
     tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
 
     def _traceback_match_filename(self, line):
@@ -193,6 +195,7 @@ class ZestRunner:
     def _recurse_ast(func_body, parent_name):
         n_test_funcs = 0
         found_zest_call = False
+        found_zest_call_before_final_func_def = False
         child_list = []
         for i, part in enumerate(func_body):
             if isinstance(part, ast.FunctionDef):
@@ -232,6 +235,7 @@ class ZestRunner:
             and parent_name is not None
             and not found_zest_call
         ):
+            ZestRunner.n_zest_missing_errors += 1
             if found_zest_call_before_final_func_def:
                 s(
                     red,
@@ -348,7 +352,7 @@ class ZestRunner:
         if recurse == 0:
             self.display_errors(zest._call_log, zest._call_errors)
             self.display_complete(zest._call_log, zest._call_errors)
-            self.retcode = 0 if len(zest._call_errors) == 0 else 1
+            self.retcode = 0 if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0 else 1
 
             if self.verbose > 1:
                 s("Slowest 5%\n")
