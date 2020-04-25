@@ -230,11 +230,7 @@ class ZestRunner:
                         if part.value.func.id == "zest":
                             found_zest_call = True
 
-        if (
-            n_test_funcs > 0
-            and parent_name is not None
-            and not found_zest_call
-        ):
+        if n_test_funcs > 0 and parent_name is not None and not found_zest_call:
             ZestRunner.n_zest_missing_errors += 1
             if found_zest_call_before_final_func_def:
                 s(
@@ -273,7 +269,7 @@ class ZestRunner:
 
         self.verbose = verbose
         self.callback_depth = 0
-        self.include_dirs = include_dirs.split(":")
+        self.include_dirs = (include_dirs or "").split(":")
         self.timings = []
 
         if groups is not None:
@@ -352,7 +348,11 @@ class ZestRunner:
         if recurse == 0:
             self.display_errors(zest._call_log, zest._call_errors)
             self.display_complete(zest._call_log, zest._call_errors)
-            self.retcode = 0 if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0 else 1
+            self.retcode = (
+                0
+                if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0
+                else 1
+            )
 
             if self.verbose > 1:
                 s("Slowest 5%\n")
@@ -369,11 +369,7 @@ class ZestRunner:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--verbose",
-        action="store_const",
-        const=2,
-        default=1,
-        help="Watch tests run",
+        "--verbose", default=1, type=int, help="0=silent, 1=dot-mode, 2=full-trace",
     )
     parser.add_argument(
         "--include_dirs",
@@ -389,15 +385,11 @@ def main():
     )
     parser.add_argument(
         "--disable_shuffle",
-        type=bool,
-        nargs="?",
-        default=False,
+        action="store_true",
         help="Disable the shuffling of test order",
     )
     parser.add_argument(
-        "--version",
-        action="store_true",
-        help="Show version and exit",
+        "--version", action="store_true", help="Show version and exit",
     )
     parser.add_argument(
         "match_string", type=str, nargs="?", help="Optional substring to match"
@@ -406,6 +398,7 @@ def main():
 
     if kwargs.get("version"):
         from version import __version__
+
         print(__version__)
         sys.exit(0)
 

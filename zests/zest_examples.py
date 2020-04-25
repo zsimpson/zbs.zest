@@ -4,12 +4,14 @@ It also serves as an example of how to build a zest.
 """
 
 from zest import zest, TrappedException
+from zest_runner import ZestRunner
 from . import pretend_unit_under_test
 from .pretend_unit_under_test import foo
+from version import __version__
+import subprocess
 
 
 def zest_basics():
-
     def it_calls_before_and_after():
         test_count = 0
         before_count = 0
@@ -38,6 +40,7 @@ def zest_basics():
     def it_raises_on_begin():
         # _begin is easily confused with "_before" so there's a special check for it
         with zest.raises(ValueError, in_args="_before"):
+
             def _begin():
                 # Should have been "_before"
                 pass
@@ -82,28 +85,17 @@ def zest_basics():
         def test2():
             pass
 
-        zest(test_start_callback=_test_start_callback, test_stop_callback=_test_stop_callback)
+        zest(
+            test_start_callback=_test_start_callback,
+            test_stop_callback=_test_stop_callback,
+        )
 
         assert start_was_called == 2 and stop_was_called == 2
 
-# TODO: All following needs to be tested in a zest_runner test
-#
-#     def it_shuffles_by_default():
-#         raise NotImplementedError
-#
-#     def it_can_disable_shuffle():
-#         raise NotImplementedError
-#
-#     def it_can_limit_tests():
-#         raise NotImplementedError
-#
-#     def it_warns_if_no_trailing_zest():
-#         raise NotImplementedError
-#
     zest()
 
-def zest_raises():
 
+def zest_raises():
     def it_catches_raises():
         with zest.raises(ValueError) as e:
             raise ValueError("test")
@@ -125,7 +117,9 @@ def zest_raises():
             with zest.raises(AssertionError) as outer_e:
                 with zest.raises(MyException, in_foo="blah") as e:
                     raise MyException(foo="bar")
-                assert isinstance(e, TrappedException) and isinstance(e.exception, MyException)
+                assert isinstance(e, TrappedException) and isinstance(
+                    e.exception, MyException
+                )
             assert "exception to have" in str(outer_e.exception)
 
         zest()
@@ -135,6 +129,7 @@ def zest_raises():
             raise ValueError("not", "bar")
 
     zest()
+
 
 def zest_groups():
     # TODO: Needs to be tested in a zest_runner test
@@ -215,9 +210,11 @@ def zest_mocks():
     def it_hooks():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             got_callback = False
+
             def callback():
                 nonlocal got_callback
                 got_callback = True
+
             m_foo.hook(callback)
             pretend_unit_under_test.foo()
             assert got_callback is True
@@ -247,13 +244,61 @@ def zest_mocks():
             with zest.raises(TypeError):
                 pretend_unit_under_test.foo()
 
-# TODO
+    # TODO
 
     # def it_normalizes_calls_into_kwargs():
     #     with zest.mock(pretend_unit_under_test.foo) as m_foo:
     #         pretend_unit_under_test.foo("arg1")
 
-#     def it_can_check_a_single_call_with_args_and_kwargs():
+    #     def it_can_check_a_single_call_with_args_and_kwargs():
+    #         raise NotImplementedError
+    #
+    zest()
+
+
+def call_zest(*args):
+    # Run zest_runner in a sub-processes so that we don't end up with
+    # recursion problems since these tests themselves is running under ZestRunner
+    try:
+        output = subprocess.check_output(
+            "python ./zest/zest_runner.py " + " ".join([f'"{a}"' for a in args]),
+            shell=True,
+            stderr=subprocess.STDOUT,
+        )
+        ret_code = 0
+    except subprocess.CalledProcessError as e:
+        ret_code = e.returncode
+        output = e.output
+    return ret_code, output.decode("utf-8")
+
+
+def zest_runner():
+    def it_returns_version():
+        ret_code, output = call_zest("--version")
+        assert ret_code == 0 and output.strip() == __version__
+
+    def it_shuffles_by_default():
+        ret_code, output = call_zest("--verbose=2", "--disable_shuffle", "zest_basics")
+        print("GOT", ret_code, output)
+
+        # runner = ZestRunner(
+        #     verbose=1,
+        #     include_dirs="./zests",
+        #     match_string=None,
+        #     recurse=0,
+        #     groups=None,
+        #     disable_shuffle=False,
+        # )
+
+    zest()
+
+
+#     def it_can_disable_shuffle():
 #         raise NotImplementedError
 #
-    zest()
+#     def it_can_limit_tests():
+#         raise NotImplementedError
+#
+#     def it_warns_if_no_trailing_zest():
+#         raise NotImplementedError
+#
