@@ -1,6 +1,9 @@
 # Zest
 
 A function-oriented testing framework for Python 3.
+Written by Zack Booth Simpson, 2020
+
+Available as a pip package: `pip install zbs.zest`
 
 # Motivation
 
