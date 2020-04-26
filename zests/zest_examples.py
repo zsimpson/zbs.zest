@@ -5,7 +5,6 @@ It also serves as an example of how to build a zest.
 
 import re
 from zest import zest, TrappedException
-from zest_runner import ZestRunner
 from . import pretend_unit_under_test
 from .pretend_unit_under_test import foo
 from version import __version__
@@ -250,15 +249,23 @@ def zest_mocks():
             with zest.raises(TypeError):
                 pretend_unit_under_test.foo()
 
-    # TODO
+    def it_normalizes_calls_into_kwargs():
+        # normalized_call() is a handy when you want to just know
+        # what was passed to the mock but you don't care if
+        # it was passed as args or kwargs.
 
-    # def it_normalizes_calls_into_kwargs():
-    #     with zest.mock(pretend_unit_under_test.foo) as m_foo:
-    #         pretend_unit_under_test.foo("arg1")
+        with zest.mock(pretend_unit_under_test.foo) as m_foo:
+            pretend_unit_under_test.foo("arg1", arg2="arg2")
 
-    #     def it_can_check_a_single_call_with_args_and_kwargs():
-    #         raise NotImplementedError
-    #
+        kwargs = m_foo.normalized_call()
+        assert kwargs == dict(arg1="arg1", arg2="arg2")
+
+    def it_checks_against_normalized_call():
+        with zest.mock(pretend_unit_under_test.foo) as m_foo:
+            pretend_unit_under_test.foo("arg1", arg2="arg2")
+
+        assert m_foo.called_once_with_kws(arg1="arg1", arg2="arg2")
+
     zest()
 
 
