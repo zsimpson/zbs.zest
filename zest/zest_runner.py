@@ -243,7 +243,7 @@ class ZestRunner:
             if found_zest_call_before_final_func_def:
                 s(
                     red,
-                    f"ERROR: Zest function {parent_name} did had a call to zest() before all functions were defined\n",
+                    f"ERROR: Zest function {parent_name} did not call zest() before all functions were defined\n",
                 )
             else:
                 s(

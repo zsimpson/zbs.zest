@@ -1,6 +1,7 @@
 # Zest
 
 A function-oriented testing framework for Python 3.
+
 Written by Zack Booth Simpson, 2020
 
 Available as a pip package: `pip install zbs.zest`
@@ -150,13 +151,13 @@ in which case you can use the in_* argument to the raises.
 def zest_foobar_should_raise_on_no_arguments():
     with zest.raises(ValueError, in_args="bad juju") as e:
         foobar()
-    assert e.exception.args == (,)
 ```
 
 ## Mocks
 
 ```python
 import unit_under_test
+
 def zest_foobar():
     with zest.mock(unit_under_test.bar) as m_bar:
         # Suppose unit_under_test.foobar() calls bar()
@@ -165,14 +166,14 @@ def zest_foobar():
     assert m_bar.called_once_with(0)
 ```
 
-See zest.MockFunction for a complete MockFunction API.
+See `zest.MockFunction` for a complete MockFunction API.
 
 
 # Gotchas
 
 Don't forget to put the zest() call at each level of the test.
-If you forget, zest will throw an error along the lines of:
-"function did had a call to zest()..."
+If you forget, the zest runner will throw an error along the lines of:
+"function did not terminate with a call to zest()..."
 
 ```python
 def zest_something():
@@ -182,11 +183,11 @@ def zest_something():
     def it_bars():
         bar()
 
-    # NOTE! zest() wasn't called. Error will be thrown when the test is run
+    # WRONG! zest() wasn't called here. Error will be thrown when the test is run.
 ```
 
 
-Don't do mock outside of test functions:
+Do not mock outside of test functions:
 ```python
 def zest_something():
     with zest.mock(...):
@@ -232,11 +233,11 @@ def zest_something():
         def it_does_yet_another_thing():
             assert something
 
-        # ... This is BAD! In this case this second call to zest()
-        # will RE-EXECUTE the above two tests (it_does_something and it_does_something_else)
-        # because this call to zest() doesn't know that it is inside of a with statement.
-        # It looks visually different but really the following zest() and the one above
-        # are actually in the same scope. 
+        # WRONG! A second call to zest() will RE-EXECUTE the above two tests
+        # (it_does_something and it_does_something_else) because this
+        # second call to zest() doesn't know that it is inside of a with statement.
+        # The "with" scope makes it look different but really the following
+        # call to zest() and the call to zest above are actually in the same scope. 
         zest()
 ```
 
@@ -244,7 +245,7 @@ def zest_something():
 When asserting on properties of an expected exception,
 be sure to do assert outside the scope of the "with" as demonstrated:
 
-Bad:
+Wrong:
 ```python
 with zest.raises(SomeException) as e:
     something_that_raises()
@@ -253,7 +254,7 @@ with zest.raises(SomeException) as e:
     # something_that_raises() will be caught and never get to execute the assert!
 ```
 
-Good:
+Right:
 ```python
 with zest.raises(SomeException) as e:
     something_that_raises()
@@ -262,11 +263,11 @@ assert e.exception.property == "something"
 ```
 
 Remember that the exception returned from a zest.raises() is
-NOT of the type you are expecting but rather of a wrapper
+*not* of the type you are expecting but rather of a wrapper
 class called `TrappedException`. To get to the properties
-of interest you need to ask for e.exception.*
+of interest you need to use `e.exception.*`.
 
-Bad:
+Wrong:
 ```python
 with zest.raises(SomeException) as e:
     something_that_raises()
@@ -275,13 +276,13 @@ assert e.property == "something"
 # Wrong! e is of type TrappedException therefore the above will not work as expected.
 ```
 
-Good:
+Right:
 ```python
 with zest.raises(SomeException) as e:
     something_that_raises()
 
 assert e.exception.property == "something"
-# Yes, .exception reference to get original exception from the `e` TrappedException wrapper.
+# Correct, .exception reference to get original exception from the `e` TrappedException wrapper.
 ```
 
 # Development
@@ -299,6 +300,12 @@ if [[ -f .pipenvshrc ]]; then
 fi
 ```
 
+## Run in development mode
+
+```bash
+pipenv shell
+```
+
 ## Test
 
 To run all the example tests (which actually test the tester itself).
@@ -313,6 +320,5 @@ $ ./deploy.sh
 You will need the user and password and credentials for Pypi.org
 
 
-# TODO
+# TO DO
 * Add --rng_seed option
-* Move raises docs into README
