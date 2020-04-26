@@ -339,7 +339,7 @@ class ZestRunner:
 
                             if len(member_groups) == 0:
                                 # Default to run non-unit tests second
-                                member_groups = ["not_unit"]
+                                member_groups = ["unit"]
 
                             sub_dirs = curr[len(root) :].split(os.sep)
                             package = ".".join(sub_dirs).lstrip("./")
