@@ -7,7 +7,7 @@ import re
 from zest import zest, TrappedException
 from . import pretend_unit_under_test
 from .pretend_unit_under_test import foo
-from version import __version__
+from zest.version import __version__
 import subprocess
 
 
@@ -285,7 +285,7 @@ def _call_zest(*args):
     # recursion problems since these tests themselves is running under ZestRunner
     try:
         output = subprocess.check_output(
-            "python ./zest/zest_runner.py " + " ".join(args),
+            "python -m zest.zest_runner " + " ".join(args),
             shell=True,
             stderr=subprocess.STDOUT,
         )
@@ -318,6 +318,8 @@ def zest_runner():
                     "--disable_shuffle" if disable_shuffle else "",
                     "zest_basics",
                 )
+                if ret_code != 0:
+                    print(output)
                 assert ret_code == 0
 
                 found_tests = _get_run_tests(output)

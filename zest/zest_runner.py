@@ -411,7 +411,7 @@ def main():
     kwargs = vars(parser.parse_args())
 
     if kwargs.get("version"):
-        from version import __version__
+        from . import __version__
 
         print(__version__)
         sys.exit(0)
