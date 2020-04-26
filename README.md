@@ -5,12 +5,13 @@ A function-oriented testing framework for Python 3.
 # Motivation
 
 Python's default unittest module is a class-oriented approach that
-does not lend itself will to recursive setup and teardown.
+does not lend itself well to recursive setup and teardown.
 
 Zest uses a recursive function-based approach best demonstrated
 with examples.
 
 ```python
+##########################################
 # some_module.py
 
 def _say_hello():
@@ -25,13 +26,13 @@ def unit_under_test(a):
     return a + 1
 
 ##########################################
-
 # zest_some_module.py
 
 from zest import zest
-from . import some_module
+import some_module
 
 def zest_unit_under_test():
+    # This is a root-level zest because it starts with "zest_"
 
     def it_raises_on_non_positive():
         def it_raises_on_negative():
@@ -42,14 +43,14 @@ def zest_unit_under_test():
             with zest.raises(ValueError):
                 some_module.unit_under_test(0)
 
-        zest()  # Note this is a recursive entrypoint, also required to run the sub-tests
+        zest()  # Note this call which tells zest to run the above two tests
 
     def it_calls_say_hello_once():
         with zest.mock(some_module._say_hello) as m_say_hello:
             some_module.unit_under_test(0)
             assert m_say_hello.called_once()
 
-    zest()  # Note, this is special entrypoint is required
+    zest()  # Same here, this will cause it_raises_on_non_positive and it_calls_say_hello_once to run
 ```
 
 The zest() function uses stack reflection to call each function that
@@ -93,9 +94,10 @@ Search recursively all directories for def zest_*() functions and execute them.
 $ zest
 ```
 
+Show progress
 ```bash
 $ zest --verbose=0  # Show no progress
-$ zest --verbose=1  # Show "dot" progress
+$ zest --verbose=1  # Show "dot" progress (default)
 $ zest --verbose=2  # Show hierarchical full progress
 ```
 
@@ -109,8 +111,8 @@ Run only tests that are in the "integration" or "slow" groups
 $ zest --groups=integration:slow
 ```
 
-Run only tests that contain the string "foobar". This also
-runs any parent test function needed to execute the match.
+Run only tests that contain the string "foobar". This will also
+run any parent test needed to execute the match.
 ```bash
 $ zest foobar
 ```
@@ -121,25 +123,65 @@ liklihood that accidental order-dependencies are manifest.
 $ zest --disable_shuffle
 ```
 
+# Helpers
 
+## Expected exceptions
 
+```python
+def zest_foobar_should_raise_on_no_arguments():
+    with zest.raises(ValueError):
+        foobar()
+```
 
-        You can assert keys like this:
+Sometimes you may wish to check a property of the trapped exception
+```python
+def zest_foobar_should_raise_on_no_arguments():
+    with zest.raises(ValueError) as e:
+        foobar()
+    assert e.exception.args == ("bad juju",)
+```
 
-            with zest.raises(SomeException, property="something") as e:
-                something_that_raises()
-            # The above zest.raises will fail if the exception does not have
-            # a key "property" that equals "something"
+Often you may wish to check only for a string of a property of the trapped exception
+in which case you can use the in_* argument to the raises.
+```python
+def zest_foobar_should_raise_on_no_arguments():
+    with zest.raises(ValueError, in_args="bad juju") as e:
+        foobar()
+    assert e.exception.args == (,)
+```
 
-            with zest.raises(SomeException, in_property="something") as e:
-                something_that_raises()
-            # The above zest.rasises will fail if the exception does not have
-            # a key "property" that CONTAINS the string "something"
+## Mocks
 
+```python
+import unit_under_test
+def zest_foobar():
+    with zest.mock(unit_under_test.bar) as m_bar:
+        # Suppose unit_under_test.foobar() calls bar()
+        m_bar.returns(0)
+        unit_under_test.foobar()
+    assert m_bar.called_once_with(0)
+```
 
+See zest.MockFunction for a complete MockFunction API.
 
 
 # Gotchas
+
+Don't forget to put the zest() call at each level of the test.
+If you forget, zest will throw an error along the lines of:
+"function did had a call to zest()..."
+
+```python
+def zest_something():
+    def it_foos():
+        foo()
+
+    def it_bars():
+        bar()
+
+    # NOTE! zest() wasn't called. Error will be thrown when the test is run
+```
+
 
 Don't do mock outside of test functions:
 ```python
