@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from random import shuffle
 
 
-def _get_class_that_defined_method(meth):
+def get_class_or_module_that_defined_method(meth):
     # From https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3/25959545#25959545
     if inspect.ismethod(meth):
         for cls in inspect.getmro(meth.__self__.__class__):
@@ -212,6 +212,9 @@ class zest:
             def wrapper(*args, **kwargs):
                 return fn(*args, **kwargs)
 
+            if len(code) > 1:
+                raise ValueError("Skip codes can only be one character")
+
             setattr(wrapper, "skip", True)
             setattr(wrapper, "skip_code", code)
             setattr(wrapper, "skip_reason", reason)
@@ -242,20 +245,21 @@ class zest:
             new = substitute_fn
         else:
             new = MockFunction(symbol)
-        klass = _get_class_that_defined_method(symbol)
-        if isinstance(klass, types.ModuleType):
-            frame = inspect.currentframe()
-            module = inspect.getmodule(frame.f_back.f_back)
-            for name, obj in inspect.getmembers(module):
-                if (
-                    hasattr(obj, "__qualname__")
-                    and obj.__qualname__ == symbol.__qualname__
-                ):
-                    raise AssertionError(
-                        f"You are mocking the module-level symbol {symbol.__qualname__} which "
-                        f"is imported directly into the test module. You should instead "
-                        f"import the containing module and then mock the sub-symbol."
-                    )
+
+        klass = get_class_or_module_that_defined_method(symbol)
+        # if isinstance(klass, types.ModuleType):
+        #     frame = inspect.currentframe()
+        #     module = inspect.getmodule(frame.f_back.f_back)
+        #     for name, obj in inspect.getmembers(module):
+        #         if (
+        #             hasattr(obj, "__qualname__")
+        #             and obj.__qualname__ == symbol.__qualname__
+        #         ):
+        #             raise AssertionError(
+        #                 f"You are mocking the module-level symbol {symbol.__qualname__} which "
+        #                 f"is imported directly into the test module. You should instead "
+        #                 f"import the containing module and then mock the sub-symbol."
+        #             )
 
         old = getattr(klass, symbol.__name__)
         setattr(klass, symbol.__name__, new)

@@ -5,8 +5,7 @@ It also serves as an example of how to build a zest.
 
 import re
 from zest import zest, TrappedException
-from . import pretend_unit_under_test
-from .pretend_unit_under_test import foo
+import pretend_unit_under_test
 from zest.version import __version__
 import subprocess
 
@@ -101,6 +100,12 @@ def zest_basics():
 
         zest()
 
+    def it_raises_on_greater_than_one_char_skip_code():
+        with zest.raises(ValueError, in_args="only be one character"):
+            @zest.skip("toolong")
+            def it_raises_on_too_long():
+                pass
+
     zest()
 
 
@@ -154,39 +159,25 @@ def zest_it_can_handle_keyword_skips():
     pass
 
 
+@zest.skip("s")
+def zest_it_can_skip_with_a_chracter_mark():
+    pass
+
+
 def zest_mocks():
     def scope_mocks():
-        #TODO!
-        @zest.skip("!", "broken")
-        def it_raises_on_incorrect_local_import():
-            # Mocked symbols should not be directly imported into the
-            # zest file but rather the module under test should be imported
-            with zest.raises(AssertionError, in_args="module-level symbol"):
-                with zest.mock(foo) as m_foo:
-                    foo()
+        with zest.mock(pretend_unit_under_test.foo) as m_foo:
+            pretend_unit_under_test.foo()
+            # Had the real foo been called it would have
+            # raised NotImplementedError
 
-        def it_mocks_an_external_symbol():
-            with zest.mock(pretend_unit_under_test.foo) as m_foo:
-                pretend_unit_under_test.foo()
-                # Had the real foo been called it would have
-                # raised NotImplementedError
-
-            assert m_foo.called_once()
-
-        zest()
+        assert m_foo.called_once()
 
     def stack_mocks():
-        # stack_mocks, unlike scope mocks, are reset before each test
+        # stack_mocks, unlike scope mocks, can reset before each test
 
-        @zest.skip("!", "broken")
-        def it_raises_on_incorrect_local_import():
-            with zest.raises(AssertionError, in_args="module-level symbol"):
-                with zest.mock(foo) as m_foo:
-                    foo()
-
-        @zest.skip("!", "broken")
         def it_mocks_an_external_symbol_with_resets():
-            m_foo = zest.stack_mock(pretend_unit_under_test.foo)
+            m_foo = zest.stack_mock(pretend_unit_under_test.foo, reset_before_each=True)
 
             def test_0():
                 pretend_unit_under_test.foo()
@@ -275,7 +266,7 @@ def zest_mocks():
     zest()
 
 
-@zest.skip("bad_zests")
+@zest.skip(reason="bad_zests")
 def zest_bad_zests():
     # These are special cases that are bad which are excluded
     # except in the zest_runner case below that tests that the
