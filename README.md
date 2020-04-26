@@ -320,5 +320,7 @@ $ ./deploy.sh
 You will need the user and password and credentials for Pypi.org
 
 
-# TO DO
+# TODO
 * Add --rng_seed option
+* Fix the hidden printing issue introduce by handling skip in AST
+* Fix the three broken tests in examples

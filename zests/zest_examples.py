@@ -149,8 +149,14 @@ def zest_groups():
     zest()
 
 
+@zest.skip(reason="it can handle keyword skips")
+def zest_it_can_handle_keyword_skips():
+    pass
+
+
 def zest_mocks():
     def scope_mocks():
+        #TODO!
         @zest.skip("!", "broken")
         def it_raises_on_incorrect_local_import():
             # Mocked symbols should not be directly imported into the

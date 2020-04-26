@@ -217,8 +217,10 @@ class ZestRunner:
                                     if isinstance(dec.args[0], ast.Str):
                                         groups += [dec.args[0].s]
                                 elif dec.func.attr == "skip":
-                                    if isinstance(dec.args[0], ast.Str):
+                                    if len(dec.args) > 0 and isinstance(dec.args[0], ast.Str):
                                         skips += [dec.args[0].s]
+                                    elif len(dec.keywords) > 0 and isinstance(dec.keywords[0].value, ast.Str):
+                                        skips += [dec.keywords[0].value.s]
 
                 if len(skips) > 0:
                     if self.bypass_skip is None or skips[0] != self.bypass_skip:
