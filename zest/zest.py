@@ -386,116 +386,134 @@ class zest:
         Eg: ["zest_test1.it_does_y"] means that it_does_y1 will run too.
 
         """
+        prev_test_start_callback = None
+        prev_test_stop_callback = None
         if test_start_callback is not None:
+            prev_test_start_callback = zest._test_start_callback
             zest._test_start_callback = test_start_callback
         if test_stop_callback is not None:
+            prev_test_stop_callback = zest._test_stop_callback
             zest._test_stop_callback = test_stop_callback
 
-        callers_special_local_funcs = {}
+        try:
 
-        if len(funcs) > 0:
-            funcs_to_call = [
-                (func.__name__, func)
-                for func in funcs
-                if isinstance(func, types.FunctionType)
-                and not func.__name__.startswith("_")
-            ]
-        else:
-            # Extract test functions from caller's scope
-            frame = inspect.currentframe()
-            try:
-                zest_module_name = inspect.getmodule(frame).__name__
-                while inspect.getmodule(frame).__name__ == zest_module_name:
-                    frame = frame.f_back
+            callers_special_local_funcs = {}
 
-                context = frame.f_locals
-
-                callers_special_local_funcs = {
-                    name: func
-                    for name, func in context.items()
-                    if isinstance(func, types.FunctionType)
-                    and name.startswith("_")
-                    and not isinstance(func, MockFunction)
-                }
-
+            if len(funcs) > 0:
                 funcs_to_call = [
-                    (name, func)
-                    for name, func in context.items()
+                    (func.__name__, func)
+                    for func in funcs
                     if isinstance(func, types.FunctionType)
-                    and not name.startswith("_")
-                    and not isinstance(func, MockFunction)
+                    and not func.__name__.startswith("_")
                 ]
-            finally:
-                del frame
-
-        # Randomly shuffle test order to reveal accidental order dependencies.
-        # TASK: make this a flag that is called during staging (w/ multi-run)
-        funcs_to_call = sorted(funcs_to_call, key=lambda x: x[0])
-        if len(funcs_to_call) > 1:
-            if not zest._disable_shuffle:
-                shuffle(funcs_to_call)
-
-        _begin = callers_special_local_funcs.get("_begin")
-        if _begin is not None:
-            raise ValueError("A _begin function was declared. Maybe you meant _before?")
-
-        for name, func in funcs_to_call:
-            if len(zest._mock_stack) > 0:
-                for mock_tuple in zest._mock_stack[-1]:
-                    if mock_tuple[4]:  # if reset_before_each is set
-                        mock_tuple[3].reset()  # Tell the mock to reset
-
-            _before = callers_special_local_funcs.get("_before")
-            if _before:
+            else:
+                # Extract test functions from caller's scope
+                frame = inspect.currentframe()
                 try:
-                    _before()
+                    zest_module_name = inspect.getmodule(frame).__name__
+                    while inspect.getmodule(frame).__name__ == zest_module_name:
+                        frame = frame.f_back
+
+                    context = frame.f_locals
+
+                    callers_special_local_funcs = {
+                        name: func
+                        for name, func in context.items()
+                        if isinstance(func, types.FunctionType)
+                        and name.startswith("_")
+                        and not isinstance(func, MockFunction)
+                    }
+
+                    funcs_to_call = [
+                        (name, func)
+                        for name, func in context.items()
+                        if isinstance(func, types.FunctionType)
+                        and not name.startswith("_")
+                        and not isinstance(func, MockFunction)
+                    ]
+                finally:
+                    del frame
+
+            # Randomly shuffle test order to reveal accidental order dependencies.
+            # TASK: make this a flag that is called during staging (w/ multi-run)
+            funcs_to_call = sorted(funcs_to_call, key=lambda x: x[0])
+            if len(funcs_to_call) > 1:
+                if not zest._disable_shuffle:
+                    shuffle(funcs_to_call)
+
+            _begin = callers_special_local_funcs.get("_begin")
+            if _begin is not None:
+                raise ValueError(
+                    "A _begin function was declared. Maybe you meant _before?"
+                )
+
+            for name, func in funcs_to_call:
+                if len(zest._mock_stack) > 0:
+                    for mock_tuple in zest._mock_stack[-1]:
+                        if mock_tuple[4]:  # if reset_before_each is set
+                            mock_tuple[3].reset()  # Tell the mock to reset
+
+                _before = callers_special_local_funcs.get("_before")
+                if _before:
+                    try:
+                        _before()
+                    except Exception as e:
+                        zest._call_errors += [(e, zest._call_stack.copy())]
+                        s = (
+                            f"There was an exception while running '_before()' in test '{name}'. "
+                            f"This may mean that the sub-tests are not enumerated and therefore can not be run."
+                        )
+                        zest._call_warnings += [s]
+
+                zest._call_stack += [name]
+
+                full_name = ".".join(zest._call_stack)
+                if (
+                    zest._allow_to_run is not None
+                    and full_name not in zest._allow_to_run
+                ):
+                    zest._call_stack.pop()
+                    continue
+
+                zest._call_tree += [full_name]
+                zest._call_log += [name]
+
+                if zest._test_start_callback:
+                    zest._test_start_callback(
+                        name, call_stack=zest._call_stack, func=func
+                    )
+
+                error = None
+                start_time = time.time()
+                try:
+                    if not hasattr(func, "skip"):
+                        zest._mock_stack += [[]]
+                        func()
+                        zest._clear_stack_mocks()
+                        zest._mock_stack.pop()
                 except Exception as e:
+                    error = e
                     zest._call_errors += [(e, zest._call_stack.copy())]
-                    s = (
-                        f"There was an exception while running '_before()' in test '{name}'. "
-                        f"This may mean that the sub-tests are not enumerated and therefore can not be run."
-                    )
-                    zest._call_warnings += [s]
+                finally:
+                    stop_time = time.time()
+                    if zest._test_stop_callback:
+                        zest._test_stop_callback(
+                            name,
+                            call_stack=zest._call_stack,
+                            error=error,
+                            elapsed=stop_time - start_time,
+                            func=func,
+                        )
+                    zest._call_stack.pop()
 
-            zest._call_stack += [name]
-
-            full_name = ".".join(zest._call_stack)
-            if zest._allow_to_run is not None and full_name not in zest._allow_to_run:
-                zest._call_stack.pop()
-                continue
-
-            zest._call_tree += [full_name]
-            zest._call_log += [name]
-
-            if zest._test_start_callback:
-                zest._test_start_callback(name, call_stack=zest._call_stack, func=func)
-
-            error = None
-            start_time = time.time()
-            try:
-                if not hasattr(func, "skip"):
-                    zest._mock_stack += [[]]
-                    func()
-                    zest._clear_stack_mocks()
-                    zest._mock_stack.pop()
-            except Exception as e:
-                error = e
-                zest._call_errors += [(e, zest._call_stack.copy())]
-            finally:
-                stop_time = time.time()
-                if zest._test_stop_callback:
-                    zest._test_stop_callback(
-                        name,
-                        call_stack=zest._call_stack,
-                        error=error,
-                        elapsed=stop_time - start_time,
-                        func=func,
-                    )
-                zest._call_stack.pop()
-
-            _after = callers_special_local_funcs.get("_after")
-            if _after:
-                _after()
+                _after = callers_special_local_funcs.get("_after")
+                if _after:
+                    _after()
+        finally:
+            if prev_test_start_callback is not None:
+                zest._test_start_callback = prev_test_start_callback
+            if prev_test_stop_callback is not None:
+                zest._test_stop_callback = prev_test_stop_callback
 
     def __init__(self, *args, **kwargs):
         self.do(*args, **kwargs)

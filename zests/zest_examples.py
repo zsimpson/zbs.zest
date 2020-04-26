@@ -3,6 +3,7 @@ This is a (self-referential) test that tests zest itself.
 It also serves as an example of how to build a zest.
 """
 
+import re
 from zest import zest, TrappedException
 from zest_runner import ZestRunner
 from . import pretend_unit_under_test
@@ -92,6 +93,15 @@ def zest_basics():
 
         assert start_was_called == 2 and stop_was_called == 2
 
+    def it_recurses():
+        def level_one():
+            def level_two():
+                pass
+
+            zest()
+
+        zest()
+
     zest()
 
 
@@ -131,15 +141,11 @@ def zest_raises():
     zest()
 
 
+@zest.group("a_named_group")
 def zest_groups():
-    # TODO: Needs to be tested in a zest_runner test
-    # def it_marks_groups():
-    #     raise NotImplementedError
-
-    @zest.skip("s", "not done")
-    def it_skips():
-        # If this actually ran an exception would get raised
-        raise NotImplementedError
+    # If this actually ran an exception would get raised
+    print("a_named_group got run")
+    raise NotImplementedError
 
     zest()
 
@@ -256,12 +262,23 @@ def zest_mocks():
     zest()
 
 
-def call_zest(*args):
+@zest.skip("bad_zests")
+def zest_bad_zests():
+    # These are special cases that are bad which are excluded
+    # except in the zest_runner case below that tests that the
+    # errors are correctly detected
+    def it_foobars():
+        pass
+
+    # NOTE, this does not call zest() as it should!
+
+
+def _call_zest(*args):
     # Run zest_runner in a sub-processes so that we don't end up with
     # recursion problems since these tests themselves is running under ZestRunner
     try:
         output = subprocess.check_output(
-            "python ./zest/zest_runner.py " + " ".join([f'"{a}"' for a in args]),
+            "python ./zest/zest_runner.py " + " ".join(args),
             shell=True,
             stderr=subprocess.STDOUT,
         )
@@ -273,32 +290,62 @@ def call_zest(*args):
 
 
 def zest_runner():
+    def _get_run_tests(output):
+        found_tests = []
+        for line in output.split("\n"):
+            m = re.search(r"^\s*([a-z_]+)", line)
+            if m:
+                found_tests += [m.group(1)]
+        return found_tests
+
     def it_returns_version():
-        ret_code, output = call_zest("--version")
+        ret_code, output = _call_zest("--version")
         assert ret_code == 0 and output.strip() == __version__
 
-    def it_shuffles_by_default():
-        ret_code, output = call_zest("--verbose=2", "--disable_shuffle", "zest_basics")
-        print("GOT", ret_code, output)
+    def shuffling():
+        def _all_identical_ordering(disable_shuffle):
+            first_found_tests = []
+            for tries in range(5):
+                ret_code, output = _call_zest(
+                    "--verbose=2",
+                    "--disable_shuffle" if disable_shuffle else "",
+                    "zest_basics",
+                )
+                assert ret_code == 0
 
-        # runner = ZestRunner(
-        #     verbose=1,
-        #     include_dirs="./zests",
-        #     match_string=None,
-        #     recurse=0,
-        #     groups=None,
-        #     disable_shuffle=False,
-        # )
+                found_tests = _get_run_tests(output)
+                if len(first_found_tests) == 0:
+                    first_found_tests = list(found_tests)
+                else:
+                    if found_tests != first_found_tests:
+                        return False
+            else:
+                return True
+
+        def it_shuffles_by_default():
+            assert not _all_identical_ordering(False)
+
+        def it_can_disable_shuffle():
+            assert _all_identical_ordering(True)
+
+        zest()
+
+    def it_runs_parent_tests():
+        ret_code, output = _call_zest("--verbose=2", "level_two")
+        found_tests = _get_run_tests(output)
+        assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
+
+    def it_warns_if_no_trailing_zest():
+        ret_code, output = _call_zest(
+            "--verbose=2", "--bypass_skip=bad_zests", "zest_bad_zests"
+        )
+        assert "did not terminate with a call to zest" in output
+        assert ret_code != 0
+
+    def it_runs_groups():
+        ret_code, output = _call_zest("--verbose=2", "--groups=a_named_group")
+        assert ret_code != 0
+        ran = _get_run_tests(output)
+        assert ran == ["zest_groups"]
 
     zest()
-
-
-#     def it_can_disable_shuffle():
-#         raise NotImplementedError
-#
-#     def it_can_limit_tests():
-#         raise NotImplementedError
-#
-#     def it_warns_if_no_trailing_zest():
-#         raise NotImplementedError
-#

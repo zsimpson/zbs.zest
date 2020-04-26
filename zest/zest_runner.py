@@ -182,6 +182,7 @@ class ZestRunner:
         display_stop() or display_abbreviated()
         """
         self.timings += [(name, elapsed)]
+        self.timings += [(name, elapsed)]
         if self.verbose >= 2:
             curr_depth = len(call_stack) - 1
             self.display_stop(
@@ -191,8 +192,7 @@ class ZestRunner:
         elif self.verbose == 1:
             self.display_abbreviated(name, error, func)
 
-    @staticmethod
-    def _recurse_ast(func_body, parent_name):
+    def _recurse_ast(self, func_body, parent_name):
         n_test_funcs = 0
         found_zest_call = False
         found_zest_call_before_final_func_def = False
@@ -208,6 +208,7 @@ class ZestRunner:
                         full_name = f"{parent_name}.{part.name}"
 
                 groups = []
+                skips = []
                 if part.decorator_list:
                     for dec in part.decorator_list:
                         if isinstance(dec, ast.Call):
@@ -215,11 +216,18 @@ class ZestRunner:
                                 if dec.func.attr == "group":
                                     if isinstance(dec.args[0], ast.Str):
                                         groups += [dec.args[0].s]
+                                elif dec.func.attr == "skip":
+                                    if isinstance(dec.args[0], ast.Str):
+                                        skips += [dec.args[0].s]
+
+                if len(skips) > 0:
+                    if self.bypass_skip is None or skips[0] != self.bypass_skip:
+                        continue
 
                 if full_name is not None:
                     child_list += [(full_name, groups)]
                     n_test_funcs += 1
-                    child_list += ZestRunner._recurse_ast(part.body, full_name)
+                    child_list += self._recurse_ast(part.body, full_name)
 
                 if found_zest_call:
                     found_zest_call_before_final_func_def = True
@@ -253,6 +261,7 @@ class ZestRunner:
         recurse=0,
         groups=None,
         disable_shuffle=False,
+        bypass_skip=None,
         **kwargs,
     ):
         """
@@ -267,6 +276,7 @@ class ZestRunner:
         """
         zest._disable_shuffle = disable_shuffle
 
+        self.bypass_skip = bypass_skip
         self.verbose = verbose
         self.callback_depth = 0
         self.include_dirs = (include_dirs or "").split(":")
@@ -287,7 +297,7 @@ class ZestRunner:
                 with open(path) as f:
                     source = f.read()
                     module_ast = ast.parse(source)
-                    zests = ZestRunner._recurse_ast(module_ast.body, None)
+                    zests = self._recurse_ast(module_ast.body, None)
 
                     for full_name, member_groups in zests:
                         # If the requested substring is anywhere in the full_name
@@ -300,6 +310,7 @@ class ZestRunner:
                         #    "zest_test1.it_does_y"
                         #    "zest_test1.it_does_y.it_does_y1"
                         #  ]
+
                         if match_string is None or match_string in full_name:
                             parts = full_name.split(".")
                             for i in range(len(parts)):
@@ -381,7 +392,7 @@ def main():
         "--groups",
         type=str,
         nargs="?",
-        help="Run these colon-delimited groups. Empty list runs un-grouped only.",
+        help="Run these colon-delimited groups. If not specified, only zests with no group will run",
     )
     parser.add_argument(
         "--disable_shuffle",
@@ -390,6 +401,9 @@ def main():
     )
     parser.add_argument(
         "--version", action="store_true", help="Show version and exit",
+    )
+    parser.add_argument(
+        "--bypass_skip", nargs="?", help="Run even if skipped given skip tag",
     )
     parser.add_argument(
         "match_string", type=str, nargs="?", help="Optional substring to match"
