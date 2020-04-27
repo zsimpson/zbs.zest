@@ -80,8 +80,10 @@ class ZestRunner:
         if curr_depth < last_depth:
             s(f"\n{'  ' * curr_depth}")
 
-        if hasattr(func, "skip"):
-            s(bold, yellow, "SKIPPED ", getattr(func, "skip_reason") or "")
+        if isinstance(error, str) and error.startswith("skipped"):
+            s(bold, yellow, error)
+        elif hasattr(func, "skip"):
+            s(bold, yellow, "SKIPPED ", getattr(func, "skip_reason", "") or "")
         elif error:
             s(bold, red, "ERROR")
         else:
@@ -236,12 +238,8 @@ class ZestRunner:
                                     ):
                                         _skips += [dec.keywords[0].value.s]
 
-                # if len(skips) > 0:
-                #     if self.bypass_skip is None or skips[0] != self.bypass_skip:
-                #         continue
-
                 if full_name is not None:
-                    child_list += [(full_name, _groups, _skips)]
+                    child_list += [(full_name, set(_groups), _skips)]
                     n_test_funcs += 1
                     child_list += self._recurse_ast(part.body, full_name, _skips)
 
@@ -280,10 +278,10 @@ class ZestRunner:
         include_dirs=None,
         match_string=None,
         recurse=0,
-        groups=None,
+        run_groups=None,
+        skip_groups=None,
         disable_shuffle=False,
         bypass_skip=None,
-        # **kwargs,
     ):
         """
         verbose=0 if you want no output
@@ -303,8 +301,14 @@ class ZestRunner:
         self.include_dirs = (include_dirs or "").split(":")
         self.timings = []
 
-        if groups is not None:
-            groups = groups.split(":")
+        # Execute root zests in group order
+        if run_groups is None:
+            run_groups = "*"
+        run_groups = run_groups.split(":")
+
+        if skip_groups is None:
+            skip_groups = ""
+        skip_groups = set(skip_groups.split(":"))
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
@@ -317,55 +321,60 @@ class ZestRunner:
                 path = os.path.join(curr, module_name + ".py")
                 with open(path) as f:
                     source = f.read()
-                    module_ast = ast.parse(source)
-                    zests = self._recurse_ast(module_ast.body, None, None)
 
-                    for full_name, member_groups, skips in zests:
-                        # If the requested substring is anywhere in the full_name
-                        # then we add all the parents
-                        # eg:
-                        #  full_name = "zest_test1.it_does_y.it_does_y1"
-                        #  match_string = "it_does_y1"
-                        #  Then allow_to_run == [
-                        #    "zest_test1"
-                        #    "zest_test1.it_does_y"
-                        #    "zest_test1.it_does_y.it_does_y1"
-                        #  ]
+                module_ast = ast.parse(source)
+                zests = self._recurse_ast(module_ast.body, None, None)
 
-                        if match_string is None or match_string in full_name:
-                            parts = full_name.split(".")
-                            for i in range(len(parts)):
-                                allow_to_run += [".".join(parts[0 : i + 1])]
+                for full_name, member_groups, skips in zests:
+                    # If the requested substring is anywhere in the full_name
+                    # then we add all the parents
+                    # eg:
+                    #  full_name = "zest_test1.it_does_y.it_does_y1"
+                    #  match_string = "it_does_y1"
+                    #  Then allow_to_run == [
+                    #    "zest_test1"
+                    #    "zest_test1.it_does_y"
+                    #    "zest_test1.it_does_y.it_does_y1"
+                    #  ]
 
-                            if len(member_groups) == 0:
-                                # Default to run non-unit tests second
-                                member_groups = ["unit"]
+                    parts = full_name.split(".")
+                    sub_dirs = curr[len(root):].split(os.sep)
+                    package = ".".join(sub_dirs).lstrip("./")
+                    if len(member_groups) == 0:
+                        # Default to run non-unit tests second
+                        member_groups = set(["unit"])
 
-                            sub_dirs = curr[len(root) :].split(os.sep)
-                            package = ".".join(sub_dirs).lstrip("./")
-                            root_zest_funcs[parts[0]] = (
-                                module_name,
-                                package,
-                                member_groups,
-                            )
+                    if match_string is None or match_string in full_name:
+                        for i in range(len(parts)):
+                            allow_to_run += [".".join(parts[0 : i + 1])]
 
-        zest._allow_to_run = allow_to_run
+                    if len(parts) == 1:
+                        root_zest_funcs[parts[0]] = (
+                            module_name,
+                            package,
+                            member_groups,
+                        )
 
-        # Execute root zests in group order
-        if groups is None:
-            groups = ["unit", "not_unit"]
+        zest._allow_to_run = list(set(allow_to_run))
 
         has_run = {}
-        for group in groups:
-            if group != "*":
+        for run_group in run_groups:
+            if run_group != "*":
                 if self.verbose > 1:
-                    s(cyan, "\nStarting group ", bold, group)
+                    s(cyan, "\nStarting group ", bold, run_group)
 
             for (
                 root_name,
                 (module_name, package, member_groups),
             ) in root_zest_funcs.items():
-                if group in member_groups and not has_run.get(root_name):
+                is_test_in_a_skpped_group = len(member_groups & skip_groups) > 0
+
+                if is_test_in_a_skpped_group:
+                    self._test_start_callback(root_name, [], None)
+                    self._test_stop_callback(root_name, [], "skipped because it is in a skipped group", 0.0, None)
+                    continue
+
+                if (run_group in member_groups or run_group == "*") and not has_run.get(root_name):
                     imported = import_module("." + module_name, package=package)
                     func = getattr(imported, root_name)
 
@@ -410,10 +419,16 @@ def main():
         help="Colon-delimited list of directories to search",
     )
     parser.add_argument(
-        "--groups",
+        "--run_groups",
         type=str,
         nargs="?",
         help="Run these colon-delimited groups. If not specified, only zests with no group will run",
+    )
+    parser.add_argument(
+        "--skip_groups",
+        type=str,
+        nargs="?",
+        help="Skip these colon-delimited groups.",
     )
     parser.add_argument(
         "--disable_shuffle",

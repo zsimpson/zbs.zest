@@ -146,12 +146,8 @@ def zest_raises():
 
 
 @zest.group("a_named_group")
-def zest_groups():
-    # If this actually ran an exception would get raised
-    print("a_named_group got run")
-    raise NotImplementedError
-
-    zest()
+def zest_a_named_group():
+    pass
 
 
 @zest.skip(reason="it can handle keyword skips")
@@ -281,8 +277,10 @@ def _call_zest(*args):
     # Run zest_runner in a sub-processes so that we don't end up with
     # recursion problems since these tests themselves is running under ZestRunner
     try:
+        to_run = "python -m zest.zest_runner " + " ".join(args)
+        # print(f"TO RUN: {to_run}")
         output = subprocess.check_output(
-            "python -m zest.zest_runner " + " ".join(args),
+            to_run,
             shell=True,
             stderr=subprocess.STDOUT,
         )
@@ -293,13 +291,16 @@ def _call_zest(*args):
     return ret_code, output.decode("utf-8")
 
 
+@zest.group("zest_runner")
 def zest_runner():
     def _get_run_tests(output):
         found_tests = []
         for line in output.split("\n"):
-            m = re.search(r"^\s*([a-z_]+)", line)
+            m = re.search(r"^\s*([a-z0-9_]+)", line)
             if m:
-                found_tests += [m.group(1)]
+                skipped = re.search(r"skipped", line, re.IGNORECASE)
+                if not skipped:
+                    found_tests += [m.group(1)]
         return found_tests
 
     def it_returns_version():
@@ -348,10 +349,31 @@ def zest_runner():
         assert "did not terminate with a call to zest" in output
         assert ret_code != 0
 
-    def it_runs_groups():
-        ret_code, output = _call_zest("--verbose=2", "--groups=a_named_group")
-        assert ret_code != 0
-        ran = _get_run_tests(output)
-        assert ran == ["zest_groups"]
+    def runs_groups():
+        n_expected_tests = 34
+        # I don't like this hard coded run count but I don't know a better way at moment
+
+        def it_runs_all_tests_by_default():
+            # To prevent recursion, add skip the zest_runner group
+            ret_code, output = _call_zest("--skip_groups=zest_runner", "--verbose=2")
+            assert ret_code == 0
+            ran = _get_run_tests(output)
+            assert "zest_a_named_group" in ran
+            assert len(ran) == n_expected_tests + 1  # +1 because zest_a_named_group
+
+        def it_can_limit_to_one_group():
+            ret_code, output = _call_zest("--verbose=2", "--run_groups=a_named_group", "--skip_groups=zest_runner")
+            assert ret_code == 0
+            ran = _get_run_tests(output)
+            assert ran == ["zest_a_named_group"]
+
+        def it_runs_unmarked_tests_under_name_unit():
+            ret_code, output = _call_zest("--verbose=2", "--run_groups=unit", "--skip_groups=zest_runner")
+            assert ret_code == 0
+            ran = _get_run_tests(output)
+            assert len(ran) == n_expected_tests
+            assert "zest_a_named_group" not in ran
+
+        zest()
 
     zest()
