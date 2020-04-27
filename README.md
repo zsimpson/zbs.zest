@@ -1,4 +1,5 @@
 # Zest
+.
 
 A function-oriented testing framework for Python 3.
 
