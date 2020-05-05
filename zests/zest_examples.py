@@ -170,10 +170,10 @@ def zest_mocks():
         assert m_foo.called_once()
 
     def stack_mocks():
-        # stack_mocks, unlike scope mocks, can reset before each test
+        # stack_mocks, unlike scope mocks, will reset before each test
 
         def it_mocks_an_external_symbol_with_resets():
-            m_foo = zest.stack_mock(pretend_unit_under_test.foo, reset_before_each=True)
+            m_foo = zest.stack_mock(pretend_unit_under_test.foo)
 
             def test_0():
                 pretend_unit_under_test.foo()
