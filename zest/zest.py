@@ -274,7 +274,7 @@ class zest:
     @staticmethod
     def stack_mock(
         symbol,
-        reset_before_each=False,
+        reset_before_each=True,
         returns=None,
         returns_serially=None,
         substitute_fn=None,
