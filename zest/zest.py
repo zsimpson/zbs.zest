@@ -204,6 +204,7 @@ class zest:
         zest._test_stop_callback = None
         zest._mock_stack = []
         zest._allow_to_run = None
+        zest._disable_shuffle = False
 
     @staticmethod
     def skip(code="s", reason=None):

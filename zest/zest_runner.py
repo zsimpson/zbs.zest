@@ -293,6 +293,7 @@ class ZestRunner:
             colon-delimited list to run certain kinds
             "unit" is assumed on all un-grouped tests.
         """
+        zest.reset()
         zest._disable_shuffle = disable_shuffle
 
         self.bypass_skip = bypass_skip
