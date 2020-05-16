@@ -277,7 +277,7 @@ def _call_zest(*args):
     # Run zest_runner in a sub-processes so that we don't end up with
     # recursion problems since these tests themselves is running under ZestRunner
     try:
-        to_run = "python -m zest.zest_runner " + " ".join(args)
+        to_run = "python -m zest.zest_runner " + " --add_markers " + " ".join(args)
         # print(f"TO RUN: {to_run}")
         output = subprocess.check_output(
             to_run,
@@ -296,7 +296,7 @@ def zest_runner():
     def _get_run_tests(output):
         found_tests = []
         for line in output.split("\n"):
-            m = re.search(r"^\s*([a-z0-9_]+)", line)
+            m = re.search(r"^[^\+]*[\+]([a-z0-9_]+)", line)
             if m:
                 skipped = re.search(r"skipped", line, re.IGNORECASE)
                 if not skipped:

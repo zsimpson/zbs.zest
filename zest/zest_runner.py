@@ -72,22 +72,27 @@ class ZestRunner:
 
     def display_start(self, name, curr_depth, func):
         """Overload this to change output behavior"""
-        s(yellow, f"\n{'  ' * curr_depth}{name}")
-        s(": ")
+        if self.last_stack_depth < curr_depth:
+            s("\n")
+        self.last_stack_depth = curr_depth
+        marker = "+" if self.add_markers else ""
+        s("  " * curr_depth, yellow, marker + name, reset, ": ")
+        # Note, no \n on this line because it will be added on the display_stop call
 
     def display_stop(self, name, error, curr_depth, last_depth, elapsed, func):
         """Overload this to change output behavior"""
         if curr_depth < last_depth:
-            s(f"\n{'  ' * curr_depth}")
+            s(f"{'  ' * curr_depth}")
 
         if isinstance(error, str) and error.startswith("skipped"):
             s(bold, yellow, error)
         elif hasattr(func, "skip"):
             s(bold, yellow, "SKIPPED ", getattr(func, "skip_reason", "") or "")
         elif error:
-            s(bold, red, "ERROR")
+            s(bold, red, "ERROR", gray, f" (in {int(1000.0 * elapsed)} ms)")
         else:
             s(green, "SUCCESS", gray, f" (in {int(1000.0 * elapsed)} ms)")
+        s("\n")
 
     def display_abbreviated(self, name, error, func):
         """Overload this to change output behavior"""
@@ -259,15 +264,16 @@ class ZestRunner:
             and (not skips or (skips and self.bypass_skip is not None and self.bypass_skip in skips))
         ):
             ZestRunner.n_zest_missing_errors += 1
+            common_wording = "If you are using local functions that are not tests, prefix them with underscore."
             if found_zest_call_before_final_func_def:
                 s(
                     red,
-                    f"ERROR: Zest function {parent_name} did not call zest() before all functions were defined\n",
+                    f"ERROR: Zest function {parent_name} did not call zest() before all functions were defined. {common_wording}",
                 )
             else:
                 s(
                     red,
-                    f"ERROR: Zest function {parent_name} did not terminate with a call to zest()\n",
+                    f"ERROR: Zest function {parent_name} did not terminate with a call to zest(). {common_wording}",
                 )
 
         return child_list
@@ -282,6 +288,7 @@ class ZestRunner:
         skip_groups=None,
         disable_shuffle=False,
         bypass_skip=None,
+        add_markers=False,
     ):
         """
         verbose=0 if you want no output
@@ -301,6 +308,8 @@ class ZestRunner:
         self.callback_depth = 0
         self.include_dirs = (include_dirs or "").split(":")
         self.timings = []
+        self.last_stack_depth = 0
+        self.add_markers = add_markers
 
         # Execute root zests in group order
         if run_groups is None:
@@ -343,7 +352,7 @@ class ZestRunner:
                     package = ".".join(sub_dirs).lstrip("./")
                     if len(member_groups) == 0:
                         # Default to run non-unit tests second
-                        member_groups = set(["unit"])
+                        member_groups = {"unit"}
 
                     if match_string is None or match_string in full_name:
                         for i in range(len(parts)):
@@ -362,7 +371,7 @@ class ZestRunner:
         for run_group in run_groups:
             if run_group != "*":
                 if self.verbose > 1:
-                    s(cyan, "\nStarting group ", bold, run_group)
+                    s(cyan, "Starting group ", bold, run_group, "\n")
 
             for (
                 root_name,
@@ -370,12 +379,22 @@ class ZestRunner:
             ) in root_zest_funcs.items():
                 is_test_in_a_skpped_group = len(member_groups & skip_groups) > 0
 
+                if self.verbose > 2:
+                    marker = "?" if self.add_markers else ""
+                    s(cyan, marker + root_name, gray, f" module_name={module_name}, package={package}, member_groups={member_groups}: ")
+
                 if is_test_in_a_skpped_group:
+                    if self.verbose > 2:
+                        s(cyan, f"Skipping\n")
+
                     self._test_start_callback(root_name, [], None)
                     self._test_stop_callback(root_name, [], "skipped because it is in a skipped group", 0.0, None)
                     continue
 
                 if (run_group in member_groups or run_group == "*") and not has_run.get(root_name):
+                    if self.verbose > 2:
+                        s(cyan, f"Running\n")
+
                     imported = import_module("." + module_name, package=package)
                     func = getattr(imported, root_name)
 
@@ -386,6 +405,9 @@ class ZestRunner:
                         test_start_callback=self._test_start_callback,
                         test_stop_callback=self._test_stop_callback,
                     )
+                else:
+                    if self.verbose > 2:
+                        s(cyan, f"Not running\n")
 
         if recurse == 0:
             self.display_errors(zest._call_log, zest._call_errors)
@@ -411,7 +433,7 @@ class ZestRunner:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--verbose", default=1, type=int, help="0=silent, 1=dot-mode, 2=full-trace",
+        "--verbose", default=1, type=int, help="0=silent, 1=dot-mode, 2=run-trace 3=full-trace",
     )
     parser.add_argument(
         "--include_dirs",
@@ -435,6 +457,9 @@ def main():
         "--disable_shuffle",
         action="store_true",
         help="Disable the shuffling of test order",
+    )
+    parser.add_argument(
+        "--add_markers", action="store_true", help="Used for internal debugging"
     )
     parser.add_argument(
         "--version", action="store_true", help="Show version and exit",
