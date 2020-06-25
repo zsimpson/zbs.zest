@@ -164,9 +164,11 @@ class MockFunction:
 
 class zest:
     """
-    This is a helper to make calling a little bit cleaner
+    This is a helper to make calling a little bit cleaner.
 
-    from common.zest.zest import zest
+    Example:
+
+    from plaster.tools.zest.zest import zest
 
     def some_test():
         def test_1():
