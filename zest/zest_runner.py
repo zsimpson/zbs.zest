@@ -5,7 +5,7 @@ import pkgutil
 import re
 import sys
 import traceback
-from importlib import import_module
+from importlib import import_module, util
 
 from zest import zest
 
@@ -330,8 +330,6 @@ class ZestRunner:
             os.chdir(root)
             if root is not None:
                 sys.path.insert(0, root)
-                import pudb; pudb.set_trace()
-                # sys.path = ["/erisyon"]
             else:
                 root = os.getcwd()
             assert root[0] == os.sep
@@ -410,21 +408,18 @@ class ZestRunner:
                         if self.verbose > 2:
                             s(cyan, f"Running\n")
 
-                        # WTF?
-                        # import pudb; pudb.set_trace()
-                        # from importlib import util
-                        # spec = util.spec_from_file_location(module_name, full_name)
-                        # mod = util.module_from_spec(spec)
-                        # spec.loader.exec_module(mod)
-                        # func = getattr(mod, root_name)
+                        spec = util.spec_from_file_location(module_name, full_name)
+                        mod = util.module_from_spec(spec)
+                        sys.modules[spec.name] = mod
+                        spec.loader.exec_module(mod)
+                        func = getattr(mod, root_name)
 
-                        try:
-                            imported = import_module("." + module_name, package=package)
-                        except ModuleNotFoundError as e:
-                            import pudb; pudb.set_trace()
-                            print(sys.path)
-                            raise e
-                        func = getattr(imported, root_name)
+                        # try:
+                        #     # imported = import_module("." + module_name, package=package)
+                        # except ModuleNotFoundError as e:
+                        #     print(sys.path)
+                        #     raise e
+                        # func = getattr(imported, root_name)
 
                         has_run[root_name] = True
                         assert len(zest._call_stack) == 0
