@@ -1,11 +1,12 @@
-import re
 import argparse
-import pkgutil
+import ast
 import os
+import pkgutil
+import re
 import sys
 import traceback
-import ast
-from importlib import import_module
+from importlib import import_module, util
+
 from zest import zest
 
 blue = "\u001b[34m"
@@ -280,6 +281,7 @@ class ZestRunner:
 
     def __init__(
         self,
+        root=None,
         verbose=1,
         include_dirs=None,
         match_string=None,
@@ -322,113 +324,135 @@ class ZestRunner:
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
-        root = os.getcwd()
+        start_dir = os.getcwd()
+        try:
+            root = root or os.getcwd()
+            os.chdir(root)
+            if root is not None:
+                sys.path.insert(0, root)
+            else:
+                root = os.getcwd()
+            assert root[0] == os.sep
+            n_root_parts = len(root.split(os.sep))
 
-        allow_to_run = []
-        root_zest_funcs = {}
-        for curr in self.walk():
-            for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
-                path = os.path.join(curr, module_name + ".py")
-                with open(path) as f:
-                    source = f.read()
+            allow_to_run = []
+            root_zest_funcs = {}
+            for curr in self.walk():
+                for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
+                    path = os.path.join(curr, module_name + ".py")
+                    with open(path) as f:
+                        source = f.read()
 
-                module_ast = ast.parse(source)
-                zests = self._recurse_ast(module_ast.body, None, None)
+                    module_ast = ast.parse(source)
+                    zests = self._recurse_ast(module_ast.body, None, None)
 
-                for full_name, member_groups, skips in zests:
-                    # If the requested substring is anywhere in the full_name
-                    # then we add all the parents
-                    # eg:
-                    #  full_name = "zest_test1.it_does_y.it_does_y1"
-                    #  match_string = "it_does_y1"
-                    #  Then allow_to_run == [
-                    #    "zest_test1"
-                    #    "zest_test1.it_does_y"
-                    #    "zest_test1.it_does_y.it_does_y1"
-                    #  ]
+                    for full_name, member_groups, skips in zests:
+                        # If the requested substring is anywhere in the full_name
+                        # then we add all the parents
+                        # eg:
+                        #  full_name = "zest_test1.it_does_y.it_does_y1"
+                        #  match_string = "it_does_y1"
+                        #  Then allow_to_run == [
+                        #    "zest_test1"
+                        #    "zest_test1.it_does_y"
+                        #    "zest_test1.it_does_y.it_does_y1"
+                        #  ]
 
-                    parts = full_name.split(".")
-                    sub_dirs = curr[len(root):].split(os.sep)
-                    package = ".".join(sub_dirs).lstrip("./")
-                    if len(member_groups) == 0:
-                        # Default to run non-unit tests second
-                        member_groups = {"unit"}
+                        parts = full_name.split(".")
+                        sub_dirs = curr.split(os.sep)
+                        sub_dirs = sub_dirs[n_root_parts:]
+                        package = ".".join(sub_dirs)
+                        if len(member_groups) == 0:
+                            # Default to run non-unit tests second
+                            member_groups = {"unit"}
 
-                    if match_string is None or match_string in full_name:
-                        for i in range(len(parts)):
-                            allow_to_run += [".".join(parts[0 : i + 1])]
+                        if match_string is None or match_string in full_name:
+                            for i in range(len(parts)):
+                                allow_to_run += [".".join(parts[0 : i + 1])]
 
-                    if len(parts) == 1:
-                        root_zest_funcs[parts[0]] = (
-                            module_name,
-                            package,
-                            member_groups,
+                        if len(parts) == 1:
+                            root_zest_funcs[parts[0]] = (
+                                module_name,
+                                package,
+                                member_groups,
+                                path,
+                            )
+
+            zest._allow_to_run = list(set(allow_to_run))
+
+            has_run = {}
+            for run_group in run_groups:
+                if run_group != "*":
+                    if self.verbose > 1:
+                        s(cyan, "Starting group ", bold, run_group, "\n")
+
+                for (
+                    root_name,
+                    (module_name, package, member_groups, full_name),
+                ) in root_zest_funcs.items():
+                    is_test_in_a_skpped_group = len(member_groups & skip_groups) > 0
+
+                    if self.verbose > 2:
+                        marker = "?" if self.add_markers else ""
+                        s(cyan, marker + root_name, gray, f" module_name={module_name}, package={package}, member_groups={member_groups}: ")
+
+                    if is_test_in_a_skpped_group:
+                        if self.verbose > 2:
+                            s(cyan, f"Skipping\n")
+
+                        self._test_start_callback(root_name, [], None)
+                        self._test_stop_callback(root_name, [], "skipped because it is in a skipped group", 0.0, None)
+                        continue
+
+                    if (run_group in member_groups or run_group == "*") and not has_run.get(root_name):
+                        if self.verbose > 2:
+                            s(cyan, f"Running\n")
+
+                        spec = util.spec_from_file_location(module_name, full_name)
+                        mod = util.module_from_spec(spec)
+                        sys.modules[spec.name] = mod
+                        spec.loader.exec_module(mod)
+                        func = getattr(mod, root_name)
+
+                        # try:
+                        #     # imported = import_module("." + module_name, package=package)
+                        # except ModuleNotFoundError as e:
+                        #     print(sys.path)
+                        #     raise e
+                        # func = getattr(imported, root_name)
+
+                        has_run[root_name] = True
+                        assert len(zest._call_stack) == 0
+                        zest.do(
+                            func,
+                            test_start_callback=self._test_start_callback,
+                            test_stop_callback=self._test_stop_callback,
                         )
+                    else:
+                        if self.verbose > 2:
+                            s(cyan, f"Not running\n")
 
-        zest._allow_to_run = list(set(allow_to_run))
+            if recurse == 0:
+                self.display_errors(zest._call_log, zest._call_errors)
+                self.display_complete(zest._call_log, zest._call_errors)
+                self.retcode = (
+                    0
+                    if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0
+                    else 1
+                )
 
-        has_run = {}
-        for run_group in run_groups:
-            if run_group != "*":
                 if self.verbose > 1:
-                    s(cyan, "Starting group ", bold, run_group, "\n")
+                    s("Slowest 5%\n")
+                    n_timings = len(self.timings)
+                    self.timings.sort(key=lambda tup: tup[1])
+                    ninty_percentile = 95 * n_timings // 100
+                    for i in range(n_timings - 1, ninty_percentile, -1):
+                        name = self.timings[i]
+                        s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
-            for (
-                root_name,
-                (module_name, package, member_groups),
-            ) in root_zest_funcs.items():
-                is_test_in_a_skpped_group = len(member_groups & skip_groups) > 0
-
-                if self.verbose > 2:
-                    marker = "?" if self.add_markers else ""
-                    s(cyan, marker + root_name, gray, f" module_name={module_name}, package={package}, member_groups={member_groups}: ")
-
-                if is_test_in_a_skpped_group:
-                    if self.verbose > 2:
-                        s(cyan, f"Skipping\n")
-
-                    self._test_start_callback(root_name, [], None)
-                    self._test_stop_callback(root_name, [], "skipped because it is in a skipped group", 0.0, None)
-                    continue
-
-                if (run_group in member_groups or run_group == "*") and not has_run.get(root_name):
-                    if self.verbose > 2:
-                        s(cyan, f"Running\n")
-
-                    imported = import_module("." + module_name, package=package)
-                    func = getattr(imported, root_name)
-
-                    has_run[root_name] = True
-                    assert len(zest._call_stack) == 0
-                    zest.do(
-                        func,
-                        test_start_callback=self._test_start_callback,
-                        test_stop_callback=self._test_stop_callback,
-                    )
-                else:
-                    if self.verbose > 2:
-                        s(cyan, f"Not running\n")
-
-        if recurse == 0:
-            self.display_errors(zest._call_log, zest._call_errors)
-            self.display_complete(zest._call_log, zest._call_errors)
-            self.retcode = (
-                0
-                if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0
-                else 1
-            )
-
-            if self.verbose > 1:
-                s("Slowest 5%\n")
-                n_timings = len(self.timings)
-                self.timings.sort(key=lambda tup: tup[1])
-                ninty_percentile = 95 * n_timings // 100
-                for i in range(n_timings - 1, ninty_percentile, -1):
-                    name = self.timings[i]
-                    s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
-
-            self.display_warnings(zest._call_warnings)
-
+                self.display_warnings(zest._call_warnings)
+        finally:
+            os.chdir(start_dir)
 
 def main():
     parser = argparse.ArgumentParser()
