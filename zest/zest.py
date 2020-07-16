@@ -61,7 +61,7 @@ class MockFunction:
         self.calls += [(args, kwargs)]
 
         if self.hook_to_call is not None:
-            return self.hook_to_call(*args, **kwargs)
+            return self.hook_to_call()
 
         # EXCEPTION from series or repeatedly if requested
         if self.list_of_exceptions_to_raise is not None:
