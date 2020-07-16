@@ -4,14 +4,15 @@ It also serves as an example of how to build a zest.
 """
 
 import re
+import subprocess
+
 from zest import zest, TrappedException
 import pretend_unit_under_test
 from zest.version import __version__
-import subprocess
 
 
 def zest_basics():
-    def it_calls_before_and_after():
+    def it_calls_before_and_after(): # pylint: disable=unused-variable
         test_count = 0
         before_count = 0
         after_count = 0
@@ -24,11 +25,11 @@ def zest_basics():
             nonlocal after_count
             after_count += 1
 
-        def test1():
+        def test1(): # pylint: disable=unused-variable
             nonlocal test_count
             test_count += 1
 
-        def test2():
+        def test2(): # pylint: disable=unused-variable
             nonlocal test_count
             test_count += 1
 
@@ -36,7 +37,7 @@ def zest_basics():
 
         assert test_count == 2 and before_count == 2 and after_count == 2
 
-    def it_raises_on_begin():
+    def it_raises_on_begin(): # pylint: disable=unused-variable
         # _begin is easily confused with "_before" so there's a special check for it
         with zest.raises(ValueError, in_args="_before"):
 
@@ -44,12 +45,12 @@ def zest_basics():
                 # Should have been "_before"
                 pass
 
-            def test1():
+            def test1():# pylint: disable=unused-variable
                 pass
 
             zest()
 
-    def it_ignores_underscored_functions():
+    def it_ignores_underscored_functions(): # pylint: disable=unused-variable
         test_count = 0
         ignored_count = 0
 
@@ -57,7 +58,7 @@ def zest_basics():
             nonlocal ignored_count
             ignored_count += 1
 
-        def real_test():
+        def real_test(): # pylint: disable=unused-variable
             nonlocal test_count
             test_count += 1
 
@@ -65,7 +66,7 @@ def zest_basics():
 
         assert test_count == 1 and ignored_count == 0
 
-    def it_calls_start_and_stop_callbacks():
+    def it_calls_start_and_stop_callbacks(): # pylint: disable=unused-variable
         start_was_called = 0
         stop_was_called = 0
 
@@ -78,10 +79,10 @@ def zest_basics():
             nonlocal stop_was_called
             stop_was_called += 1
 
-        def test1():
+        def test1(): # pylint: disable=unused-variable
             pass
 
-        def test2():
+        def test2(): # pylint: disable=unused-variable
             pass
 
         zest(
@@ -91,40 +92,40 @@ def zest_basics():
 
         assert start_was_called == 2 and stop_was_called == 2
 
-    def it_recurses():
-        def level_one():
-            def level_two():
+    def it_recurses(): # pylint: disable=unused-variable
+        def level_one(): # pylint: disable=unused-variable
+            def level_two(): # pylint: disable=unused-variable
                 pass
 
             zest()
 
         zest()
 
-    def it_raises_on_greater_than_one_char_skip_code():
+    def it_raises_on_greater_than_one_char_skip_code(): # pylint: disable=unused-variable
         with zest.raises(ValueError, in_args="only be one character"):
             @zest.skip("toolong")
-            def it_raises_on_too_long():
+            def it_raises_on_too_long(): # pylint: disable=unused-variable
                 pass
 
     zest()
 
 
 def zest_raises():
-    def it_catches_raises():
+    def it_catches_raises(): # pylint: disable=unused-variable
         with zest.raises(ValueError) as e:
             raise ValueError("test")
         assert isinstance(e, TrappedException) and isinstance(e.exception, ValueError)
 
-    def it_checks_properties_of_exception():
+    def it_checks_properties_of_exception(): # pylint: disable=unused-variable
         class MyException(Exception):
             def __init__(self, foo):
                 self.foo = foo
 
-        def it_passes_if_property_found():
-            with zest.raises(MyException, in_foo="bar") as e:
+        def it_passes_if_property_found(): # pylint: disable=unused-variable
+            with zest.raises(MyException, in_foo="bar"):
                 raise MyException(foo="bar")
 
-        def it_fails_if_property_not_found():
+        def it_fails_if_property_not_found(): # pylint: disable=unused-variable
             # Tricky test -- using "with zest.raises()" to catch the
             # AssertionError that is raised when the inner MyException
             # does not contain the expected property
@@ -138,7 +139,7 @@ def zest_raises():
 
         zest()
 
-    def it_checks_args_of_exception():
+    def it_checks_args_of_exception(): # pylint: disable=unused-variable
         with zest.raises(ValueError, in_args="bar"):
             raise ValueError("not", "bar")
 
@@ -161,7 +162,7 @@ def zest_it_can_skip_with_a_chracter_mark():
 
 
 def zest_mocks():
-    def scope_mocks():
+    def scope_mocks(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             pretend_unit_under_test.foo(1)
             # Had the real foo been called it would have
@@ -169,17 +170,17 @@ def zest_mocks():
 
         assert m_foo.called_once()
 
-    def stack_mocks():
+    def stack_mocks(): # pylint: disable=unused-variable
         # stack_mocks, unlike scope mocks, will reset before each test
 
-        def it_mocks_an_external_symbol_with_resets():
+        def it_mocks_an_external_symbol_with_resets(): # pylint: disable=unused-variable
             m_foo = zest.stack_mock(pretend_unit_under_test.foo)
 
-            def test_0():
+            def test_0(): # pylint: disable=unused-variable
                 pretend_unit_under_test.foo(1)
                 assert m_foo.called_once()
 
-            def test_1():
+            def test_1(): # pylint: disable=unused-variable
                 pretend_unit_under_test.foo(1)
                 assert m_foo.called_once()
 
@@ -187,25 +188,25 @@ def zest_mocks():
 
         zest()
 
-    def it_raises_if_mock_is_not_callable():
+    def it_raises_if_mock_is_not_callable(): # pylint: disable=unused-variable
         with zest.raises(AssertionError, in_args="Unmockable"):
             with zest.mock(pretend_unit_under_test.not_callable):
                 pass
 
-    def it_counts_n_calls():
+    def it_counts_n_calls(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             pretend_unit_under_test.foo(1)
             pretend_unit_under_test.foo(1)
         assert m_foo.n_calls == 2
 
-    def it_resets():
+    def it_resets(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             pretend_unit_under_test.foo(1)
             m_foo.reset()
             pretend_unit_under_test.foo(1)
         assert m_foo.n_calls == 1
 
-    def it_hooks():
+    def it_hooks(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             got_callback = False
 
@@ -217,24 +218,24 @@ def zest_mocks():
             pretend_unit_under_test.foo(1)
             assert got_callback is True
 
-    def it_returns_value():
+    def it_returns_value(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.returns(1)
             assert pretend_unit_under_test.foo(1) == 1
 
-    def it_returns_serial_values():
+    def it_returns_serial_values(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.returns_serially([1, 2])
             assert pretend_unit_under_test.foo(1) == 1
             assert pretend_unit_under_test.foo(1) == 2
 
-    def it_exceptions():
+    def it_exceptions(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.exceptions(ValueError)
             with zest.raises(ValueError):
                 pretend_unit_under_test.foo(1)
 
-    def it_exceptions_serially():
+    def it_exceptions_serially(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.exceptions_serially([ValueError, TypeError])
             with zest.raises(ValueError):
@@ -242,7 +243,7 @@ def zest_mocks():
             with zest.raises(TypeError):
                 pretend_unit_under_test.foo(1)
 
-    def it_normalizes_calls_into_kwargs():
+    def it_normalizes_calls_into_kwargs(): # pylint: disable=unused-variable
         # normalized_call() is a handy when you want to just know
         # what was passed to the mock but you don't care if
         # it was passed as args or kwargs.
@@ -253,7 +254,7 @@ def zest_mocks():
         kwargs = m_foo.normalized_call()
         assert kwargs == dict(arg1="arg1", arg2="arg2")
 
-    def it_checks_against_normalized_call():
+    def it_checks_against_normalized_call(): # pylint: disable=unused-variable
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             pretend_unit_under_test.foo("arg1", arg2="arg2")
 
@@ -267,7 +268,7 @@ def zest_bad_zests():
     # These are special cases that are bad which are excluded
     # except in the zest_runner case below that tests that the
     # errors are correctly detected
-    def it_foobars():
+    def it_foobars(): # pylint: disable=unused-variable
         pass
 
     # NOTE, this does not call zest() as it should!
@@ -303,14 +304,15 @@ def zest_runner():
                     found_tests += [m.group(1)]
         return found_tests
 
-    def it_returns_version():
+    def it_returns_version(): # pylint: disable=unused-variable
         ret_code, output = _call_zest("--version")
+        print(__version__)
         assert ret_code == 0 and output.strip() == __version__
 
-    def shuffling():
+    def shuffling(): # pylint: disable=unused-variable
         def _all_identical_ordering(disable_shuffle):
             first_found_tests = []
-            for tries in range(5):
+            for _ in range(5):
                 ret_code, output = _call_zest(
                     "--verbose=2",
                     "--disable_shuffle" if disable_shuffle else "",
@@ -329,31 +331,31 @@ def zest_runner():
             else:
                 return True
 
-        def it_shuffles_by_default():
+        def it_shuffles_by_default(): # pylint: disable=unused-variable
             assert not _all_identical_ordering(False)
 
-        def it_can_disable_shuffle():
+        def it_can_disable_shuffle(): # pylint: disable=unused-variable
             assert _all_identical_ordering(True)
 
         zest()
 
-    def it_runs_parent_tests():
-        ret_code, output = _call_zest("--verbose=2", "level_two")
+    def it_runs_parent_tests(): # pylint: disable=unused-variable
+        _, output = _call_zest("--verbose=2", "level_two")
         found_tests = _get_run_tests(output)
         assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
 
-    def it_warns_if_no_trailing_zest():
+    def it_warns_if_no_trailing_zest(): # pylint: disable=unused-variable
         ret_code, output = _call_zest(
             "--verbose=2", "--bypass_skip=bad_zests", "zest_bad_zests"
         )
         assert "did not terminate with a call to zest" in output
         assert ret_code != 0
 
-    def runs_groups():
+    def runs_groups(): # pylint: disable=unused-variable
         n_expected_tests = 34
         # I don't like this hard coded run count but I don't know a better way at moment
 
-        def it_runs_all_tests_by_default():
+        def it_runs_all_tests_by_default(): # pylint: disable=unused-variable
             # To prevent recursion, add skip the zest_runner group
             ret_code, output = _call_zest("--skip_groups=zest_runner", "--verbose=2")
             assert ret_code == 0
@@ -361,13 +363,13 @@ def zest_runner():
             assert "zest_a_named_group" in ran
             assert len(ran) == n_expected_tests + 1  # +1 because zest_a_named_group
 
-        def it_can_limit_to_one_group():
+        def it_can_limit_to_one_group(): # pylint: disable=unused-variable
             ret_code, output = _call_zest("--verbose=2", "--run_groups=a_named_group", "--skip_groups=zest_runner")
             assert ret_code == 0
             ran = _get_run_tests(output)
             assert ran == ["zest_a_named_group"]
 
-        def it_runs_unmarked_tests_under_name_unit():
+        def it_runs_unmarked_tests_under_name_unit(): # pylint: disable=unused-variable
             ret_code, output = _call_zest("--verbose=2", "--run_groups=unit", "--skip_groups=zest_runner")
             assert ret_code == 0
             ran = _get_run_tests(output)
