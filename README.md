@@ -290,29 +290,26 @@ assert e.exception.property == "something"
 
 ## Setup
 
+Consider running in a docker:
+
+```bash
+host $ cd path/to/zbs.zest
+docker run -it --rm -v $(pwd):/code python:3 bash
+container $ cd /code && ./dev_setup.sh
+```
+
+## Running zest
+
 When installed as a package, "zest" is created as an entrypoint
-in setup.py.  But in development mode, an alias is created
-in `.pipenvshrc`. Add this following to your ~/.bashrc (yes, even in OSX)
-so that `pipenv shell` will be able to pick it up.
+in setup.py.  But in development mode you run `pipenv run zest`; this
+reads the command from `[scripts]` in `Pipfile`. Ex:
 
 ```bash
-if [[ -f .pipenvshrc ]]; then
-  . .pipenvshrc
-fi
+$ pipenv shell
+$ pipenv run zest
 ```
 
-## Run in development mode
-
-```bash
-pipenv shell
-```
-
-## Test
-
-To run all the example tests (which actually test the tester itself).
-```bash
-$ zest
-```
+This run all the example tests (which actually test the tester itself).
 
 ## Deploy
 ```bash
