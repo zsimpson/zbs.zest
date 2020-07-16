@@ -163,7 +163,7 @@ def zest_it_can_skip_with_a_chracter_mark():
 def zest_mocks():
     def scope_mocks():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
-            pretend_unit_under_test.foo()
+            pretend_unit_under_test.foo(1)
             # Had the real foo been called it would have
             # raised NotImplementedError
 
@@ -176,11 +176,11 @@ def zest_mocks():
             m_foo = zest.stack_mock(pretend_unit_under_test.foo)
 
             def test_0():
-                pretend_unit_under_test.foo()
+                pretend_unit_under_test.foo(1)
                 assert m_foo.called_once()
 
             def test_1():
-                pretend_unit_under_test.foo()
+                pretend_unit_under_test.foo(1)
                 assert m_foo.called_once()
 
             zest()
@@ -194,15 +194,15 @@ def zest_mocks():
 
     def it_counts_n_calls():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
-            pretend_unit_under_test.foo()
-            pretend_unit_under_test.foo()
+            pretend_unit_under_test.foo(1)
+            pretend_unit_under_test.foo(1)
         assert m_foo.n_calls == 2
 
     def it_resets():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
-            pretend_unit_under_test.foo()
+            pretend_unit_under_test.foo(1)
             m_foo.reset()
-            pretend_unit_under_test.foo()
+            pretend_unit_under_test.foo(1)
         assert m_foo.n_calls == 1
 
     def it_hooks():
@@ -214,33 +214,33 @@ def zest_mocks():
                 got_callback = True
 
             m_foo.hook(callback)
-            pretend_unit_under_test.foo()
+            pretend_unit_under_test.foo(1)
             assert got_callback is True
 
     def it_returns_value():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.returns(1)
-            assert pretend_unit_under_test.foo() == 1
+            assert pretend_unit_under_test.foo(1) == 1
 
     def it_returns_serial_values():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.returns_serially([1, 2])
-            assert pretend_unit_under_test.foo() == 1
-            assert pretend_unit_under_test.foo() == 2
+            assert pretend_unit_under_test.foo(1) == 1
+            assert pretend_unit_under_test.foo(1) == 2
 
     def it_exceptions():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.exceptions(ValueError)
             with zest.raises(ValueError):
-                pretend_unit_under_test.foo()
+                pretend_unit_under_test.foo(1)
 
     def it_exceptions_serially():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             m_foo.exceptions_serially([ValueError, TypeError])
             with zest.raises(ValueError):
-                pretend_unit_under_test.foo()
+                pretend_unit_under_test.foo(1)
             with zest.raises(TypeError):
-                pretend_unit_under_test.foo()
+                pretend_unit_under_test.foo(1)
 
     def it_normalizes_calls_into_kwargs():
         # normalized_call() is a handy when you want to just know
