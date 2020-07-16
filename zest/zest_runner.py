@@ -150,7 +150,7 @@ class ZestRunner:
                         s(gray, " in function ")
                         s(gray, context, "\n")
                     else:
-                        s("File ", yellow, leading, "/", yellow, bold, basename)
+                        s("File ", yellow, leading, "/ ", yellow, bold, basename)
                         s(":", yellow, lineno)
                         s(" in function ")
                         if leaf_test_name == context:
