@@ -288,30 +288,14 @@ assert e.exception.property == "something"
 
 # Development
 
-## Setup
-
-When installed as a package, "zest" is created as an entrypoint
-in setup.py.  But in development mode, an alias is created
-in `.pipenvshrc`. Add this following to your ~/.bashrc (yes, even in OSX)
-so that `pipenv shell` will be able to pick it up.
-
-```bash
-if [[ -f .pipenvshrc ]]; then
-  . .pipenvshrc
-fi
-```
-
 ## Run in development mode
 
 ```bash
 pipenv shell
-```
+pipenv sync
 
-## Test
-
-To run all the example tests (which actually test the tester itself).
-```bash
-$ zest
+# Run all the example tests (which actually test the tester itself).
+$ ./zest.sh
 ```
 
 ## Deploy

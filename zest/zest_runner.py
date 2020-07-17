@@ -215,6 +215,9 @@ class ZestRunner:
         found_zest_call_before_final_func_def = False
         child_list = []
         for i, part in enumerate(func_body):
+            if isinstance(part, ast.With):
+                child_list += self._recurse_ast(part.body, parent_name, skips)
+
             if isinstance(part, ast.FunctionDef):
                 full_name = None
                 if parent_name is None:
@@ -268,12 +271,12 @@ class ZestRunner:
             if found_zest_call_before_final_func_def:
                 s(
                     red,
-                    f"ERROR: Zest function {parent_name} did not call zest() before all functions were defined. {common_wording}",
+                    f"ERROR: Zest function {parent_name} did not call zest() before all functions were defined. {common_wording}\n",
                 )
             else:
                 s(
                     red,
-                    f"ERROR: Zest function {parent_name} did not terminate with a call to zest(). {common_wording}",
+                    f"ERROR: Zest function {parent_name} did not terminate with a call to zest(). {common_wording}\n",
                 )
 
         return child_list

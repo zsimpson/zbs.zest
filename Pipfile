@@ -7,7 +7,7 @@ verify_ssl = true
 
 [packages]
 twine = "*"
-black = "*"
+black = "==19.10b0"
 pudb = "*"
 
 [requires]

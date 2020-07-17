@@ -4,6 +4,7 @@ It also serves as an example of how to build a zest.
 """
 
 import re
+from contextlib import contextmanager
 from zest import zest, TrappedException
 import pretend_unit_under_test
 from zest.version import __version__
@@ -106,8 +107,26 @@ def zest_basics():
             def it_raises_on_too_long():
                 pass
 
+            zest()
+
     zest()
 
+@contextmanager
+def some_context():
+    yield
+
+
+def zest_runs_inside_context():
+    found_func_inside_context = False
+
+    with some_context():
+        def it_finds_this_func():
+            nonlocal found_func_inside_context
+            found_func_inside_context = True
+
+        zest()
+
+    assert found_func_inside_context
 
 def zest_raises():
     def it_catches_raises():
@@ -209,11 +228,11 @@ def zest_mocks():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:
             got_callback = False
 
-            def callback():
+            def _callback():
                 nonlocal got_callback
                 got_callback = True
 
-            m_foo.hook(callback)
+            m_foo.hook(_callback)
             pretend_unit_under_test.foo()
             assert got_callback is True
 
@@ -350,7 +369,7 @@ def zest_runner():
         assert ret_code != 0
 
     def runs_groups():
-        n_expected_tests = 34
+        n_expected_tests = 36
         # I don't like this hard coded run count but I don't know a better way at moment
 
         def it_runs_all_tests_by_default():
