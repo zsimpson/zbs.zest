@@ -172,7 +172,9 @@ class ZestRunner:
 
     def walk(self):
         for folder in self.include_dirs:
-            for curr, dirs, files in os.walk(os.path.abspath(os.path.join(self.root, folder))):
+            for curr, dirs, files in os.walk(
+                os.path.abspath(os.path.join(self.root, folder))
+            ):
                 dirs[:] = [d for d in dirs if d[0] != "."]
                 if curr.endswith("/zests"):
                     yield curr
@@ -264,7 +266,12 @@ class ZestRunner:
             n_test_funcs > 0
             and parent_name is not None
             and not found_zest_call
-            and (not skips or (skips and self.bypass_skip is not None and self.bypass_skip in skips))
+            and (
+                not skips
+                or (
+                    skips and self.bypass_skip is not None and self.bypass_skip in skips
+                )
+            )
         ):
             ZestRunner.n_zest_missing_errors += 1
             common_wording = "If you are using local functions that are not tests, prefix them with underscore."
@@ -389,17 +396,30 @@ class ZestRunner:
 
                 if self.verbose > 2:
                     marker = "?" if self.add_markers else ""
-                    s(cyan, marker + root_name, gray, f" module_name={module_name}, package={package}, member_groups={member_groups}: ")
+                    s(
+                        cyan,
+                        marker + root_name,
+                        gray,
+                        f" module_name={module_name}, package={package}, member_groups={member_groups}: ",
+                    )
 
                 if is_test_in_a_skpped_group:
                     if self.verbose > 2:
                         s(cyan, f"Skipping\n")
 
                     self._test_start_callback(root_name, [], None)
-                    self._test_stop_callback(root_name, [], "skipped because it is in a skipped group", 0.0, None)
+                    self._test_stop_callback(
+                        root_name,
+                        [],
+                        "skipped because it is in a skipped group",
+                        0.0,
+                        None,
+                    )
                     continue
 
-                if (run_group in member_groups or run_group == "*") and not has_run.get(root_name):
+                if (run_group in member_groups or run_group == "*") and not has_run.get(
+                    root_name
+                ):
                     if self.verbose > 2:
                         s(cyan, f"Running\n")
 
@@ -440,10 +460,14 @@ class ZestRunner:
 
             self.display_warnings(zest._call_warnings)
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--verbose", default=1, type=int, help="0=silent, 1=dot-mode, 2=run-trace 3=full-trace",
+        "--verbose",
+        default=1,
+        type=int,
+        help="0=silent, 1=dot-mode, 2=run-trace 3=full-trace",
     )
     parser.add_argument(
         "--include_dirs",
@@ -458,10 +482,7 @@ def main():
         help="Run these colon-delimited groups. If not specified, only zests with no group will run",
     )
     parser.add_argument(
-        "--skip_groups",
-        type=str,
-        nargs="?",
-        help="Skip these colon-delimited groups.",
+        "--skip_groups", type=str, nargs="?", help="Skip these colon-delimited groups.",
     )
     parser.add_argument(
         "--disable_shuffle",
@@ -475,7 +496,9 @@ def main():
         "--version", action="store_true", help="Show version and exit",
     )
     parser.add_argument(
-        "--bypass_skip", nargs="?", help="Run test even if it was skipped given this skip tag",
+        "--bypass_skip",
+        nargs="?",
+        help="Run test even if it was skipped given this skip tag",
     )
     parser.add_argument(
         "match_string", type=str, nargs="?", help="Optional substring to match"

@@ -103,6 +103,7 @@ def zest_basics():
 
     def it_raises_on_greater_than_one_char_skip_code():
         with zest.raises(ValueError, in_args="only be one character"):
+
             @zest.skip("toolong")
             def it_raises_on_too_long():
                 pass
@@ -110,6 +111,7 @@ def zest_basics():
             zest()
 
     zest()
+
 
 @contextmanager
 def some_context():
@@ -120,6 +122,7 @@ def zest_runs_inside_context():
     found_func_inside_context = False
 
     with some_context():
+
         def it_finds_this_func():
             nonlocal found_func_inside_context
             found_func_inside_context = True
@@ -127,6 +130,7 @@ def zest_runs_inside_context():
         zest()
 
     assert found_func_inside_context
+
 
 def zest_raises():
     def it_catches_raises():
@@ -298,11 +302,7 @@ def _call_zest(*args):
     try:
         to_run = "python -m zest.zest_runner " + " --add_markers " + " ".join(args)
         # print(f"TO RUN: {to_run}")
-        output = subprocess.check_output(
-            to_run,
-            shell=True,
-            stderr=subprocess.STDOUT,
-        )
+        output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
         ret_code = 0
     except subprocess.CalledProcessError as e:
         ret_code = e.returncode
@@ -381,13 +381,17 @@ def zest_runner():
             assert len(ran) == n_expected_tests + 1  # +1 because zest_a_named_group
 
         def it_can_limit_to_one_group():
-            ret_code, output = _call_zest("--verbose=2", "--run_groups=a_named_group", "--skip_groups=zest_runner")
+            ret_code, output = _call_zest(
+                "--verbose=2", "--run_groups=a_named_group", "--skip_groups=zest_runner"
+            )
             assert ret_code == 0
             ran = _get_run_tests(output)
             assert ran == ["zest_a_named_group"]
 
         def it_runs_unmarked_tests_under_name_unit():
-            ret_code, output = _call_zest("--verbose=2", "--run_groups=unit", "--skip_groups=zest_runner")
+            ret_code, output = _call_zest(
+                "--verbose=2", "--run_groups=unit", "--skip_groups=zest_runner"
+            )
             assert ret_code == 0
             ran = _get_run_tests(output)
             assert len(ran) == n_expected_tests
