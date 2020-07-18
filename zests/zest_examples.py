@@ -366,6 +366,7 @@ def zest_runner():
             "--verbose=2", "--bypass_skip=bad_zests", "zest_bad_zests"
         )
         assert "did not terminate with a call to zest" in output
+        assert "zest_examples.py:" in output
         assert ret_code != 0
 
     def runs_groups():

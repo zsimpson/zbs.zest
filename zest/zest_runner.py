@@ -149,7 +149,7 @@ class ZestRunner:
                         s(gray, " in function ")
                         s(gray, context, "\n")
                     else:
-                        s("File ", yellow, leading, "/ ", yellow, bold, basename)
+                        s("File ", yellow, leading, "/", yellow, bold, basename)
                         s(":", yellow, lineno)
                         s(" in function ")
                         if leaf_test_name == context:
@@ -201,7 +201,7 @@ class ZestRunner:
         elif self.verbose == 1:
             self.display_abbreviated(name, error, func)
 
-    def _recurse_ast(self, func_body, parent_name, skips):
+    def _recurse_ast(self, func_body, parent_name, skips, path, lineno):
         """
         Args:
             func_body: the AST func_body or module body
@@ -218,7 +218,7 @@ class ZestRunner:
         child_list = []
         for i, part in enumerate(func_body):
             if isinstance(part, ast.With):
-                child_list += self._recurse_ast(part.body, parent_name, skips)
+                child_list += self._recurse_ast(part.body, parent_name, skips, path, part.lineno)
 
             if isinstance(part, ast.FunctionDef):
                 full_name = None
@@ -251,7 +251,7 @@ class ZestRunner:
                 if full_name is not None:
                     child_list += [(full_name, set(_groups), _skips)]
                     n_test_funcs += 1
-                    child_list += self._recurse_ast(part.body, full_name, _skips)
+                    child_list += self._recurse_ast(part.body, full_name, _skips, path, part.lineno)
 
                 if found_zest_call:
                     found_zest_call_before_final_func_def = True
@@ -277,13 +277,25 @@ class ZestRunner:
             common_wording = "If you are using local functions that are not tests, prefix them with underscore."
             if found_zest_call_before_final_func_def:
                 s(
-                    red,
-                    f"ERROR: Zest function {parent_name} did not call zest() before all functions were defined. {common_wording}\n",
+                    red, "\nERROR: ",
+                    reset,
+                    "Zest function '",
+                    bold, red,
+                    parent_name,
+                    reset,
+                    f" (@ {path}:{lineno}) ",
+                    f"' did not call zest() before all functions were defined. {common_wording}\n",
                 )
             else:
                 s(
-                    red,
-                    f"ERROR: Zest function {parent_name} did not terminate with a call to zest(). {common_wording}\n",
+                    red, "\nERROR: ",
+                    reset,
+                    "Zest function '",
+                    bold, red,
+                    parent_name,
+                    reset,
+                    f" (@ {path}:{lineno}) ",
+                    f"' did not terminate with a call to zest(). {common_wording}\n",
                 )
 
         return child_list
@@ -346,7 +358,7 @@ class ZestRunner:
                     source = f.read()
 
                 module_ast = ast.parse(source)
-                zests = self._recurse_ast(module_ast.body, None, None)
+                zests = self._recurse_ast(module_ast.body, None, None, path, 0)
 
                 for full_name, member_groups, skips in zests:
                     # If the requested substring is anywhere in the full_name
