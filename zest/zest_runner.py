@@ -59,14 +59,14 @@ class ZestRunner:
 
             is_libs = True
             real_path = os.path.realpath(file)
-            if real_path.startswith(self.root):
+            if real_path.startswith(self.root) and os.path.exists(real_path):
                 is_libs = False
 
             if "/site-packages/" in file:
                 # Treat these long but commonly occurring path differently
                 file = re.sub(r".*/site-packages/", ".../", file)
             leading, basename = os.path.split(file)
-            leading = f"{'./' if leading[0] != '.' else ''}{leading}"
+            leading = f"{'./' if len(leading) > 0 and leading[0] != '.' else ''}{leading}"
             return leading, basename, lineno, context, is_libs
         return None
 
