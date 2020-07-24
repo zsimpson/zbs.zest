@@ -6,6 +6,7 @@ import re
 import sys
 import traceback
 from importlib import import_module, util
+import curses
 
 from zest import zest
 
@@ -524,9 +525,79 @@ def main():
         sys.exit(0)
     del kwargs["version"]
 
+    import pudb; pudb.set_trace()
     runner = ZestRunner(**kwargs)
     sys.exit(runner.retcode)
 
 
+class ZestConsoleUI:
+    """
+    Controls console based UI.
+    States:
+        * main_menu
+        * focus: "running/re-running" a test until pass
+            - on fail, waits for a file change or 'enter' to re-run
+            - on success or "n", moves to next
+        * inspection: look at and re-run failed tests
+            - 1-9 keys move into focus mode
+        * running:
+            Shows a status of number of tests run and cumuative errors
+    """
+    def __init__(self, scr):
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
+        self.scr = scr
+        self.state = self.state_main_menu
+        while True:
+            new_state = self.state()
+            if new_state is None:
+                break
+            self.state = new_state
+
+    def _render_title_bar(self, mode_description, shortcuts):
+        rows, cols = self.scr.getmaxyx()
+        self.scr.addstr(0, 0, f"{mode_description: <{cols}}", curses.color_pair(1))
+
+    # def _render_focus(self):
+    #     self._render_title_bar("Focus", {"q":"quit", "i": "inspection"})
+    #
+    # def _render_inspection(self):
+    #     self._render_title_bar("Inspection", {"q": "quit", "1-9": "focus"})
+    #
+    # def _render_running(self):
+    #     pass
+
+    def state_main_menu(self):
+        self.scr.clear()
+        self._render_title_bar("Main menu", {"q": "quit"})
+
+        self.scr.addstr(1, 0, "a) run all tests")
+        self.scr.addstr(2, 0, "f) re-run previous failed tests")
+        self.scr.addstr(3, 0, "q) quit")
+
+        while True:
+            self.scr.refresh()
+            key = self.scr.getkey()
+            if key == "q":
+                return None
+            if key == "a":
+                return self.state_running
+
+    def state_running(self):
+        self.scr.clear()
+        self._render_title_bar("Running", {"^c": "break"})
+
+        try:
+            # This is a stub until I figure out how the UI integrates with the runner
+            runner = ZestRunner(root=os.getcwd(), include_dirs="/Users/zack/git/zbs.zest")
+        except KeyboardInterrupt:
+            print("break")
+            pass
+
+        return self.state_main_menu
+
+
 if __name__ == "__main__":
-    main()
+    # main()
+    curses.wrapper(ZestConsoleUI)
+
