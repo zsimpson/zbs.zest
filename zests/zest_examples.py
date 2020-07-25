@@ -16,6 +16,7 @@ def zest_basics():
         test_count = 0
         before_count = 0
         after_count = 0
+        import pudb; pudb.set_trace()
 
         def _before():
             nonlocal before_count

@@ -1,3 +1,5 @@
+import threading
+import time
 import argparse
 import ast
 import os
@@ -31,8 +33,12 @@ def tty_size():
     return _tty_size_cache
 
 
-def s(*strs):
-    return sys.stdout.write("".join(strs) + reset)
+log_fp = None
+def log(*args):
+    global log_fp
+    if log_fp is None:
+        log_fp = open("log.txt", "w")
+    log_fp.write("".join(*args) + "\n")
 
 
 class ZestRunner:
@@ -49,6 +55,10 @@ class ZestRunner:
     n_zest_missing_errors = 0
 
     tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
+
+    def s(self, *strs):
+        log("super s")
+        return sys.stdout.write("".join(strs) + reset)
 
     def _traceback_match_filename(self, line):
         m = self.tb_pat.match(line)
@@ -73,41 +83,42 @@ class ZestRunner:
 
     def display_start(self, name, curr_depth, func):
         """Overload this to change output behavior"""
+        log("super display_strt")
         if self.last_stack_depth < curr_depth:
-            s("\n")
+            self.s("\n")
         self.last_stack_depth = curr_depth
         marker = "+" if self.add_markers else ""
-        s("  " * curr_depth, yellow, marker + name, reset, ": ")
+        self.s("  " * curr_depth, yellow, marker + name, reset, ": ")
         # Note, no \n on this line because it will be added on the display_stop call
 
     def display_stop(self, name, error, curr_depth, last_depth, elapsed, func):
         """Overload this to change output behavior"""
         if curr_depth < last_depth:
-            s(f"{'  ' * curr_depth}")
+            self.s(f"{'  ' * curr_depth}")
 
         if isinstance(error, str) and error.startswith("skipped"):
-            s(bold, yellow, error)
+            self.s(bold, yellow, error)
         elif hasattr(func, "skip"):
-            s(bold, yellow, "SKIPPED ", getattr(func, "skip_reason", "") or "")
+            self.s(bold, yellow, "SKIPPED ", getattr(func, "skip_reason", "") or "")
         elif error:
-            s(bold, red, "ERROR", gray, f" (in {int(1000.0 * elapsed)} ms)")
+            self.s(bold, red, "ERROR", gray, f" (in {int(1000.0 * elapsed)} ms)")
         else:
-            s(green, "SUCCESS", gray, f" (in {int(1000.0 * elapsed)} ms)")
-        s("\n")
+            self.s(green, "SUCCESS", gray, f" (in {int(1000.0 * elapsed)} ms)")
+        self.s("\n")
 
     def display_abbreviated(self, name, error, func):
         """Overload this to change output behavior"""
         if error:
-            s(bold, red, "F")
+            self.s(bold, red, "F")
         elif hasattr(func, "skip"):
             skip_code = getattr(func, "skip_code", "s")
-            s(yellow, skip_code)
+            self.s(yellow, skip_code)
         else:
-            s(green, ".")
+            self.s(green, ".")
 
     def display_warnings(self, call_warnings):
         for warn in call_warnings:
-            s(yellow, warn, "\n")
+            self.s(yellow, warn, "\n")
 
     def display_errors(self, call_log, call_errors):
         def header(edge, edge_style, label):
@@ -122,7 +133,7 @@ class ZestRunner:
                 + (edge * (tty_size()[1] - 7 - len(label)))
             )
 
-        s("\n")
+        self.s("\n")
 
         for error, stack in call_errors:
             leaf_test_name = stack[-1]
@@ -130,7 +141,7 @@ class ZestRunner:
                 " . ".join(stack[0:-1]) + bold + " . " + leaf_test_name
             )
 
-            s("\n", header("=", red, formatted_test_name), "\n")
+            self.s("\n", header("=", red, formatted_test_name), "\n")
             formatted = traceback.format_exception(
                 etype=type(error), value=error, tb=error.__traceback__
             )
@@ -141,35 +152,35 @@ class ZestRunner:
             for line in lines[1:-1]:
                 split_line = self._traceback_match_filename(line)
                 if split_line is None:
-                    s(gray if is_libs else "", line, "\n")
+                    self.s(gray if is_libs else "", line, "\n")
                 else:
                     leading, basename, lineno, context, is_libs = split_line
                     if is_libs:
-                        s(gray, "File ", leading, "/", basename)
-                        s(gray, ":", lineno)
-                        s(gray, " in function ")
-                        s(gray, context, "\n")
+                        self.s(gray, "File ", leading, "/", basename)
+                        self.s(gray, ":", lineno)
+                        self.s(gray, " in function ")
+                        self.s(gray, context, "\n")
                     else:
-                        s("File ", yellow, leading, "/", yellow, bold, basename)
-                        s(":", yellow, lineno)
-                        s(" in function ")
+                        self.s("File ", yellow, leading, "/", yellow, bold, basename)
+                        self.s(":", yellow, lineno)
+                        self.s(" in function ")
                         if leaf_test_name == context:
-                            s(red, bold, context, "\n")
+                            self.s(red, bold, context, "\n")
                         else:
-                            s(magenta, bold, context, "\n")
+                            self.s(magenta, bold, context, "\n")
 
-            s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
+            self.s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
             error_message = str(error).strip()
             if error_message != "":
-                s(red, error_message, "\n")
+                self.s(red, error_message, "\n")
 
     def display_complete(self, call_log, call_errors):
         n_errors = len(call_errors)
-        s(f"\nRan {len(call_log)} tests. ")
+        self.s(f"\nRan {len(call_log)} tests. ")
         if n_errors == 0:
-            s(green, "SUCCESS\n")
+            self.s(green, "SUCCESS\n")
         else:
-            s(red, bold, f"{n_errors} ERROR(s)\n")
+            self.s(red, bold, f"{n_errors} ERROR(s)\n")
 
     def walk(self):
         for folder in self.include_dirs:
@@ -277,7 +288,7 @@ class ZestRunner:
             ZestRunner.n_zest_missing_errors += 1
             common_wording = "If you are using local functions that are not tests, prefix them with underscore."
             if found_zest_call_before_final_func_def:
-                s(
+                self.s(
                     red, "\nERROR: ",
                     reset,
                     "Zest function '",
@@ -288,7 +299,7 @@ class ZestRunner:
                     f"' did not call zest() before all functions were defined. {common_wording}\n",
                 )
             else:
-                s(
+                self.s(
                     red, "\nERROR: ",
                     reset,
                     "Zest function '",
@@ -301,7 +312,7 @@ class ZestRunner:
 
         return child_list
 
-    def __init__(
+    def run(
         self,
         root=None,
         verbose=1,
@@ -399,7 +410,7 @@ class ZestRunner:
         for run_group in run_groups:
             if run_group != "*":
                 if self.verbose > 1:
-                    s(cyan, "Starting group ", bold, run_group, "\n")
+                    self.s(cyan, "Starting group ", bold, run_group, "\n")
 
             for (
                 root_name,
@@ -409,7 +420,7 @@ class ZestRunner:
 
                 if self.verbose > 2:
                     marker = "?" if self.add_markers else ""
-                    s(
+                    self.s(
                         cyan,
                         marker + root_name,
                         gray,
@@ -418,7 +429,7 @@ class ZestRunner:
 
                 if is_test_in_a_skpped_group:
                     if self.verbose > 2:
-                        s(cyan, f"Skipping\n")
+                        self.s(cyan, f"Skipping\n")
 
                     self._test_start_callback(root_name, [], None)
                     self._test_stop_callback(
@@ -434,7 +445,7 @@ class ZestRunner:
                     root_name
                 ):
                     if self.verbose > 2:
-                        s(cyan, f"Running\n")
+                        self.s(cyan, f"Running\n")
 
                     spec = util.spec_from_file_location(module_name, full_name)
                     mod = util.module_from_spec(spec)
@@ -451,7 +462,7 @@ class ZestRunner:
                     )
                 else:
                     if self.verbose > 2:
-                        s(cyan, f"Not running\n")
+                        self.s(cyan, f"Not running\n")
 
         if recurse == 0:
             self.display_errors(zest._call_log, zest._call_errors)
@@ -463,13 +474,13 @@ class ZestRunner:
             )
 
             if self.verbose > 1:
-                s("Slowest 5%\n")
+                self.s("Slowest 5%\n")
                 n_timings = len(self.timings)
                 self.timings.sort(key=lambda tup: tup[1])
                 ninty_percentile = 95 * n_timings // 100
                 for i in range(n_timings - 1, ninty_percentile, -1):
                     name = self.timings[i]
-                    s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
+                    self.s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
             self.display_warnings(zest._call_warnings)
 
@@ -525,12 +536,11 @@ def main():
         sys.exit(0)
     del kwargs["version"]
 
-    import pudb; pudb.set_trace()
-    runner = ZestRunner(**kwargs)
+    runner = ZestRunner().run(**kwargs)
     sys.exit(runner.retcode)
 
 
-class ZestConsoleUI:
+class ZestConsoleUI(ZestRunner):
     """
     Controls console based UI.
     States:
@@ -542,62 +552,151 @@ class ZestConsoleUI:
             - 1-9 keys move into focus mode
         * running:
             Shows a status of number of tests run and cumuative errors
+
+    A state implies a set of keyboard commands and a layout
     """
+
+    menu_by_state = dict(
+        main_menu="Main menu:  r)un tests   f)ailed tests   q)uit",
+        running="Running:  ^C to stop   1-9 to toggle error details",
+        auto_run="Auto-run:  m)ain menu   r)e-run   q)uit",
+    )
+
+    def _render(self):
+        self.scr.clear()
+
+        # Title bar
+        state_menu = self.menu_by_state[self.state]
+        rows, cols = self.scr.getmaxyx()
+        self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
+        self.scr.refresh()
+
+    def _test_start_callback(self, name, call_stack, func):
+        """
+        This is a callback in the runner thread
+        """
+        self._current_run_test = name
+        time.sleep(0.2)  # Testing delay
+
+    def _test_stop_callback(self, name, call_stack, error, elapsed, func):
+        """
+        This is a callback in the runner thread
+        """
+        self._current_run_test = None
+
+    def _runner_thread(self, *args):
+        try:
+            self.run(include_dirs="/Users/zack/git/zbs.zest", match_string="zest_basics", verbose=2)
+        except KeyboardInterrupt:
+            log("KeyboardInterrupt")
+        except Exception as e:
+            log(f"exception 2 {e}")
+
+    def _start_runner_thread(self):
+        assert self.runner_thread is None
+        self.runner_thread = threading.Thread(target=self._runner_thread, args=())
+        self.runner_thread.start()
+
+    def _key_poll_thread(self):
+        self.key = None
+        self.key = self.scr.getkey()
+
+    def _start_key_poll_thread(self):
+        assert self.key_poll_thread is None
+        self.key_poll_thread = threading.Thread(target=self._key_poll_thread, args=())
+        self.key_poll_thread.start()
+
     def __init__(self, scr):
+        self.scr = scr
+        self.state = "main_menu"
+        self.key_poll_thread = None
+        self.runner_thread = None
+        self.dirty = False
+
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
-        self.scr = scr
-        self.state = self.state_main_menu
+
         while True:
-            new_state = self.state()
+            new_state = self.state_funcs[self.state](self)
             if new_state is None:
                 break
             self.state = new_state
 
-    def _render_title_bar(self, mode_description, shortcuts):
-        rows, cols = self.scr.getmaxyx()
-        self.scr.addstr(0, 0, f"{mode_description: <{cols}}", curses.color_pair(1))
-
-    # def _render_focus(self):
-    #     self._render_title_bar("Focus", {"q":"quit", "i": "inspection"})
-    #
-    # def _render_inspection(self):
-    #     self._render_title_bar("Inspection", {"q": "quit", "1-9": "focus"})
-    #
-    # def _render_running(self):
-    #     pass
-
     def state_main_menu(self):
-        self.scr.clear()
-        self._render_title_bar("Main menu", {"q": "quit"})
-
-        self.scr.addstr(1, 0, "a) run all tests")
-        self.scr.addstr(2, 0, "f) re-run previous failed tests")
-        self.scr.addstr(3, 0, "q) quit")
-
         while True:
-            self.scr.refresh()
+            self._render()
             key = self.scr.getkey()
+            if key == "r":
+                return "running"
+            # if key == "f":
+            #     return self.state_running
             if key == "q":
                 return None
-            if key == "a":
-                return self.state_running
 
     def state_running(self):
-        self.scr.clear()
-        self._render_title_bar("Running", {"^c": "break"})
+        self._start_runner_thread()
+        self._start_key_poll_thread()
+        while self.thread.is_alive():
+            if self.key is not None:
+                pass
+            if self.dirty:
+                self._render()
+            time.sleep(0.1)
+        return "main_menu"
 
-        try:
-            # This is a stub until I figure out how the UI integrates with the runner
-            runner = ZestRunner(root=os.getcwd(), include_dirs="/Users/zack/git/zbs.zest")
-        except KeyboardInterrupt:
-            print("break")
-            pass
+    def state_auto_run(self):
+        while True:
+            self._render()
+            key = self.scr.getkey()
+            if key == "m":
+                return "main_menu"
+            # if key == "r":
+            #     return self.state_running
+            if key == "q":
+                return None
 
-        return self.state_main_menu
+    state_funcs = dict(
+        main_menu=state_main_menu,
+        running=state_running,
+        auto_run=state_auto_run,
+    )
+
 
 
 if __name__ == "__main__":
     # main()
     curses.wrapper(ZestConsoleUI)
 
+
+"""
+Lessons so far:
+* There's problems when curses gets recursively called so taht
+  when I let the runner call the full zest_runner test suite that
+  include calling the zet runner which causes a recursive initialize.
+* The ZestRunner has baked-in verbosity settings so I need
+  to remove all of those so that the sub class gets a chance to decide
+* Thus, I need a clear sepration of concerns about the messages.
+  One stage is teh event (which can be trapped by the sub class)
+  One stage is the message rendering which might be used by the sub classs
+  One stage emits the message which is very different in the subclass
+
+The base class sets up:
+    _test_start_callback
+    _test_stop_callback
+
+These are handed to the zest.do and cause a callback
+But the self.verbose is in that callback:
+
+    def _test_start_callback(self, name, call_stack, func):
+        if self.verbose >= 2:
+            self.callback_depth = len(call_stack) - 1
+            self.display_start(name, self.callback_depth, func)
+
+Which is all sort of wrapped up in the concepts of the base display
+
+Seems like I should just overload those in the sub class
+    _test_start_callback
+    _test_stop_callback
+
+
+"""

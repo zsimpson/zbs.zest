@@ -403,7 +403,6 @@ class zest:
             zest._test_stop_callback = test_stop_callback
 
         try:
-
             callers_special_local_funcs = {}
 
             if len(funcs) > 0:
