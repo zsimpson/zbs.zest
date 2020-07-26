@@ -16,7 +16,6 @@ def zest_basics():
         test_count = 0
         before_count = 0
         after_count = 0
-        import pudb; pudb.set_trace()
 
         def _before():
             nonlocal before_count
@@ -66,6 +65,9 @@ def zest_basics():
         zest()
 
         assert test_count == 1 and ignored_count == 0
+
+    def it_fails():
+        assert False
 
     def it_calls_start_and_stop_callbacks():
         start_was_called = 0

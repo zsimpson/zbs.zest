@@ -38,7 +38,7 @@ def log(*args):
     global log_fp
     if log_fp is None:
         log_fp = open("log.txt", "w")
-    log_fp.write("".join(*args) + "\n")
+    log_fp.write("".join([str(i) for i in args]) + "\n")
 
 
 class ZestRunner:
@@ -57,7 +57,6 @@ class ZestRunner:
     tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
 
     def s(self, *strs):
-        log("super s")
         return sys.stdout.write("".join(strs) + reset)
 
     def _traceback_match_filename(self, line):
@@ -83,7 +82,6 @@ class ZestRunner:
 
     def display_start(self, name, curr_depth, func):
         """Overload this to change output behavior"""
-        log("super display_strt")
         if self.last_stack_depth < curr_depth:
             self.s("\n")
         self.last_stack_depth = curr_depth
@@ -278,12 +276,7 @@ class ZestRunner:
             n_test_funcs > 0
             and parent_name is not None
             and not found_zest_call
-            and (
-                not skips
-                or (
-                    skips and self.bypass_skip is not None and self.bypass_skip in skips
-                )
-            )
+            and not skips
         ):
             ZestRunner.n_zest_missing_errors += 1
             common_wording = "If you are using local functions that are not tests, prefix them with underscore."
@@ -312,6 +305,43 @@ class ZestRunner:
 
         return child_list
 
+    def _event_considering(self, root_name, module_name, package, member_groups):
+        if self.verbose > 2:
+            marker = "?" if self.add_markers else ""
+            self.s(
+                cyan,
+                marker + root_name,
+                gray,
+                f" module_name={module_name}, package={package}, member_groups={member_groups}: ",
+            )
+
+    def _event_skip(self, root_name):
+        if self.verbose > 2:
+            self.s(cyan, f"Skipping\n")
+
+    def _event_running(self, root_name):
+        if self.verbose > 2:
+            self.s(cyan, f"Running\n")
+
+    def _event_not_running(self, root_name):
+        if self.verbose > 2:
+            self.s(cyan, f"Not running\n")
+
+    def _event_complete(self):
+        self.display_errors(zest._call_log, zest._call_errors)
+        self.display_complete(zest._call_log, zest._call_errors)
+        if self.verbose > 1:
+            self.s("Slowest 5%\n")
+            n_timings = len(self.timings)
+            self.timings.sort(key=lambda tup: tup[1])
+            ninty_percentile = 95 * n_timings // 100
+            for i in range(n_timings - 1, ninty_percentile, -1):
+                name = self.timings[i]
+                self.s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
+
+        self.display_warnings(zest._call_warnings)
+
+
     def run(
         self,
         root=None,
@@ -319,10 +349,7 @@ class ZestRunner:
         include_dirs=None,
         match_string=None,
         recurse=0,
-        run_groups=None,
-        skip_groups=None,
         disable_shuffle=False,
-        bypass_skip=None,
         add_markers=False,
     ):
         """
@@ -338,22 +365,12 @@ class ZestRunner:
         zest.reset()
         zest._disable_shuffle = disable_shuffle
 
-        self.bypass_skip = bypass_skip
         self.verbose = verbose
         self.callback_depth = 0
         self.include_dirs = (include_dirs or "").split(":")
         self.timings = []
         self.last_stack_depth = 0
         self.add_markers = add_markers
-
-        # Execute root zests in group order
-        if run_groups is None:
-            run_groups = "*"
-        run_groups = run_groups.split(":")
-
-        if skip_groups is None:
-            skip_groups = ""
-        skip_groups = set(skip_groups.split(":"))
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
@@ -388,9 +405,6 @@ class ZestRunner:
                     sub_dirs = curr.split(os.sep)
                     sub_dirs = sub_dirs[n_root_parts:]
                     package = ".".join(sub_dirs)
-                    if len(member_groups) == 0:
-                        # Default to run non-unit tests second
-                        member_groups = {"unit"}
 
                     if match_string is None or match_string in full_name:
                         for i in range(len(parts)):
@@ -407,82 +421,39 @@ class ZestRunner:
         zest._allow_to_run = list(set(allow_to_run))
 
         has_run = {}
-        for run_group in run_groups:
-            if run_group != "*":
-                if self.verbose > 1:
-                    self.s(cyan, "Starting group ", bold, run_group, "\n")
 
-            for (
-                root_name,
-                (module_name, package, member_groups, full_name),
-            ) in root_zest_funcs.items():
-                is_test_in_a_skpped_group = len(member_groups & skip_groups) > 0
+        for (
+            root_name,
+            (module_name, package, member_groups, full_name),
+        ) in root_zest_funcs.items():
+            self._event_considering(root_name, module_name, package, member_groups)
 
-                if self.verbose > 2:
-                    marker = "?" if self.add_markers else ""
-                    self.s(
-                        cyan,
-                        marker + root_name,
-                        gray,
-                        f" module_name={module_name}, package={package}, member_groups={member_groups}: ",
-                    )
+            if not has_run.get(root_name):
+                self._event_running(root_name)
 
-                if is_test_in_a_skpped_group:
-                    if self.verbose > 2:
-                        self.s(cyan, f"Skipping\n")
+                spec = util.spec_from_file_location(module_name, full_name)
+                mod = util.module_from_spec(spec)
+                sys.modules[spec.name] = mod
+                spec.loader.exec_module(mod)
+                func = getattr(mod, root_name)
 
-                    self._test_start_callback(root_name, [], None)
-                    self._test_stop_callback(
-                        root_name,
-                        [],
-                        "skipped because it is in a skipped group",
-                        0.0,
-                        None,
-                    )
-                    continue
-
-                if (run_group in member_groups or run_group == "*") and not has_run.get(
-                    root_name
-                ):
-                    if self.verbose > 2:
-                        self.s(cyan, f"Running\n")
-
-                    spec = util.spec_from_file_location(module_name, full_name)
-                    mod = util.module_from_spec(spec)
-                    sys.modules[spec.name] = mod
-                    spec.loader.exec_module(mod)
-                    func = getattr(mod, root_name)
-
-                    has_run[root_name] = True
-                    assert len(zest._call_stack) == 0
-                    zest.do(
-                        func,
-                        test_start_callback=self._test_start_callback,
-                        test_stop_callback=self._test_stop_callback,
-                    )
-                else:
-                    if self.verbose > 2:
-                        self.s(cyan, f"Not running\n")
+                has_run[root_name] = True
+                assert len(zest._call_stack) == 0
+                zest.do(
+                    func,
+                    test_start_callback=self._test_start_callback,
+                    test_stop_callback=self._test_stop_callback,
+                )
+            else:
+                self._event_not_running(root_name)
 
         if recurse == 0:
-            self.display_errors(zest._call_log, zest._call_errors)
-            self.display_complete(zest._call_log, zest._call_errors)
+            self._event_complete()
             self.retcode = (
                 0
                 if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0
                 else 1
             )
-
-            if self.verbose > 1:
-                self.s("Slowest 5%\n")
-                n_timings = len(self.timings)
-                self.timings.sort(key=lambda tup: tup[1])
-                ninty_percentile = 95 * n_timings // 100
-                for i in range(n_timings - 1, ninty_percentile, -1):
-                    name = self.timings[i]
-                    self.s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
-
-            self.display_warnings(zest._call_warnings)
 
 
 def main():
@@ -500,15 +471,6 @@ def main():
         help="Colon-delimited list of directories to search",
     )
     parser.add_argument(
-        "--run_groups",
-        type=str,
-        nargs="?",
-        help="Run these colon-delimited groups. If not specified, only zests with no group will run",
-    )
-    parser.add_argument(
-        "--skip_groups", type=str, nargs="?", help="Skip these colon-delimited groups.",
-    )
-    parser.add_argument(
         "--disable_shuffle",
         action="store_true",
         help="Disable the shuffling of test order",
@@ -518,11 +480,6 @@ def main():
     )
     parser.add_argument(
         "--version", action="store_true", help="Show version and exit",
-    )
-    parser.add_argument(
-        "--bypass_skip",
-        nargs="?",
-        help="Run test even if it was skipped given this skip tag",
     )
     parser.add_argument(
         "match_string", type=str, nargs="?", help="Optional substring to match"
@@ -556,25 +513,26 @@ class ZestConsoleUI(ZestRunner):
     A state implies a set of keyboard commands and a layout
     """
 
-    menu_by_state = dict(
-        main_menu="Main menu:  r)un tests   f)ailed tests   q)uit",
-        running="Running:  ^C to stop   1-9 to toggle error details",
-        auto_run="Auto-run:  m)ain menu   r)e-run   q)uit",
-    )
+    def _event_considering(self, root_name, module_name, package, member_groups):
+        pass
 
-    def _render(self):
-        self.scr.clear()
+    def _event_skip(self, root_name):
+        pass
 
-        # Title bar
-        state_menu = self.menu_by_state[self.state]
-        rows, cols = self.scr.getmaxyx()
-        self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
-        self.scr.refresh()
+    def _event_running(self, root_name):
+        pass
+
+    def _event_not_running(self, root_name):
+        pass
+
+    def _event_complete(self):
+        self.complete = True
 
     def _test_start_callback(self, name, call_stack, func):
         """
         This is a callback in the runner thread
         """
+        self.dirty = True
         self._current_run_test = name
         time.sleep(0.2)  # Testing delay
 
@@ -583,14 +541,28 @@ class ZestConsoleUI(ZestRunner):
         This is a callback in the runner thread
         """
         self._current_run_test = None
+        if error is not None:
+            self.errors += [(name, error)]
+            self.n_errors += 1
+        else:
+            self.n_success += 1
+
+    def _render(self):
+        self.scr.clear()
+
+        # Title bar
+        state_menu = self.menu_by_state[self.state]
+        rows, cols = self.scr.getmaxyx()
+        self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
+        self.render_funcs[self.state](self)
+        self.scr.refresh()
+        self.dirty = False
 
     def _runner_thread(self, *args):
         try:
             self.run(include_dirs="/Users/zack/git/zbs.zest", match_string="zest_basics", verbose=2)
         except KeyboardInterrupt:
-            log("KeyboardInterrupt")
-        except Exception as e:
-            log(f"exception 2 {e}")
+            return
 
     def _start_runner_thread(self):
         assert self.runner_thread is None
@@ -598,8 +570,11 @@ class ZestConsoleUI(ZestRunner):
         self.runner_thread.start()
 
     def _key_poll_thread(self):
-        self.key = None
-        self.key = self.scr.getkey()
+        try:
+            self.key = None
+            self.key = self.scr.getkey()
+        finally:
+            self.key_poll_thread = None
 
     def _start_key_poll_thread(self):
         assert self.key_poll_thread is None
@@ -612,6 +587,9 @@ class ZestConsoleUI(ZestRunner):
         self.key_poll_thread = None
         self.runner_thread = None
         self.dirty = False
+        self.errors = []
+        self.n_success = 0
+        self.n_errors = 0
 
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
@@ -633,16 +611,37 @@ class ZestConsoleUI(ZestRunner):
             if key == "q":
                 return None
 
+    def render_main_menu(self):
+        n_total = self.n_success + self.n_errors
+        if n_total > 0:
+            if self.complete:
+                self.scr.addstr(1, 0, "Complete:")
+            else:
+                self.scr.addstr(1, 0, "Running :")
+            self.scr.addstr(1, 10, f"{self.n_success} + {self.n_errors} = {n_total}")
+        if self.n_errors > 0:
+            self.scr.addstr(2, 0, f"Failed tests... (select by number to auto-rerun)")
+            for i, (test, error) in enumerate(self.errors):
+                self.scr.addstr(i+3, 0, f"{i+1}) {test}")
+
     def state_running(self):
+        self.errors = []
+        self.n_success = 0
+        self.n_errors = 0
+        self.complete = False
         self._start_runner_thread()
         self._start_key_poll_thread()
-        while self.thread.is_alive():
-            if self.key is not None:
+        while self.runner_thread.is_alive():
+            if self.key == "1":
                 pass
             if self.dirty:
                 self._render()
             time.sleep(0.1)
+        self.runner_thread = None
         return "main_menu"
+
+    def render_running(self):
+        self.render_main_menu()
 
     def state_auto_run(self):
         while True:
@@ -655,11 +654,27 @@ class ZestConsoleUI(ZestRunner):
             if key == "q":
                 return None
 
+    def render_auto_run(self):
+        pass
+
     state_funcs = dict(
         main_menu=state_main_menu,
         running=state_running,
         auto_run=state_auto_run,
     )
+
+    render_funcs = dict(
+        main_menu=render_main_menu,
+        running=render_running,
+        auto_run=render_auto_run,
+    )
+
+    menu_by_state = dict(
+        main_menu="Main menu:  r)un tests   f)ailed tests   q)uit",
+        running="Running:  ^C to stop   1-9 to toggle error details",
+        auto_run="Auto-run:  m)ain menu   r)e-run   q)uit",
+    )
+
 
 
 
