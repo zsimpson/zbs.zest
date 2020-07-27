@@ -118,59 +118,62 @@ class ZestRunner:
         for warn in call_warnings:
             self.s(yellow, warn, "\n")
 
-    def display_errors(self, call_log, call_errors):
-        def header(edge, edge_style, label):
-            return (
-                edge_style
-                + (edge * 5)
-                + " "
-                + label
-                + " "
-                + reset
-                + edge_style
-                + (edge * (tty_size()[1] - 7 - len(label)))
-            )
+    def error_header(self, edge, edge_style, label):
+        return (
+            edge_style
+            + (edge * 5)
+            + " "
+            + label
+            + " "
+            + reset
+            + edge_style
+            + (edge * (tty_size()[1] - 7 - len(label)))
+        )
 
-        self.s("\n")
+    def display_error(self, error, stack):
+        leaf_test_name = stack[-1]
+        formatted_test_name = (
+            " . ".join(stack[0:-1]) + bold + " . " + leaf_test_name
+        )
 
-        for error, stack in call_errors:
-            leaf_test_name = stack[-1]
-            formatted_test_name = (
-                " . ".join(stack[0:-1]) + bold + " . " + leaf_test_name
-            )
+        self.s("\n", self.error_header("=", red, formatted_test_name), "\n")
+        formatted = traceback.format_exception(
+            etype=type(error), value=error, tb=error.__traceback__
+        )
+        lines = []
+        for line in formatted:
+            lines += [sub_line for sub_line in line.strip().split("\n")]
 
-            self.s("\n", header("=", red, formatted_test_name), "\n")
-            formatted = traceback.format_exception(
-                etype=type(error), value=error, tb=error.__traceback__
-            )
-            lines = []
-            for line in formatted:
-                lines += [sub_line for sub_line in line.strip().split("\n")]
-
-            for line in lines[1:-1]:
-                split_line = self._traceback_match_filename(line)
-                if split_line is None:
-                    self.s(gray if is_libs else "", line, "\n")
+        is_libs = False
+        for line in lines[1:-1]:
+            split_line = self._traceback_match_filename(line)
+            if split_line is None:
+                self.s(gray if is_libs else "", line, "\n")
+            else:
+                leading, basename, lineno, context, is_libs = split_line
+                if is_libs:
+                    self.s(gray, "File ", leading, "/", basename)
+                    self.s(gray, ":", lineno)
+                    self.s(gray, " in function ")
+                    self.s(gray, context, "\n")
                 else:
-                    leading, basename, lineno, context, is_libs = split_line
-                    if is_libs:
-                        self.s(gray, "File ", leading, "/", basename)
-                        self.s(gray, ":", lineno)
-                        self.s(gray, " in function ")
-                        self.s(gray, context, "\n")
+                    self.s("File ", yellow, leading, "/", yellow, bold, basename)
+                    self.s(":", yellow, lineno)
+                    self.s(" in function ")
+                    if leaf_test_name == context:
+                        self.s(red, bold, context, "\n")
                     else:
-                        self.s("File ", yellow, leading, "/", yellow, bold, basename)
-                        self.s(":", yellow, lineno)
-                        self.s(" in function ")
-                        if leaf_test_name == context:
-                            self.s(red, bold, context, "\n")
-                        else:
-                            self.s(magenta, bold, context, "\n")
+                        self.s(magenta, bold, context, "\n")
 
-            self.s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
-            error_message = str(error).strip()
-            if error_message != "":
-                self.s(red, error_message, "\n")
+        self.s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
+        error_message = str(error).strip()
+        if error_message != "":
+            self.s(red, error_message, "\n")
+
+    def display_errors(self, call_log, call_errors):
+        self.s("\n")
+        for error, stack in call_errors:
+            self.display_error(error, stack)
 
     def display_complete(self, call_log, call_errors):
         n_errors = len(call_errors)
@@ -513,6 +516,8 @@ class ZestConsoleUI(ZestRunner):
     A state implies a set of keyboard commands and a layout
     """
 
+    # Event overloads from super class
+
     def _event_considering(self, root_name, module_name, package, member_groups):
         pass
 
@@ -528,6 +533,7 @@ class ZestConsoleUI(ZestRunner):
     def _event_complete(self):
         self.complete = True
 
+
     def _test_start_callback(self, name, call_stack, func):
         """
         This is a callback in the runner thread
@@ -542,18 +548,54 @@ class ZestConsoleUI(ZestRunner):
         """
         self._current_run_test = None
         if error is not None:
-            self.errors += [(name, error)]
+            self.errors += [(name, error, call_stack)]
             self.n_errors += 1
         else:
             self.n_success += 1
 
-    def _render(self):
-        self.scr.clear()
-
+    # Components
+    def _draw_title_bar(self):
         # Title bar
         state_menu = self.menu_by_state[self.state]
         rows, cols = self.scr.getmaxyx()
         self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
+
+    def _draw_summary(self, y):
+        n_total = self.n_success + self.n_errors
+        if n_total > 0:
+            if self.complete:
+                self.scr.addstr(y, 0, "Complete:")
+            else:
+                self.scr.addstr(y, 0, "Running :")
+            self.scr.addstr(y, 10, f"{self.n_success} + {self.n_errors} = {n_total}")
+
+    def _draw_fail_lines(self, y):
+        if self.n_errors > 0:
+            self.scr.addstr(y, 0, f"Failed tests... (select by number to auto-rerun)")
+            for i, (test, error, stack) in enumerate(self.errors):
+                self.scr.addstr(i+y+1, 0, f"{i+1}) {test}")
+
+    def s(self, *strs):
+        self.output_str += "".join(strs) + reset
+
+    def _draw_fail_details(self, y, error):
+        self.scr.addstr(y, 0, f"Failed test {error[0]}")
+
+        # TODO: Overloading self.s is pretty hacky. Fix
+        # Also printing escape codes inside of curses does not work
+        # I'd have to change disply error anyway.
+        # See: https://stackoverflow.com/a/35248222
+        self.output_str = ""
+        self.display_error(self.errors[0][1], self.errors[0][2])
+        for i, error_line in enumerate(self.output_str.split("\n")):
+            self.scr.addstr(y+i+1, 0, error_line)
+
+    def _draw_awaiting(self, y):
+        self.scr.addstr(y, 0, f"Awaiting")
+
+    def _render(self):
+        self.scr.clear()
+        self._draw_title_bar()
         self.render_funcs[self.state](self)
         self.scr.refresh()
         self.dirty = False
@@ -564,7 +606,7 @@ class ZestConsoleUI(ZestRunner):
         except KeyboardInterrupt:
             return
 
-    def _start_runner_thread(self):
+    def start_runner_thread(self):
         assert self.runner_thread is None
         self.runner_thread = threading.Thread(target=self._runner_thread, args=())
         self.runner_thread.start()
@@ -573,10 +615,11 @@ class ZestConsoleUI(ZestRunner):
         try:
             self.key = None
             self.key = self.scr.getkey()
+            log(f"got key poll {self.key}")
         finally:
             self.key_poll_thread = None
 
-    def _start_key_poll_thread(self):
+    def start_key_poll_thread(self):
         assert self.key_poll_thread is None
         self.key_poll_thread = threading.Thread(target=self._key_poll_thread, args=())
         self.key_poll_thread.start()
@@ -590,6 +633,10 @@ class ZestConsoleUI(ZestRunner):
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
+        self.complete = False
+        self.auto_run_state = "awaiting"
+        self.running_state_show_details = None
+        self.output_str = ""
 
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
@@ -612,28 +659,24 @@ class ZestConsoleUI(ZestRunner):
                 return None
 
     def render_main_menu(self):
-        n_total = self.n_success + self.n_errors
-        if n_total > 0:
-            if self.complete:
-                self.scr.addstr(1, 0, "Complete:")
-            else:
-                self.scr.addstr(1, 0, "Running :")
-            self.scr.addstr(1, 10, f"{self.n_success} + {self.n_errors} = {n_total}")
-        if self.n_errors > 0:
-            self.scr.addstr(2, 0, f"Failed tests... (select by number to auto-rerun)")
-            for i, (test, error) in enumerate(self.errors):
-                self.scr.addstr(i+3, 0, f"{i+1}) {test}")
+        self._draw_summary(y=1)
+        self._draw_fail_lines(y=2)
 
     def state_running(self):
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
         self.complete = False
-        self._start_runner_thread()
-        self._start_key_poll_thread()
+        self.start_runner_thread()
+        self.start_key_poll_thread()
+        self.running_state_show_details = None
         while self.runner_thread.is_alive():
-            if self.key == "1":
-                pass
+            log(f"key1 {self.key}")
+            if self.key in [str(i) for i in range(1, 10)]:
+                self.running_state_show_details = ord(self.key) - ord("1")
+                log(f"self.running_state_show_details {self.running_state_show_details}")
+                log(f"errors {self.errors}")
+                self.dirty = True
             if self.dirty:
                 self._render()
             time.sleep(0.1)
@@ -641,9 +684,13 @@ class ZestConsoleUI(ZestRunner):
         return "main_menu"
 
     def render_running(self):
-        self.render_main_menu()
+        self._draw_summary(y=1)
+        self._draw_fail_lines(y=2)
+        if self.running_state_show_details is not None:
+            self._draw_fail_details(y=3, error=self.errors[self.running_state_show_details])
 
     def state_auto_run(self):
+        self.auto_run_state = "awaiting"
         while True:
             self._render()
             key = self.scr.getkey()
@@ -655,7 +702,11 @@ class ZestConsoleUI(ZestRunner):
                 return None
 
     def render_auto_run(self):
-        pass
+        if self.auto_run_state == "awaiting":
+            self._draw_awaiting(y=2)
+        if self.auto_run_state == "running":
+            if self.n_errors > 0:
+                self._draw_fail_details(y=3, error=self.errors[0])
 
     state_funcs = dict(
         main_menu=state_main_menu,
