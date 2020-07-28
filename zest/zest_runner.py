@@ -41,6 +41,11 @@ def log(*args):
     log_fp.write("".join([str(i) for i in args]) + "\n")
 
 
+def ss(*strs):
+    return "".join([str(i) for i in strs])
+
+
+
 class ZestRunner:
     """
     The stand-alone zest runner.
@@ -192,29 +197,7 @@ class ZestRunner:
                 if curr.endswith("/zests"):
                     yield curr
 
-    def _test_start_callback(self, name, call_stack, func):
-        """Track the callback depth and forward to the display_start()"""
-        if self.verbose >= 2:
-            self.callback_depth = len(call_stack) - 1
-            self.display_start(name, self.callback_depth, func)
-
-    def _test_stop_callback(self, name, call_stack, error, elapsed, func):
-        """
-        Track the callback depth and forward to the
-        display_stop() or display_abbreviated()
-        """
-        self.timings += [(name, elapsed)]
-        self.timings += [(name, elapsed)]
-        if self.verbose >= 2:
-            curr_depth = len(call_stack) - 1
-            self.display_stop(
-                name, error, curr_depth, self.callback_depth, elapsed, func
-            )
-            self.callback_depth = curr_depth
-        elif self.verbose == 1:
-            self.display_abbreviated(name, error, func)
-
-    def _recurse_ast(self, func_body, parent_name, skips, path, lineno):
+    def recurse_ast(self, func_body, parent_name, skips, path, lineno):
         """
         Args:
             func_body: the AST func_body or module body
@@ -231,7 +214,7 @@ class ZestRunner:
         child_list = []
         for i, part in enumerate(func_body):
             if isinstance(part, ast.With):
-                child_list += self._recurse_ast(part.body, parent_name, skips, path, part.lineno)
+                child_list += self.recurse_ast(part.body, parent_name, skips, path, part.lineno)
 
             if isinstance(part, ast.FunctionDef):
                 full_name = None
@@ -264,7 +247,7 @@ class ZestRunner:
                 if full_name is not None:
                     child_list += [(full_name, set(_groups), _skips)]
                     n_test_funcs += 1
-                    child_list += self._recurse_ast(part.body, full_name, _skips, path, part.lineno)
+                    child_list += self.recurse_ast(part.body, full_name, _skips, path, part.lineno)
 
                 if found_zest_call:
                     found_zest_call_before_final_func_def = True
@@ -308,7 +291,29 @@ class ZestRunner:
 
         return child_list
 
-    def _event_considering(self, root_name, module_name, package, member_groups):
+    def event_test_start(self, name, call_stack, func):
+        """Track the callback depth and forward to the display_start()"""
+        if self.verbose >= 2:
+            self.callback_depth = len(call_stack) - 1
+            self.display_start(name, self.callback_depth, func)
+
+    def event_test_stop(self, name, call_stack, error, elapsed, func):
+        """
+        Track the callback depth and forward to the
+        display_stop() or display_abbreviated()
+        """
+        self.timings += [(name, elapsed)]
+        self.timings += [(name, elapsed)]
+        if self.verbose >= 2:
+            curr_depth = len(call_stack) - 1
+            self.display_stop(
+                name, error, curr_depth, self.callback_depth, elapsed, func
+            )
+            self.callback_depth = curr_depth
+        elif self.verbose == 1:
+            self.display_abbreviated(name, error, func)
+
+    def event_considering(self, root_name, module_name, package, member_groups):
         if self.verbose > 2:
             marker = "?" if self.add_markers else ""
             self.s(
@@ -318,19 +323,19 @@ class ZestRunner:
                 f" module_name={module_name}, package={package}, member_groups={member_groups}: ",
             )
 
-    def _event_skip(self, root_name):
+    def event_skip(self, root_name):
         if self.verbose > 2:
             self.s(cyan, f"Skipping\n")
 
-    def _event_running(self, root_name):
+    def event_running(self, root_name):
         if self.verbose > 2:
             self.s(cyan, f"Running\n")
 
-    def _event_not_running(self, root_name):
+    def event_not_running(self, root_name):
         if self.verbose > 2:
             self.s(cyan, f"Not running\n")
 
-    def _event_complete(self):
+    def event_complete(self):
         self.display_errors(zest._call_log, zest._call_errors)
         self.display_complete(zest._call_log, zest._call_errors)
         if self.verbose > 1:
@@ -343,7 +348,6 @@ class ZestRunner:
                 self.s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
         self.display_warnings(zest._call_warnings)
-
 
     def run(
         self,
@@ -390,7 +394,7 @@ class ZestRunner:
                     source = f.read()
 
                 module_ast = ast.parse(source)
-                zests = self._recurse_ast(module_ast.body, None, None, path, 0)
+                zests = self.recurse_ast(module_ast.body, None, None, path, 0)
 
                 for full_name, member_groups, skips in zests:
                     # If the requested substring is anywhere in the full_name
@@ -429,10 +433,10 @@ class ZestRunner:
             root_name,
             (module_name, package, member_groups, full_name),
         ) in root_zest_funcs.items():
-            self._event_considering(root_name, module_name, package, member_groups)
+            self.event_considering(root_name, module_name, package, member_groups)
 
             if not has_run.get(root_name):
-                self._event_running(root_name)
+                self.event_running(root_name)
 
                 spec = util.spec_from_file_location(module_name, full_name)
                 mod = util.module_from_spec(spec)
@@ -444,14 +448,14 @@ class ZestRunner:
                 assert len(zest._call_stack) == 0
                 zest.do(
                     func,
-                    test_start_callback=self._test_start_callback,
-                    test_stop_callback=self._test_stop_callback,
+                    test_start_callback=self.event_test_start,
+                    test_stop_callback=self.event_test_stop,
                 )
             else:
-                self._event_not_running(root_name)
+                self.event_not_running(root_name)
 
         if recurse == 0:
-            self._event_complete()
+            self.event_complete()
             self.retcode = (
                 0
                 if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0
@@ -518,23 +522,23 @@ class ZestConsoleUI(ZestRunner):
 
     # Event overloads from super class
 
-    def _event_considering(self, root_name, module_name, package, member_groups):
+    def event_considering(self, root_name, module_name, package, member_groups):
         pass
 
-    def _event_skip(self, root_name):
+    def event_skip(self, root_name):
         pass
 
-    def _event_running(self, root_name):
+    def event_running(self, root_name):
         pass
 
-    def _event_not_running(self, root_name):
+    def event_not_running(self, root_name):
         pass
 
-    def _event_complete(self):
+    def event_complete(self):
         self.complete = True
 
 
-    def _test_start_callback(self, name, call_stack, func):
+    def event_test_start(self, name, call_stack, func):
         """
         This is a callback in the runner thread
         """
@@ -542,7 +546,7 @@ class ZestConsoleUI(ZestRunner):
         self._current_run_test = name
         time.sleep(0.2)  # Testing delay
 
-    def _test_stop_callback(self, name, call_stack, error, elapsed, func):
+    def event_test_stop(self, name, call_stack, error, elapsed, func):
         """
         This is a callback in the runner thread
         """
@@ -554,13 +558,13 @@ class ZestConsoleUI(ZestRunner):
             self.n_success += 1
 
     # Components
-    def _draw_title_bar(self):
+    def draw_title_bar(self):
         # Title bar
         state_menu = self.menu_by_state[self.state]
         rows, cols = self.scr.getmaxyx()
         self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
 
-    def _draw_summary(self, y):
+    def draw_summary(self, y):
         n_total = self.n_success + self.n_errors
         if n_total > 0:
             if self.complete:
@@ -569,49 +573,92 @@ class ZestConsoleUI(ZestRunner):
                 self.scr.addstr(y, 0, "Running :")
             self.scr.addstr(y, 10, f"{self.n_success} + {self.n_errors} = {n_total}")
 
-    def _draw_fail_lines(self, y):
+    def draw_fail_lines(self, y):
         if self.n_errors > 0:
             self.scr.addstr(y, 0, f"Failed tests... (select by number to auto-rerun)")
             for i, (test, error, stack) in enumerate(self.errors):
                 self.scr.addstr(i+y+1, 0, f"{i+1}) {test}")
 
-    def s(self, *strs):
-        self.output_str += "".join(strs) + reset
+    def draw_fail_details(self, y, name, error, stack):
+        import pudb; pudb.set_trace()
+        self.scr.addstr(y, 0, f"Failed test {name}")
 
-    def _draw_fail_details(self, y, error):
-        self.scr.addstr(y, 0, f"Failed test {error[0]}")
+        s = ""
 
-        # TODO: Overloading self.s is pretty hacky. Fix
-        # Also printing escape codes inside of curses does not work
-        # I'd have to change disply error anyway.
-        # See: https://stackoverflow.com/a/35248222
-        self.output_str = ""
-        self.display_error(self.errors[0][1], self.errors[0][2])
-        for i, error_line in enumerate(self.output_str.split("\n")):
-            self.scr.addstr(y+i+1, 0, error_line)
+        _bold = ""
+        _red = ""
+        _gray = ""
+        _yellow = ""
+        _magenta = ""
 
-    def _draw_awaiting(self, y):
+        leaf_test_name = stack[-1]
+        formatted_test_name = (
+            " . ".join(stack[0:-1]) + _bold + " . " + leaf_test_name
+        )
+
+        s += ss("\n", self.error_header("=", _red, formatted_test_name), "\n")
+        formatted = traceback.format_exception(
+            etype=type(error), value=error, tb=error.__traceback__
+        )
+        lines = []
+        for line in formatted:
+            lines += [sub_line for sub_line in line.strip().split("\n")]
+
+        is_libs = False
+        for line in lines[1:-1]:
+            split_line = self._traceback_match_filename(line)
+            if split_line is None:
+                self.s(_gray if is_libs else "", line, "\n")
+            else:
+                leading, basename, lineno, context, is_libs = split_line
+                if is_libs:
+                    s += ss(_gray, "File ", leading, "/", basename)
+                    s += ss(_gray, ":", lineno)
+                    s += ss(_gray, " in function ")
+                    s += ss(_gray, context, "\n")
+                else:
+                    s += ss("File ", _yellow, leading, "/", _yellow, _bold, basename)
+                    s += ss(":", yellow, lineno)
+                    s += ss(" in function ")
+                    if leaf_test_name == context:
+                        s += ss(_red, _bold, context, "\n")
+                    else:
+                        s += ss(_magenta, _bold, context, "\n")
+
+        s += ss(_red, "raised: ", _red, _bold, error.__class__.__name__, "\n")
+        error_message = str(error).strip()
+        if error_message != "":
+            s += ss(_red, error_message, "\n")
+
+        for i, line in enumerate(s.split("\n")):
+            self.scr.addstr(y+i+1, 0, line)
+
+    def draw_awaiting(self, y):
         self.scr.addstr(y, 0, f"Awaiting")
 
-    def _render(self):
+    def render(self):
         self.scr.clear()
-        self._draw_title_bar()
+        self.draw_title_bar()
         self.render_funcs[self.state](self)
         self.scr.refresh()
         self.dirty = False
 
-    def _runner_thread(self, *args):
+    def runner_thread_fn(self, *args):
+        log("runner_thread 1")
         try:
             self.run(include_dirs="/Users/zack/git/zbs.zest", match_string="zest_basics", verbose=2)
         except KeyboardInterrupt:
             return
+        log("runner_thread 2")
 
     def start_runner_thread(self):
+        log("start runner_thread 1")
         assert self.runner_thread is None
-        self.runner_thread = threading.Thread(target=self._runner_thread, args=())
+        self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=())
         self.runner_thread.start()
+        log("start runner_thread 2")
 
-    def _key_poll_thread(self):
+    def key_poll_thread_fn(self):
         try:
             self.key = None
             self.key = self.scr.getkey()
@@ -621,7 +668,7 @@ class ZestConsoleUI(ZestRunner):
 
     def start_key_poll_thread(self):
         assert self.key_poll_thread is None
-        self.key_poll_thread = threading.Thread(target=self._key_poll_thread, args=())
+        self.key_poll_thread = threading.Thread(target=self.key_poll_thread_fn, args=())
         self.key_poll_thread.start()
 
     def __init__(self, scr):
@@ -637,6 +684,7 @@ class ZestConsoleUI(ZestRunner):
         self.auto_run_state = "awaiting"
         self.running_state_show_details = None
         self.output_str = ""
+        self.key = None
 
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
@@ -649,18 +697,19 @@ class ZestConsoleUI(ZestRunner):
 
     def state_main_menu(self):
         while True:
-            self._render()
+            self.render()
             key = self.scr.getkey()
             if key == "r":
                 return "running"
             # if key == "f":
             #     return self.state_running
             if key == "q":
+                log("main menu q")
                 return None
 
     def render_main_menu(self):
-        self._draw_summary(y=1)
-        self._draw_fail_lines(y=2)
+        self.draw_summary(y=1)
+        self.draw_fail_lines(y=2)
 
     def state_running(self):
         self.errors = []
@@ -671,28 +720,26 @@ class ZestConsoleUI(ZestRunner):
         self.start_key_poll_thread()
         self.running_state_show_details = None
         while self.runner_thread.is_alive():
-            log(f"key1 {self.key}")
             if self.key in [str(i) for i in range(1, 10)]:
                 self.running_state_show_details = ord(self.key) - ord("1")
-                log(f"self.running_state_show_details {self.running_state_show_details}")
-                log(f"errors {self.errors}")
                 self.dirty = True
             if self.dirty:
-                self._render()
+                self.render()
             time.sleep(0.1)
         self.runner_thread = None
         return "main_menu"
 
     def render_running(self):
-        self._draw_summary(y=1)
-        self._draw_fail_lines(y=2)
+        self.draw_summary(y=1)
+        self.draw_fail_lines(y=2)
         if self.running_state_show_details is not None:
-            self._draw_fail_details(y=3, error=self.errors[self.running_state_show_details])
+            name, error, stack = self.errors[self.running_state_show_details]
+            self.draw_fail_details(3, name, error, stack)
 
     def state_auto_run(self):
         self.auto_run_state = "awaiting"
         while True:
-            self._render()
+            self.render()
             key = self.scr.getkey()
             if key == "m":
                 return "main_menu"
@@ -703,10 +750,11 @@ class ZestConsoleUI(ZestRunner):
 
     def render_auto_run(self):
         if self.auto_run_state == "awaiting":
-            self._draw_awaiting(y=2)
+            self.draw_awaiting(y=2)
         if self.auto_run_state == "running":
             if self.n_errors > 0:
-                self._draw_fail_details(y=3, error=self.errors[0])
+                name, error, stack = self.errors[self.running_state_show_details]
+                self.draw_fail_details(3, name, error, stack)
 
     state_funcs = dict(
         main_menu=state_main_menu,
