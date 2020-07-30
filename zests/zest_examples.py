@@ -66,7 +66,10 @@ def zest_basics():
 
         assert test_count == 1 and ignored_count == 0
 
-    def it_fails():
+    def it_fails_1():
+        assert False
+
+    def it_fails_2():
         assert False
 
     def it_calls_start_and_stop_callbacks():

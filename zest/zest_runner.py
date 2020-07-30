@@ -9,6 +9,11 @@ import sys
 import traceback
 from importlib import import_module, util
 import curses
+import copy
+if os.name == 'nt':
+    import msvcrt
+else:
+    import select
 
 from zest import zest
 
@@ -335,6 +340,9 @@ class ZestRunner:
         if self.verbose > 2:
             self.s(cyan, f"Not running\n")
 
+    def event_stop_requested(self):
+        return False
+
     def event_complete(self):
         self.display_errors(zest._call_log, zest._call_errors)
         self.display_complete(zest._call_log, zest._call_errors)
@@ -388,6 +396,9 @@ class ZestRunner:
         allow_to_run = []
         root_zest_funcs = {}
         for curr in self.walk():
+            if self.event_stop_requested():
+                break
+
             for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
                 path = os.path.join(curr, module_name + ".py")
                 with open(path) as f:
@@ -433,6 +444,9 @@ class ZestRunner:
             root_name,
             (module_name, package, member_groups, full_name),
         ) in root_zest_funcs.items():
+            if self.event_stop_requested():
+                break
+
             self.event_considering(root_name, module_name, package, member_groups)
 
             if not has_run.get(root_name):
@@ -458,7 +472,7 @@ class ZestRunner:
             self.event_complete()
             self.retcode = (
                 0
-                if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0
+                if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0 and not self.event_stop_requested()
                 else 1
             )
 
@@ -504,6 +518,18 @@ def main():
     sys.exit(runner.retcode)
 
 
+def kbhit():
+    '''
+    Returns True if a keypress is waiting to be read in stdin, False otherwise.
+    Base on: https://stackoverflow.com/a/55692274
+    '''
+    if os.name == 'nt':
+        return msvcrt.kbhit()
+    else:
+        dr, dw, de = select.select([sys.stdin], [], [], 0)
+        return dr != []
+
+
 class ZestConsoleUI(ZestRunner):
     """
     Controls console based UI.
@@ -536,23 +562,27 @@ class ZestConsoleUI(ZestRunner):
 
     def event_complete(self):
         self.complete = True
+        self.dirty = True
 
+    def event_stop_requested(self):
+        return self.stop_requested
 
     def event_test_start(self, name, call_stack, func):
         """
         This is a callback in the runner thread
         """
         self.dirty = True
-        self._current_run_test = name
+        self.current_run_test = name
         time.sleep(0.2)  # Testing delay
 
     def event_test_stop(self, name, call_stack, error, elapsed, func):
         """
         This is a callback in the runner thread
         """
-        self._current_run_test = None
+        self.dirty = True
+        self.current_run_test = None
         if error is not None:
-            self.errors += [(name, error, call_stack)]
+            self.errors += [(name, error, copy.copy(call_stack))]
             self.n_errors += 1
         else:
             self.n_success += 1
@@ -580,9 +610,6 @@ class ZestConsoleUI(ZestRunner):
                 self.scr.addstr(i+y+1, 0, f"{i+1}) {test}")
 
     def draw_fail_details(self, y, name, error, stack):
-        import pudb; pudb.set_trace()
-        self.scr.addstr(y, 0, f"Failed test {name}")
-
         s = ""
 
         _bold = ""
@@ -596,7 +623,7 @@ class ZestConsoleUI(ZestRunner):
             " . ".join(stack[0:-1]) + _bold + " . " + leaf_test_name
         )
 
-        s += ss("\n", self.error_header("=", _red, formatted_test_name), "\n")
+        s += ss("\n", formatted_test_name, "\n")
         formatted = traceback.format_exception(
             etype=type(error), value=error, tb=error.__traceback__
         )
@@ -618,7 +645,7 @@ class ZestConsoleUI(ZestRunner):
                     s += ss(_gray, context, "\n")
                 else:
                     s += ss("File ", _yellow, leading, "/", _yellow, _bold, basename)
-                    s += ss(":", yellow, lineno)
+                    s += ss(":", _yellow, lineno)
                     s += ss(" in function ")
                     if leaf_test_name == context:
                         s += ss(_red, _bold, context, "\n")
@@ -636,47 +663,30 @@ class ZestConsoleUI(ZestRunner):
     def draw_awaiting(self, y):
         self.scr.addstr(y, 0, f"Awaiting")
 
-    def render(self):
+    def render_start(self):
         self.scr.clear()
         self.draw_title_bar()
-        self.render_funcs[self.state](self)
-        self.scr.refresh()
-        self.dirty = False
 
-    def runner_thread_fn(self, *args):
-        log("runner_thread 1")
-        try:
-            self.run(include_dirs="/Users/zack/git/zbs.zest", match_string="zest_basics", verbose=2)
-        except KeyboardInterrupt:
-            return
-        log("runner_thread 2")
+    def render_end(self):
+        self.scr.refresh()
+
+    def runner_thread_fn(self):
+        # try:
+        self.run(include_dirs="/Users/zack/git/zbs.zest", match_string="zest_basics", verbose=2)
+        # except KeyboardInterrupt:
+        #     return
 
     def start_runner_thread(self):
-        log("start runner_thread 1")
         assert self.runner_thread is None
         self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=())
         self.runner_thread.start()
-        log("start runner_thread 2")
-
-    def key_poll_thread_fn(self):
-        try:
-            self.key = None
-            self.key = self.scr.getkey()
-            log(f"got key poll {self.key}")
-        finally:
-            self.key_poll_thread = None
-
-    def start_key_poll_thread(self):
-        assert self.key_poll_thread is None
-        self.key_poll_thread = threading.Thread(target=self.key_poll_thread_fn, args=())
-        self.key_poll_thread.start()
 
     def __init__(self, scr):
         self.scr = scr
         self.state = "main_menu"
-        self.key_poll_thread = None
         self.runner_thread = None
         self.dirty = False
+        self.current_run_test = None
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
@@ -685,6 +695,8 @@ class ZestConsoleUI(ZestRunner):
         self.running_state_show_details = None
         self.output_str = ""
         self.key = None
+        self.num_keys = [str(i) for i in range(1, 10)]
+        self.stop_requested = False
 
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
@@ -695,46 +707,63 @@ class ZestConsoleUI(ZestRunner):
                 break
             self.state = new_state
 
+    def num_key_to_int(self, key):
+        return ord(key) - ord("1")
+
+    # States
+    # It is each state's job to check events and call its own render and spuer rener
+
     def state_main_menu(self):
+        def render():
+            self.render_start()
+            self.render_end()
+
         while True:
-            self.render()
+            render()
             key = self.scr.getkey()
             if key == "r":
                 return "running"
-            # if key == "f":
-            #     return self.state_running
             if key == "q":
-                log("main menu q")
                 return None
 
-    def render_main_menu(self):
-        self.draw_summary(y=1)
-        self.draw_fail_lines(y=2)
-
     def state_running(self):
+        show_details_i = None
+
+        def render():
+            self.render_start()
+            self.draw_summary(y=1)
+            self.draw_fail_lines(y=2)
+            n_errors = len(self.errors)
+            if show_details_i is not None and 0 <= show_details_i < n_errors:
+                name, error, stack = self.errors[show_details_i]
+                self.draw_fail_details(3 + n_errors, name, error, stack)
+            self.render_end()
+
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
         self.complete = False
+        self.dirty = True
+        self.stop_requested = False
         self.start_runner_thread()
-        self.start_key_poll_thread()
-        self.running_state_show_details = None
-        while self.runner_thread.is_alive():
-            if self.key in [str(i) for i in range(1, 10)]:
-                self.running_state_show_details = ord(self.key) - ord("1")
-                self.dirty = True
-            if self.dirty:
-                self.render()
-            time.sleep(0.1)
-        self.runner_thread = None
-        return "main_menu"
 
-    def render_running(self):
-        self.draw_summary(y=1)
-        self.draw_fail_lines(y=2)
-        if self.running_state_show_details is not None:
-            name, error, stack = self.errors[self.running_state_show_details]
-            self.draw_fail_details(3, name, error, stack)
+        while True:
+            try:
+                if self.dirty:
+                    render()
+                    self.dirty = False
+                if kbhit():
+                    key = self.scr.getkey()
+                    if key in self.num_keys:
+                        show_details_i = self.num_key_to_int(key)
+                        render()
+                    if key == "q":
+                        return None
+                time.sleep(0.1)
+            except KeyboardInterrupt:
+                self.stop_requested = True
+
+        return "main_menu"
 
     def state_auto_run(self):
         self.auto_run_state = "awaiting"
@@ -762,19 +791,11 @@ class ZestConsoleUI(ZestRunner):
         auto_run=state_auto_run,
     )
 
-    render_funcs = dict(
-        main_menu=render_main_menu,
-        running=render_running,
-        auto_run=render_auto_run,
-    )
-
     menu_by_state = dict(
         main_menu="Main menu:  r)un tests   f)ailed tests   q)uit",
-        running="Running:  ^C to stop   1-9 to toggle error details",
+        running="Running:  ^C to pause   1-9 to toggle error details   q)uit",
         auto_run="Auto-run:  m)ain menu   r)e-run   q)uit",
     )
-
-
 
 
 if __name__ == "__main__":
