@@ -676,10 +676,19 @@ class ZestConsoleUI(ZestRunner):
         # except KeyboardInterrupt:
         #     return
 
-    def start_runner_thread(self):
+    def runner_thread_start(self):
+        self.errors = []
+        self.n_success = 0
+        self.n_errors = 0
+        self.complete = False
+        self.dirty = True
+        self.stop_requested = False
         assert self.runner_thread is None
         self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=())
         self.runner_thread.start()
+
+    def runner_thread_is_running(self):
+        return self.runner_thread.is_alive()
 
     def __init__(self, scr):
         self.scr = scr
@@ -728,24 +737,21 @@ class ZestConsoleUI(ZestRunner):
 
     def state_running(self):
         show_details_i = None
+        self.runner_thread_start()
+        self.auto_run_state = None
 
         def render():
             self.render_start()
-            self.draw_summary(y=1)
-            self.draw_fail_lines(y=2)
+            if self.auto_run_state is not None:
+                self.scr.addstr(1, 0, f"Auto-run {show_details_i}, state {self.auto_run_state}")
+            else:
+                self.draw_summary(y=1)
+                self.draw_fail_lines(y=2)
             n_errors = len(self.errors)
             if show_details_i is not None and 0 <= show_details_i < n_errors:
                 name, error, stack = self.errors[show_details_i]
-                self.draw_fail_details(3 + n_errors, name, error, stack)
+                self.draw_fail_details(2 + n_errors, name, error, stack)
             self.render_end()
-
-        self.errors = []
-        self.n_success = 0
-        self.n_errors = 0
-        self.complete = False
-        self.dirty = True
-        self.stop_requested = False
-        self.start_runner_thread()
 
         while True:
             try:
@@ -755,46 +761,40 @@ class ZestConsoleUI(ZestRunner):
                 if kbhit():
                     key = self.scr.getkey()
                     if key in self.num_keys:
-                        show_details_i = self.num_key_to_int(key)
+                        new_show_details_i = self.num_key_to_int(key)
+                        if new_show_details_i == show_details_i:
+                            show_details_i = None
+                        else:
+                            show_details_i = new_show_details_i
                         render()
                     if key == "q":
                         return None
+                    if key == "a":
+                        if show_details_i is not None:
+                            self.stop_requested = True
+                            self.auto_run_state = "Awaiting previous run halt"
+                        else:
+                            self.stop_requested = True
+                            self.auto_run_state = None
+                            show_details_i = None
+                        render()
+
                 time.sleep(0.1)
             except KeyboardInterrupt:
                 self.stop_requested = True
 
         return "main_menu"
 
-    def state_auto_run(self):
-        self.auto_run_state = "awaiting"
-        while True:
-            self.render()
-            key = self.scr.getkey()
-            if key == "m":
-                return "main_menu"
-            # if key == "r":
-            #     return self.state_running
-            if key == "q":
-                return None
-
-    def render_auto_run(self):
-        if self.auto_run_state == "awaiting":
-            self.draw_awaiting(y=2)
-        if self.auto_run_state == "running":
-            if self.n_errors > 0:
-                name, error, stack = self.errors[self.running_state_show_details]
-                self.draw_fail_details(3, name, error, stack)
-
     state_funcs = dict(
         main_menu=state_main_menu,
         running=state_running,
-        auto_run=state_auto_run,
+        # auto_run=state_auto_run,
     )
 
     menu_by_state = dict(
         main_menu="Main menu:  r)un tests   f)ailed tests   q)uit",
-        running="Running:  ^C to pause   1-9 to toggle error details   q)uit",
-        auto_run="Auto-run:  m)ain menu   r)e-run   q)uit",
+        running="Running:  ^C to pause   1-9 to toggle error details   a)uto-run   q)uit",
+        # auto_run="Auto-run:  m)ain menu   r)e-run   q)uit",
     )
 
 
