@@ -546,8 +546,62 @@ class ZestConsoleUI(ZestRunner):
     A state implies a set of keyboard commands and a layout
     """
 
-    # Event overloads from super class
+    NO_AUTO_RUN = 0
+    AWAITING_START = 1
+    STARTED = 2
+    DONE = 3
+    auto_run_state_strs = [
+        "Not selected",
+        "Awaiting start",
+        "Started",
+        "Done",
+    ]
 
+    PAL_NONE = 0
+    PAL_MENU = 1
+    PAL_MENU_KEY = 2
+    PAL_MENU_AUTORUN_STATE = 3
+    PAL_NAME = 4
+    PAL_STATUS = 5
+    PAL_SUCCESS = 6
+    PAL_FAIL = 7
+    PAL_SKIPPED = 8
+    PAL_ERROR_KEY = 9
+
+    pal = [
+        # PAL_NONE
+        (-1, -1, 0),
+
+        # PAL_MENU
+        (curses.COLOR_BLACK, curses.COLOR_WHITE, 0),
+
+        # PAL_MENU_KEY
+        (curses.COLOR_RED, curses.COLOR_WHITE, curses.A_BOLD),
+
+        # PAL_MENU_AUTORUN_STATE
+        (curses.COLOR_BLUE, curses.COLOR_WHITE, 0),
+
+        # PAL_NAME
+        (curses.COLOR_CYAN, -1, 0),
+
+        # PAL_STATUS
+        (curses.COLOR_CYAN, -1, 0),
+
+        # PAL_SUCCESS
+        (curses.COLOR_GREEN, -1, 0),
+
+        # PAL_FAIL
+        (curses.COLOR_RED, -1, curses.A_BOLD),
+
+        # PAL_SKIPPED
+        (curses.COLOR_YELLOW, -1, 0),
+
+        # PAL_ERROR_KEY
+        (curses.COLOR_RED, -1, curses.A_BOLD),
+
+    ]
+
+    # Event overloads from super class
     def event_considering(self, root_name, module_name, package, member_groups):
         pass
 
@@ -588,26 +642,61 @@ class ZestConsoleUI(ZestRunner):
             self.n_success += 1
 
     # Components
+
+    def print(self, y, x, *args):
+        pal = self.PAL_MENU
+        for arg in args:
+            if isinstance(arg, int):
+                pal = arg
+            else:
+                self.scr.addstr(y, x, str(arg), self.pal[pal][2] | curses.color_pair(pal))
+                x += len(str(arg))
+
     def draw_title_bar(self):
         # Title bar
-        state_menu = self.menu_by_state[self.state]
+        state_menu = f"1-9) view error   a)uto-re-run   q)uit   Auto-run: {self.auto_run_state_strs[self.auto_run_state]}"
         rows, cols = self.scr.getmaxyx()
-        self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
+        # self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
+        # self.scr.addstr(0, 0, "FOOBAR", curses.color_pair(1))
+        self.print(
+            0, 0,
+            self.PAL_MENU_KEY, "1-9)",
+            self.PAL_MENU, "view error   ",
+            self.PAL_MENU_KEY, "a)",
+            self.PAL_MENU, "uto-re-run   ",
+            self.PAL_MENU_KEY, "q)",
+            self.PAL_MENU, "uit   ",
+            self.PAL_MENU_AUTORUN_STATE, self.auto_run_state_strs[self.auto_run_state]
+        )
 
     def draw_summary(self, y):
         n_total = self.n_success + self.n_errors
         if n_total > 0:
-            if self.complete:
-                self.scr.addstr(y, 0, "Complete:")
-            else:
-                self.scr.addstr(y, 0, "Running :")
-            self.scr.addstr(y, 10, f"{self.n_success} + {self.n_errors} = {n_total}")
+            state = "Complete: " if self.complete else "Running : "
+            self.print(
+                y, 0,
+                self.PAL_NONE, state,
+                self.PAL_SUCCESS, str(self.n_success),
+                self.PAL_NONE, " + ",
+                self.PAL_FAIL, str(self.n_errors),
+                self.PAL_NONE, " + ",
+                self.PAL_SKIPPED, str(self.n_skips),
+                self.PAL_NONE, " = ",
+                self.PAL_NONE, str(self.n_success + self.n_errors + self.n_skips),
+            )
 
     def draw_fail_lines(self, y):
         if self.n_errors > 0:
-            self.scr.addstr(y, 0, f"Failed tests... (select by number to auto-rerun)")
-            for i, (test, error, stack) in enumerate(self.errors):
-                self.scr.addstr(i+y+1, 0, f"{i+1}) {test}")
+            self.scr.addstr(y, 0, f"Failed tests:")
+            for i, (name, error, stack) in enumerate(self.errors):
+                # self.scr.addstr(i+y+1, 0, f"{i+1}) {name}")
+                self.print(
+                    i + y + 1, 0,
+                    self.PAL_ERROR_KEY, str(i+1),
+                    self.PAL_NONE, ") ",
+                    self.PAL_NAME, name,
+                )
+
 
     def draw_fail_details(self, y, name, error, stack):
         s = ""
@@ -663,20 +752,16 @@ class ZestConsoleUI(ZestRunner):
     def draw_awaiting(self, y):
         self.scr.addstr(y, 0, f"Awaiting")
 
-    def render_start(self):
-        self.scr.clear()
-        self.draw_title_bar()
+    def runner_thread_fn(self, which=None):
+        # TEMPORARY HACK
+        try:
+            if which is None:
+                which = "zest_basics"
+            self.run(include_dirs="/Users/zack/git/zbs.zest", match_string=which, verbose=2)
+        finally:
+            self.runner_thread = None
 
-    def render_end(self):
-        self.scr.refresh()
-
-    def runner_thread_fn(self):
-        # try:
-        self.run(include_dirs="/Users/zack/git/zbs.zest", match_string="zest_basics", verbose=2)
-        # except KeyboardInterrupt:
-        #     return
-
-    def runner_thread_start(self):
+    def runner_thread_start(self, which=None):
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
@@ -684,118 +769,89 @@ class ZestConsoleUI(ZestRunner):
         self.dirty = True
         self.stop_requested = False
         assert self.runner_thread is None
-        self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=())
+        self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=(which,))
         self.runner_thread.start()
 
     def runner_thread_is_running(self):
-        return self.runner_thread.is_alive()
+        return self.runner_thread is not None and self.runner_thread.is_alive()
+
+    def render(self):
+        if not self.dirty:
+            return
+        self.dirty = False
+        self.scr.clear()
+        self.draw_title_bar()
+        self.draw_summary(y=1)
+        self.draw_fail_lines(y=3)
+        n_errors = len(self.errors)
+        if self.show_error is not None:
+            self.draw_fail_details(3 + n_errors, *self.show_error)
+        self.scr.refresh()
+
+    def num_key_to_int(self, key):
+        return ord(key) - ord("1")
 
     def __init__(self, scr):
         self.scr = scr
-        self.state = "main_menu"
         self.runner_thread = None
         self.dirty = False
         self.current_run_test = None
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
+        self.n_skips = 0
         self.complete = False
-        self.auto_run_state = "awaiting"
         self.running_state_show_details = None
         self.output_str = ""
         self.key = None
         self.num_keys = [str(i) for i in range(1, 10)]
         self.stop_requested = False
+        self.show_error = None
+        self.auto_run_state = self.NO_AUTO_RUN
 
         curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
+        for i, p in enumerate(self.pal):
+            if i > 0:
+                curses.init_pair(i, self.pal[i][0], self.pal[i][1])
 
-        while True:
-            new_state = self.state_funcs[self.state](self)
-            if new_state is None:
-                break
-            self.state = new_state
-
-    def num_key_to_int(self, key):
-        return ord(key) - ord("1")
-
-    # States
-    # It is each state's job to check events and call its own render and spuer rener
-
-    def state_main_menu(self):
-        def render():
-            self.render_start()
-            self.render_end()
-
-        while True:
-            render()
-            key = self.scr.getkey()
-            if key == "r":
-                return "running"
-            if key == "q":
-                return None
-
-    def state_running(self):
-        show_details_i = None
         self.runner_thread_start()
-        self.auto_run_state = None
-
-        def render():
-            self.render_start()
-            if self.auto_run_state is not None:
-                self.scr.addstr(1, 0, f"Auto-run {show_details_i}, state {self.auto_run_state}")
-            else:
-                self.draw_summary(y=1)
-                self.draw_fail_lines(y=2)
-            n_errors = len(self.errors)
-            if show_details_i is not None and 0 <= show_details_i < n_errors:
-                name, error, stack = self.errors[show_details_i]
-                self.draw_fail_details(2 + n_errors, name, error, stack)
-            self.render_end()
 
         while True:
             try:
-                if self.dirty:
-                    render()
-                    self.dirty = False
+                self.render()
                 if kbhit():
                     key = self.scr.getkey()
                     if key in self.num_keys:
-                        new_show_details_i = self.num_key_to_int(key)
-                        if new_show_details_i == show_details_i:
-                            show_details_i = None
-                        else:
-                            show_details_i = new_show_details_i
-                        render()
+                        show_details_i = self.num_key_to_int(key)
+                        self.show_error = self.errors[show_details_i]
+                        self.dirty = True
+
                     if key == "q":
                         return None
+
                     if key == "a":
-                        if show_details_i is not None:
+                        if self.show_error is not None:
                             self.stop_requested = True
-                            self.auto_run_state = "Awaiting previous run halt"
+                            self.auto_run_state = self.AWAITING_START
                         else:
-                            self.stop_requested = True
-                            self.auto_run_state = None
-                            show_details_i = None
-                        render()
+                            self.auto_run_state = self.NO_AUTO_RUN
+                        self.dirty = True
+
+                if self.auto_run_state == self.AWAITING_START:
+                    if not self.runner_thread_is_running():
+                        self.auto_run_state = self.STARTED
+                        self.runner_thread_start(which="it_fails_1")
+                        self.dirty = True
+
+                if self.auto_run_state == self.STARTED:
+                    if not self.runner_thread_is_running():
+                        self.auto_run_state = self.DONE
+                        self.dirty = True
 
                 time.sleep(0.1)
+
             except KeyboardInterrupt:
                 self.stop_requested = True
-
-        return "main_menu"
-
-    state_funcs = dict(
-        main_menu=state_main_menu,
-        running=state_running,
-        # auto_run=state_auto_run,
-    )
-
-    menu_by_state = dict(
-        main_menu="Main menu:  r)un tests   f)ailed tests   q)uit",
-        running="Running:  ^C to pause   1-9 to toggle error details   a)uto-run   q)uit",
-        # auto_run="Auto-run:  m)ain menu   r)e-run   q)uit",
-    )
 
 
 if __name__ == "__main__":
