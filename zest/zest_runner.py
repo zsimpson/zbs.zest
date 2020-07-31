@@ -46,11 +46,6 @@ def log(*args):
     log_fp.write("".join([str(i) for i in args]) + "\n")
 
 
-def ss(*strs):
-    return "".join([str(i) for i in strs])
-
-
-
 class ZestRunner:
     """
     The stand-alone zest runner.
@@ -546,27 +541,38 @@ class ZestConsoleUI(ZestRunner):
     A state implies a set of keyboard commands and a layout
     """
 
-    NO_AUTO_RUN = 0
-    AWAITING_START = 1
-    STARTED = 2
+    NO_RUN = 0
+    RUNNING = 1
+    STOPPING = 2
     DONE = 3
-    auto_run_state_strs = [
-        "Not selected",
-        "Awaiting start",
-        "Started",
+    run_state_strs = [
+        "Nothing to run",
+        "Running",
+        "Stopping",
         "Done",
     ]
 
     PAL_NONE = 0
     PAL_MENU = 1
     PAL_MENU_KEY = 2
-    PAL_MENU_AUTORUN_STATE = 3
-    PAL_NAME = 4
-    PAL_STATUS = 5
-    PAL_SUCCESS = 6
-    PAL_FAIL = 7
-    PAL_SKIPPED = 8
-    PAL_ERROR_KEY = 9
+    PAL_MENU_RUN_STATE = 3
+    PAL_MENU_RUN_STATUS = 4
+    PAL_NAME = 5
+    PAL_NAME_SELECTED = 6
+    PAL_STATUS = 7
+    PAL_SUCCESS = 8
+    PAL_FAIL = 9
+    PAL_SKIPPED = 10
+    PAL_FAIL_KEY = 11
+
+    PAL_ERROR_LIB = 12
+    PAL_ERROR_PATHNAME = 13
+    PAL_ERROR_FILENAME = 14
+    PAL_ERROR_CONTEXT = 15
+    PAL_ERROR_MESSAGE = 16
+    PAL_ERROR_BASE = 17
+    PAL_ERROR_LINENO = 18
+    PAL_LINE = 19
 
     pal = [
         # PAL_NONE
@@ -581,8 +587,14 @@ class ZestConsoleUI(ZestRunner):
         # PAL_MENU_AUTORUN_STATE
         (curses.COLOR_BLUE, curses.COLOR_WHITE, 0),
 
+        # PAL_MENU_AUTORUN_STATUS
+        (curses.COLOR_CYAN, curses.COLOR_WHITE, 0),
+
         # PAL_NAME
         (curses.COLOR_CYAN, -1, 0),
+
+        # PAL_NAME_SELECTED
+        (curses.COLOR_CYAN, -1, curses.A_BOLD),
 
         # PAL_STATUS
         (curses.COLOR_CYAN, -1, 0),
@@ -596,9 +608,32 @@ class ZestConsoleUI(ZestRunner):
         # PAL_SKIPPED
         (curses.COLOR_YELLOW, -1, 0),
 
-        # PAL_ERROR_KEY
+        # PAL_FAIL_KEY
         (curses.COLOR_RED, -1, curses.A_BOLD),
 
+        # PAL_ERROR_LIB
+        (curses.COLOR_BLACK, -1, curses.A_BOLD),
+
+        # PAL_ERROR_PATHNAME
+        (curses.COLOR_YELLOW, -1, 0),
+
+        # PAL_ERROR_FILENAME
+        (curses.COLOR_YELLOW, -1, curses.A_BOLD),
+
+        # PAL_ERROR_CONTEXT
+        (curses.COLOR_MAGENTA, -1, curses.A_BOLD),
+
+        # PAL_ERROR_MESSAGE
+        (curses.COLOR_RED, -1, curses.A_BOLD),
+
+        # PAL_ERROR_BASE
+        (curses.COLOR_WHITE, -1, 0),
+
+        # PAL_ERROR_LINENO
+        (curses.COLOR_YELLOW, -1, curses.A_BOLD),
+
+        # PAL_LINE
+        (curses.COLOR_RED, -1, curses.A_BOLD),
     ]
 
     # Event overloads from super class
@@ -626,7 +661,7 @@ class ZestConsoleUI(ZestRunner):
         This is a callback in the runner thread
         """
         self.dirty = True
-        self.current_run_test = name
+        self.current_run_test = " . ".join(call_stack)
         time.sleep(0.2)  # Testing delay
 
     def event_test_stop(self, name, call_stack, error, elapsed, func):
@@ -651,68 +686,101 @@ class ZestConsoleUI(ZestRunner):
             else:
                 self.scr.addstr(y, x, str(arg), self.pal[pal][2] | curses.color_pair(pal))
                 x += len(str(arg))
+        return x
 
     def draw_title_bar(self):
         # Title bar
-        state_menu = f"1-9) view error   a)uto-re-run   q)uit   Auto-run: {self.auto_run_state_strs[self.auto_run_state]}"
+        state_menu = f"1-9) view error   a)uto-re-run   q)uit   Auto-run: {self.run_state_strs[self.run_state]}"
         rows, cols = self.scr.getmaxyx()
         # self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
         # self.scr.addstr(0, 0, "FOOBAR", curses.color_pair(1))
-        self.print(
+        length = self.print(
             0, 0,
             self.PAL_MENU_KEY, "1-9)",
             self.PAL_MENU, "view error   ",
+            self.PAL_MENU_KEY, "r)",
+            self.PAL_MENU, "e-run   ",
             self.PAL_MENU_KEY, "a)",
             self.PAL_MENU, "uto-re-run   ",
             self.PAL_MENU_KEY, "q)",
             self.PAL_MENU, "uit   ",
-            self.PAL_MENU_AUTORUN_STATE, self.auto_run_state_strs[self.auto_run_state]
+            self.PAL_MENU_RUN_STATE, "Run state: ", self.run_state_strs[self.run_state] + " ",
+            self.PAL_MENU_RUN_STATUS, self.current_run_test or ""
         )
+
+        # Fill to end of line
+        if cols - length > 0:
+            self.scr.addstr(0, length, f"{' ':<{cols - length}}", curses.color_pair(self.PAL_MENU))
+
+    def draw_horiz_line(self, y):
+        rows, cols = self.scr.getmaxyx()
+        self.print(y, 0, self.PAL_LINE, " - " * int(cols / 3))
 
     def draw_summary(self, y):
         n_total = self.n_success + self.n_errors
-        if n_total > 0:
-            state = "Complete: " if self.complete else "Running : "
-            self.print(
-                y, 0,
-                self.PAL_NONE, state,
-                self.PAL_SUCCESS, str(self.n_success),
-                self.PAL_NONE, " + ",
-                self.PAL_FAIL, str(self.n_errors),
-                self.PAL_NONE, " + ",
-                self.PAL_SKIPPED, str(self.n_skips),
-                self.PAL_NONE, " = ",
-                self.PAL_NONE, str(self.n_success + self.n_errors + self.n_skips),
-            )
+        self.print(
+            y, 0,
+            self.PAL_SUCCESS, "Success",
+            self.PAL_NONE, " + ",
+            self.PAL_FAIL, "Fails",
+            self.PAL_NONE, " + ",
+            self.PAL_SKIPPED, "Skipped",
+            self.PAL_NONE, " = ",
+            self.PAL_SUCCESS, str(self.n_success),
+            self.PAL_NONE, " + ",
+            self.PAL_FAIL, str(self.n_errors),
+            self.PAL_NONE, " + ",
+            self.PAL_SKIPPED, str(self.n_skips),
+            self.PAL_NONE, " = ",
+            self.PAL_NONE, str(self.n_success + self.n_errors + self.n_skips),
+        )
+
+    # def draw_run_status(self, y):
+    #     state = "Complete" if self.complete else f"Running: "
+    #     self.print(
+    #         y, 0,
+    #         self.PAL_NONE, state,
+    #         self.PAL_NAME, self.current_run_test or "",
+    #     )
 
     def draw_fail_lines(self, y):
         if self.n_errors > 0:
             self.scr.addstr(y, 0, f"Failed tests:")
             for i, (name, error, stack) in enumerate(self.errors):
-                # self.scr.addstr(i+y+1, 0, f"{i+1}) {name}")
+                formatted = traceback.format_exception(
+                    etype=type(error), value=error, tb=error.__traceback__
+                )
+                lines = []
+                for line in formatted:
+                    lines += [sub_line for sub_line in line.strip().split("\n")]
+                last_filename_line = lines[-3]
+                split_line = self._traceback_match_filename(last_filename_line)
+                leading, basename, lineno, context, is_libs = split_line
+
+                selected = self.show_error is not None and len(self.show_error) == 3 and stack == self.show_error[2]
                 self.print(
                     i + y + 1, 0,
-                    self.PAL_ERROR_KEY, str(i+1),
+                    self.PAL_FAIL_KEY, str(i+1),
                     self.PAL_NONE, ") ",
-                    self.PAL_NAME, name,
+                    self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
+                    self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, error.__class__.__name__,
+                    self.PAL_ERROR_BASE, " ",
+                    self.PAL_ERROR_PATHNAME, basename,
+                    self.PAL_ERROR_BASE, ":",
+                    self.PAL_ERROR_PATHNAME, str(lineno),
                 )
 
 
     def draw_fail_details(self, y, name, error, stack):
-        s = ""
-
-        _bold = ""
-        _red = ""
-        _gray = ""
-        _yellow = ""
-        _magenta = ""
-
         leaf_test_name = stack[-1]
-        formatted_test_name = (
-            " . ".join(stack[0:-1]) + _bold + " . " + leaf_test_name
-        )
 
-        s += ss("\n", formatted_test_name, "\n")
+        s = [self.PAL_ERROR_BASE, "Test "]
+        for name in stack[:-1]:
+            s += [self.PAL_NAME_SELECTED, name, " . "]
+        s += [self.PAL_NAME_SELECTED, leaf_test_name]
+        self.print(y, 0, *s)
+        y += 1
+
         formatted = traceback.format_exception(
             etype=type(error), value=error, tb=error.__traceback__
         )
@@ -722,32 +790,41 @@ class ZestConsoleUI(ZestRunner):
 
         is_libs = False
         for line in lines[1:-1]:
+            s = []
             split_line = self._traceback_match_filename(line)
             if split_line is None:
-                self.s(_gray if is_libs else "", line, "\n")
+                s += [self.PAL_ERROR_LIB if is_libs else self.PAL_ERROR_BASE, line]
             else:
                 leading, basename, lineno, context, is_libs = split_line
                 if is_libs:
-                    s += ss(_gray, "File ", leading, "/", basename)
-                    s += ss(_gray, ":", lineno)
-                    s += ss(_gray, " in function ")
-                    s += ss(_gray, context, "\n")
+                    s += [self.PAL_ERROR_LIB, "File ", leading, "/", basename]
+                    s += [self.PAL_ERROR_LIB, ":", str(lineno)]
+                    s += [self.PAL_ERROR_LIB, " in function "]
+                    s += [self.PAL_ERROR_LIB, context]
                 else:
-                    s += ss("File ", _yellow, leading, "/", _yellow, _bold, basename)
-                    s += ss(":", _yellow, lineno)
-                    s += ss(" in function ")
+                    s += [
+                        self.PAL_ERROR_BASE, "File ",
+                        self.PAL_ERROR_PATHNAME, leading,
+                        self.PAL_ERROR_BASE, "/",
+                        self.PAL_ERROR_FILENAME, basename,
+                        self.PAL_ERROR_BASE, ":",
+                        self.PAL_ERROR_LINENO, str(lineno),
+                        self.PAL_ERROR_BASE, " in function ",
+                    ]
                     if leaf_test_name == context:
-                        s += ss(_red, _bold, context, "\n")
+                        s += [self.PAL_ERROR_MESSAGE, context]
                     else:
-                        s += ss(_magenta, _bold, context, "\n")
+                        s += [self.PAL_ERROR_CONTEXT, context]
+            self.print(y, 0, *s)
+            y += 1
 
-        s += ss(_red, "raised: ", _red, _bold, error.__class__.__name__, "\n")
+        s = [self.PAL_ERROR_BASE, "raised: ", self.PAL_ERROR_MESSAGE, error.__class__.__name__]
+        self.print(y, 0, *s)
+        y += 1
+
         error_message = str(error).strip()
         if error_message != "":
-            s += ss(_red, error_message, "\n")
-
-        for i, line in enumerate(s.split("\n")):
-            self.scr.addstr(y+i+1, 0, line)
+            self.print(y, 4, self.PAL_ERROR_MESSAGE, error_message)
 
     def draw_awaiting(self, y):
         self.scr.addstr(y, 0, f"Awaiting")
@@ -761,12 +838,13 @@ class ZestConsoleUI(ZestRunner):
         finally:
             self.runner_thread = None
 
-    def runner_thread_start(self, which=None):
+    def runner_thread_start(self, which):
+        if which == "*":
+            which = None
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
         self.complete = False
-        self.dirty = True
         self.stop_requested = False
         assert self.runner_thread is None
         self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=(which,))
@@ -781,15 +859,46 @@ class ZestConsoleUI(ZestRunner):
         self.dirty = False
         self.scr.clear()
         self.draw_title_bar()
-        self.draw_summary(y=1)
-        self.draw_fail_lines(y=3)
+        # self.draw_run_status(y=2)
+        self.draw_summary(y=2)
+        self.draw_fail_lines(y=4)
         n_errors = len(self.errors)
         if self.show_error is not None:
-            self.draw_fail_details(3 + n_errors, *self.show_error)
+            self.draw_horiz_line(6 + n_errors)
+            self.draw_fail_details(7 + n_errors, *self.show_error)
         self.scr.refresh()
 
     def num_key_to_int(self, key):
         return ord(key) - ord("1")
+
+    def update_run_state(self):
+        if self.run_state == self.NO_RUN:
+            if self.request_run is not None:
+                self.runner_thread_start(which=self.request_run)
+                self.show_error = None
+                self.run_state = self.RUNNING
+                self.request_run = None
+                self.dirty = True
+
+        elif self.run_state == self.RUNNING:
+            if not self.runner_thread_is_running():
+                self.run_state = self.DONE
+                self.dirty = True
+            elif self.request_run is not None:
+                # Request of a new run, need to stop the previous
+                self.stop_requested = True
+                self.run_state = self.STOPPING
+                self.dirty = True
+
+        elif self.run_state == self.STOPPING:
+            if not self.runner_thread_is_running():
+                self.run_state = self.NO_RUN
+                self.dirty = True
+
+        elif self.run_state == self.DONE:
+            if self.request_run is not None:
+                self.run_state = self.NO_RUN
+                self.dirty = True
 
     def __init__(self, scr):
         self.scr = scr
@@ -807,17 +916,18 @@ class ZestConsoleUI(ZestRunner):
         self.num_keys = [str(i) for i in range(1, 10)]
         self.stop_requested = False
         self.show_error = None
-        self.auto_run_state = self.NO_AUTO_RUN
+        self.run_state = self.NO_RUN
+        self.request_run = "*"
 
         curses.use_default_colors()
         for i, p in enumerate(self.pal):
             if i > 0:
                 curses.init_pair(i, self.pal[i][0], self.pal[i][1])
 
-        self.runner_thread_start()
-
         while True:
             try:
+                self.update_run_state()
+
                 self.render()
                 if kbhit():
                     key = self.scr.getkey()
@@ -827,26 +937,16 @@ class ZestConsoleUI(ZestRunner):
                         self.dirty = True
 
                     if key == "q":
-                        return None
+                        return
+
+                    if key == "r":
+                        self.request_run = "*"
+                        self.dirty = True
 
                     if key == "a":
                         if self.show_error is not None:
-                            self.stop_requested = True
-                            self.auto_run_state = self.AWAITING_START
-                        else:
-                            self.auto_run_state = self.NO_AUTO_RUN
-                        self.dirty = True
-
-                if self.auto_run_state == self.AWAITING_START:
-                    if not self.runner_thread_is_running():
-                        self.auto_run_state = self.STARTED
-                        self.runner_thread_start(which="it_fails_1")
-                        self.dirty = True
-
-                if self.auto_run_state == self.STARTED:
-                    if not self.runner_thread_is_running():
-                        self.auto_run_state = self.DONE
-                        self.dirty = True
+                            self.request_run = self.show_error
+                            self.dirty = True
 
                 time.sleep(0.1)
 
@@ -857,37 +957,3 @@ class ZestConsoleUI(ZestRunner):
 if __name__ == "__main__":
     # main()
     curses.wrapper(ZestConsoleUI)
-
-
-"""
-Lessons so far:
-* There's problems when curses gets recursively called so taht
-  when I let the runner call the full zest_runner test suite that
-  include calling the zet runner which causes a recursive initialize.
-* The ZestRunner has baked-in verbosity settings so I need
-  to remove all of those so that the sub class gets a chance to decide
-* Thus, I need a clear sepration of concerns about the messages.
-  One stage is teh event (which can be trapped by the sub class)
-  One stage is the message rendering which might be used by the sub classs
-  One stage emits the message which is very different in the subclass
-
-The base class sets up:
-    _test_start_callback
-    _test_stop_callback
-
-These are handed to the zest.do and cause a callback
-But the self.verbose is in that callback:
-
-    def _test_start_callback(self, name, call_stack, func):
-        if self.verbose >= 2:
-            self.callback_depth = len(call_stack) - 1
-            self.display_start(name, self.callback_depth, func)
-
-Which is all sort of wrapped up in the concepts of the base display
-
-Seems like I should just overload those in the sub class
-    _test_start_callback
-    _test_stop_callback
-
-
-"""
