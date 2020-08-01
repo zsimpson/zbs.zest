@@ -7,7 +7,9 @@ import pkgutil
 import re
 import sys
 import traceback
+from typing import Callable
 from importlib import import_module, util
+from dataclasses import dataclass
 import curses
 import copy
 if os.name == 'nt':
@@ -361,6 +363,7 @@ class ZestRunner:
         recurse=0,
         disable_shuffle=False,
         add_markers=False,
+        run_list=None,
     ):
         """
         verbose=0 if you want no output
@@ -431,7 +434,16 @@ class ZestRunner:
                             path,
                         )
 
-        zest._allow_to_run = list(set(allow_to_run))
+        if run_list is not None:
+            zest._allow_to_run = []
+            for run in run_list:
+                parts = run.split(".")
+                for i in range(len(parts)):
+                    zest._allow_to_run += [".".join(parts[0: i + 1])]
+        else:
+            zest._allow_to_run = list(set(allow_to_run))
+
+        log(str(zest._allow_to_run))
 
         has_run = {}
 
@@ -525,6 +537,14 @@ def kbhit():
     else:
         dr, dw, de = select.select([sys.stdin], [], [], 0)
         return dr != []
+
+
+@dataclass
+class ZestResult:
+    error: Exception
+    elapsed: float
+    func: Callable
+    shortcut_key: int
 
 
 class ZestConsoleUI(ZestRunner):
@@ -674,13 +694,11 @@ class ZestConsoleUI(ZestRunner):
         """
         self.dirty = True
         self.current_run_test = None
+        self.results[".".join(call_stack)] = ZestResult(error, elapsed, func, None)
         if error is not None:
-            self.errors += [(name, error, copy.copy(call_stack), func)]
             self.n_errors += 1
         else:
             self.n_success += 1
-
-    # Components
 
     def print(self, y, x, *args):
         pal = self.PAL_MENU
@@ -692,39 +710,44 @@ class ZestConsoleUI(ZestRunner):
                 x += len(str(arg))
         return x
 
-    def draw_title_bar(self):
-        # Title bar
-        state_menu = f"1-9) view error   a)uto-re-run   q)uit   Auto-run: {self.run_state_strs[self.run_state]}"
+    def draw_menu_fill_to_end_of_line(self, y, length):
         rows, cols = self.scr.getmaxyx()
-        # self.scr.addstr(0, 0, f"{state_menu: <{cols}}", curses.color_pair(1))
-        # self.scr.addstr(0, 0, "FOOBAR", curses.color_pair(1))
+        if cols - length > 0:
+            self.scr.addstr(y, length, f"{' ':<{cols - length}}", curses.color_pair(self.PAL_MENU))
+
+    def draw_title_bar(self):
+        y = 0
         length = self.print(
             0, 0,
-            self.PAL_MENU_KEY, "1-9)",
-            self.PAL_MENU, "view error   ",
-            self.PAL_MENU_KEY, "r)",
-            self.PAL_MENU, "e-run   ",
-            self.PAL_MENU_KEY, "a)",
-            self.PAL_MENU, "uto-re-run   ",
+            self.PAL_MENU, "Zest-Runner   ",
             self.PAL_MENU_KEY, "q)",
             self.PAL_MENU, "uit   ",
-            self.PAL_MENU_RUN_STATE, "Run state: ", self.run_state_strs[self.run_state] + " ",
-            self.PAL_MENU_RUN_STATUS, self.current_run_test or "",
-            self.PAL_MENU_RUN_STATUS, self.auto_run_file_watch or ""
+            self.PAL_MENU, "run ",
+            self.PAL_MENU_KEY, "a)",
+            self.PAL_MENU, "ll   ",
+            self.PAL_MENU, "run ",
+            self.PAL_MENU_KEY, "f)",
+            self.PAL_MENU, "ails   ",
         )
+        self.draw_menu_fill_to_end_of_line(0, length)
+        y += 1
+        return y
 
-        # Fill to end of line
-        if cols - length > 0:
-            self.scr.addstr(0, length, f"{' ':<{cols - length}}", curses.color_pair(self.PAL_MENU))
-
-    def draw_horiz_line(self, y):
-        rows, cols = self.scr.getmaxyx()
-        self.print(y, 0, self.PAL_LINE, "- " * int(cols / 2))
-
-    def draw_summary(self, y):
-        n_total = self.n_success + self.n_errors
+    def draw_status(self, y):
         self.print(
             y, 0,
+            self.PAL_NONE, "Status  : ",
+            self.PAL_STATUS, self.run_state_strs[self.run_state] + " ",
+            self.PAL_NAME_SELECTED, self.current_run_test or "",
+            self.PAL_NAME_SELECTED, self.watch_file or ""
+        )
+        y += 1
+        return y
+
+    def draw_summary(self, y):
+        self.print(
+            y, 0,
+            self.PAL_NONE, "Last run: ",
             self.PAL_SUCCESS, "Success",
             self.PAL_NONE, " + ",
             self.PAL_FAIL, "Fails",
@@ -739,42 +762,80 @@ class ZestConsoleUI(ZestRunner):
             self.PAL_NONE, " = ",
             self.PAL_NONE, str(self.n_success + self.n_errors + self.n_skips),
         )
+        y += 1
+        return y
 
     def draw_fail_lines(self, y):
         if self.n_errors > 0:
-            self.scr.addstr(y, 0, f"Failed tests:")
-            for i, (name, error, stack, func) in enumerate(self.errors):
-                formatted = traceback.format_exception(
-                    etype=type(error), value=error, tb=error.__traceback__
-                )
-                lines = []
-                for line in formatted:
-                    lines += [sub_line for sub_line in line.strip().split("\n")]
-                last_filename_line = lines[-3]
-                split_line = self._traceback_match_filename(last_filename_line)
-                leading, basename, lineno, context, is_libs = split_line
+            self.print(
+                y, 0,
+                self.PAL_NONE, f"Failed tests:"
+            )
 
-                selected = self.show_error is not None and len(self.show_error) == 3 and stack == self.show_error[2]
-                self.print(
-                    i + y + 1, 0,
-                    self.PAL_FAIL_KEY, str(i+1),
-                    self.PAL_NONE, ") ",
-                    self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
-                    self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, error.__class__.__name__,
-                    self.PAL_ERROR_BASE, " ",
-                    self.PAL_ERROR_PATHNAME, basename,
-                    self.PAL_ERROR_BASE, ":",
-                    self.PAL_ERROR_PATHNAME, str(lineno),
-                )
+            error_i = 0
+            for i, (name, result) in enumerate(self.results.items()):
+                if result.error is not None:
+                    error_i += 1
+                    if error_i < 10:
+                        result.shortcut_key = error_i
+                        formatted = traceback.format_exception(
+                            etype=type(result.error), value=result.error, tb=result.error.__traceback__
+                        )
+                        lines = []
+                        for line in formatted:
+                            lines += [sub_line for sub_line in line.strip().split("\n")]
+                        last_filename_line = lines[-3]
+                        split_line = self._traceback_match_filename(last_filename_line)
+                        leading, basename, lineno, context, is_libs = split_line
 
-    def draw_fail_details(self, y, name, error, stack, func):
-        leaf_test_name = stack[-1]
+                        selected = self.show_result is not None and self.show_result == name
+                        self.print(
+                            y, 0,
+                            self.PAL_FAIL_KEY, str(i+1),
+                            self.PAL_NONE, ") ",
+                            self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
+                            self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
+                            self.PAL_ERROR_BASE, " ",
+                            self.PAL_ERROR_PATHNAME, basename,
+                            self.PAL_ERROR_BASE, ":",
+                            self.PAL_ERROR_PATHNAME, str(lineno),
+                        )
+                        y += 1
 
-        s = [self.PAL_ERROR_BASE, "Test "]
-        for name in stack[:-1]:
-            s += [self.PAL_NAME_SELECTED, name, " . "]
-        s += [self.PAL_NAME_SELECTED, leaf_test_name]
-        self.print(y, 0, *s)
+            more_errors = self.n_errors - error_i
+            if more_errors > 0:
+                self.print(y, 0, f"+ {more_errors} more")
+                y += 1
+        return y
+
+    def draw_result_details(self, y):
+        result = self.results[self.show_result]
+
+        if self.run_state == self.WATCHING:
+            length = self.print(
+                y, 0,
+                self.PAL_MENU, "Watching: ",
+                self.PAL_MENU_RUN_STATUS, self.watch_file
+            )
+            self.draw_menu_fill_to_end_of_line(y, length)
+            y += 1
+        elif self.show_result is not None:
+            length = self.print(
+                y, 0,
+                self.PAL_MENU, "Test result: ",
+                self.PAL_MENU_RUN_STATUS, self.show_result
+            )
+            self.draw_menu_fill_to_end_of_line(y, length)
+            y += 1
+
+        length = self.print(
+            y, 0,
+            self.PAL_MENU_KEY, "r)",
+            self.PAL_MENU, "e-run this test   ",
+            self.PAL_MENU_KEY, "w)",
+            self.PAL_MENU, "atch test file (auto-re-run)   ",
+        )
+        self.draw_menu_fill_to_end_of_line(y, length)
         y += 1
 
         formatted = traceback.format_exception(
@@ -818,30 +879,36 @@ class ZestConsoleUI(ZestRunner):
         self.print(y, 0, *s)
         y += 1
 
-        error_message = str(error).strip()
+        error_message = str(result.error).strip()
         if error_message != "":
             self.print(y, 4, self.PAL_ERROR_MESSAGE, error_message)
 
-    def draw_awaiting(self, y):
-        self.scr.addstr(y, 0, f"Awaiting")
+        return y
 
-    def runner_thread_fn(self, which):
+    def runner_thread_fn(self, which, run_list):
         try:
-            # TEMPORARY HACK use zest_basics for some quick testing
-            if which is None or which == "*":
-                which = "zest_basics"
-            self.run(include_dirs="/Users/zack/git/zbs.zest", match_string=which, verbose=2)
+            self.run(include_dirs="/Users/zack/git/zbs.zest", match_string=which, verbose=2, run_list=run_list)
         finally:
             self.runner_thread = None
 
     def runner_thread_start(self, which):
-        self.errors = []
+        run_list = None
+
+        # TEMPORARY HACK use zest_basics for some quick testing
+        if which is None or which == "*":
+            which = "zest_basics"
+
+        if which == "__fails__":
+            run_list = [result.full_name for result in self.results if result.error is not None]
+
+        self.results = {}
         self.n_success = 0
         self.n_errors = 0
+        self.n_skips = 0
         self.complete = False
         self.stop_requested = False
         assert self.runner_thread is None
-        self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=(which,))
+        self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=(which, run_list))
         self.runner_thread.start()
 
     def runner_thread_is_running(self):
@@ -852,14 +919,12 @@ class ZestConsoleUI(ZestRunner):
             return
         self.dirty = False
         self.scr.clear()
-        self.draw_title_bar()
-        # self.draw_run_status(y=2)
-        self.draw_summary(y=2)
-        self.draw_fail_lines(y=4)
-        n_errors = len(self.errors)
-        if self.show_error is not None:
-            self.draw_horiz_line(6 + n_errors)
-            self.draw_fail_details(7 + n_errors, *self.show_error)
+        y = self.draw_title_bar()
+        y = self.draw_status(y)
+        y = self.draw_summary(y)
+        y = self.draw_fail_lines(y)
+        if self.show_result is not None:
+            y = self.draw_result_details(y)
         self.scr.refresh()
 
     def num_key_to_int(self, key):
@@ -869,7 +934,6 @@ class ZestConsoleUI(ZestRunner):
         if self.run_state == self.NO_RUN:
             if self.request_run is not None:
                 self.runner_thread_start(which=self.request_run)
-                self.show_error = None
                 self.run_state = self.RUNNING
                 self.request_run = None
                 self.dirty = True
@@ -893,19 +957,20 @@ class ZestConsoleUI(ZestRunner):
             if self.request_run is not None:
                 self.run_state = self.NO_RUN
                 self.dirty = True
-            if self.request_auto_run is not None:
-                self.auto_run_file_watch = self.request_auto_run[3].__code__.co_filename
-                self.auto_run_file_watch_timestamp = os.path.getmtime(self.auto_run_file_watch)
+            if self.request_watch is not None:
+                self.watch_file = self.results[self.request_watch].func.__code__.co_filename
+                self.watch_timestamp = os.path.getmtime(self.watch_file)
                 self.run_state = self.WATCHING
                 self.dirty = True
 
         elif self.run_state == self.WATCHING:
-            if self.auto_run_file_watch_timestamp != os.path.getmtime(self.auto_run_file_watch):
-                self.request_run = ".".join(self.request_auto_run[2])
+            if self.watch_timestamp != os.path.getmtime(self.watch_file):
+                self.request_run = ".".join(self.request_watch[2])
+            if self.request_run is not None:
                 self.run_state = self.NO_RUN
-                self.auto_run_file_watch_timestamp = None
-                self.auto_run_file_watch = None
-                self.request_auto_run = None
+                self.watch_timestamp = None
+                self.watch_file = None
+                self.request_watch = None
                 self.dirty = True
 
     def __init__(self, scr):
@@ -913,22 +978,20 @@ class ZestConsoleUI(ZestRunner):
         self.runner_thread = None
         self.dirty = False
         self.current_run_test = None
-        self.errors = []
+        self.results = {}
         self.n_success = 0
         self.n_errors = 0
         self.n_skips = 0
         self.complete = False
-        self.running_state_show_details = None
-        self.output_str = ""
         self.key = None
         self.num_keys = [str(i) for i in range(1, 10)]
         self.stop_requested = False
-        self.show_error = None
+        self.show_result = None
         self.run_state = self.NO_RUN
         self.request_run = "*"
-        self.request_auto_run = None
-        self.auto_run_file_watch = None
-        self.auto_run_file_watch_timestamp = None
+        self.request_watch = None
+        self.watch_file = None
+        self.watch_timestamp = None
 
         curses.use_default_colors()
         for i, p in enumerate(self.pal):
@@ -944,21 +1007,27 @@ class ZestConsoleUI(ZestRunner):
                     key = self.scr.getkey()
                     if key in self.num_keys:
                         show_details_i = self.num_key_to_int(key)
-                        if 0 <= show_details_i < len(self.errors):
-                            self.show_error = self.errors[show_details_i]
+                        if 1 <= show_details_i < len(self.n_errors) + 1:
+                            for name, result in self.results.items():
+                                if result.shortcut_key == show_details_i:
+                                    self.show_result = name
+                                    break
                             self.dirty = True
 
                     if key == "q":
                         return
 
-                    if key == "r":
+                    if key == "a":
                         self.request_run = "*"
                         self.dirty = True
 
-                    if key == "a":
-                        if self.show_error is not None:
-                            self.request_auto_run = self.show_error
-                            self.show_error = None
+                    if key == "f":
+                        self.request_run = "__fails__"
+                        self.dirty = True
+
+                    if key == "w":
+                        if self.show_result is not None:
+                            self.request_watch = self.show_result
                             self.dirty = True
 
                 time.sleep(0.1)
