@@ -471,6 +471,8 @@ class ZestRunner:
                 else 1
             )
 
+        return self
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -545,11 +547,13 @@ class ZestConsoleUI(ZestRunner):
     RUNNING = 1
     STOPPING = 2
     DONE = 3
+    WATCHING = 4
     run_state_strs = [
         "Nothing to run",
         "Running",
         "Stopping",
         "Done",
+        "Watching",
     ]
 
     PAL_NONE = 0
@@ -671,7 +675,7 @@ class ZestConsoleUI(ZestRunner):
         self.dirty = True
         self.current_run_test = None
         if error is not None:
-            self.errors += [(name, error, copy.copy(call_stack))]
+            self.errors += [(name, error, copy.copy(call_stack), func)]
             self.n_errors += 1
         else:
             self.n_success += 1
@@ -705,7 +709,8 @@ class ZestConsoleUI(ZestRunner):
             self.PAL_MENU_KEY, "q)",
             self.PAL_MENU, "uit   ",
             self.PAL_MENU_RUN_STATE, "Run state: ", self.run_state_strs[self.run_state] + " ",
-            self.PAL_MENU_RUN_STATUS, self.current_run_test or ""
+            self.PAL_MENU_RUN_STATUS, self.current_run_test or "",
+            self.PAL_MENU_RUN_STATUS, self.auto_run_file_watch or ""
         )
 
         # Fill to end of line
@@ -714,7 +719,7 @@ class ZestConsoleUI(ZestRunner):
 
     def draw_horiz_line(self, y):
         rows, cols = self.scr.getmaxyx()
-        self.print(y, 0, self.PAL_LINE, " - " * int(cols / 3))
+        self.print(y, 0, self.PAL_LINE, "- " * int(cols / 2))
 
     def draw_summary(self, y):
         n_total = self.n_success + self.n_errors
@@ -735,18 +740,10 @@ class ZestConsoleUI(ZestRunner):
             self.PAL_NONE, str(self.n_success + self.n_errors + self.n_skips),
         )
 
-    # def draw_run_status(self, y):
-    #     state = "Complete" if self.complete else f"Running: "
-    #     self.print(
-    #         y, 0,
-    #         self.PAL_NONE, state,
-    #         self.PAL_NAME, self.current_run_test or "",
-    #     )
-
     def draw_fail_lines(self, y):
         if self.n_errors > 0:
             self.scr.addstr(y, 0, f"Failed tests:")
-            for i, (name, error, stack) in enumerate(self.errors):
+            for i, (name, error, stack, func) in enumerate(self.errors):
                 formatted = traceback.format_exception(
                     etype=type(error), value=error, tb=error.__traceback__
                 )
@@ -770,8 +767,7 @@ class ZestConsoleUI(ZestRunner):
                     self.PAL_ERROR_PATHNAME, str(lineno),
                 )
 
-
-    def draw_fail_details(self, y, name, error, stack):
+    def draw_fail_details(self, y, name, error, stack, func):
         leaf_test_name = stack[-1]
 
         s = [self.PAL_ERROR_BASE, "Test "]
@@ -805,7 +801,7 @@ class ZestConsoleUI(ZestRunner):
                     s += [
                         self.PAL_ERROR_BASE, "File ",
                         self.PAL_ERROR_PATHNAME, leading,
-                        self.PAL_ERROR_BASE, "/",
+                        self.PAL_ERROR_BASE, "/ ",
                         self.PAL_ERROR_FILENAME, basename,
                         self.PAL_ERROR_BASE, ":",
                         self.PAL_ERROR_LINENO, str(lineno),
@@ -829,18 +825,16 @@ class ZestConsoleUI(ZestRunner):
     def draw_awaiting(self, y):
         self.scr.addstr(y, 0, f"Awaiting")
 
-    def runner_thread_fn(self, which=None):
-        # TEMPORARY HACK
+    def runner_thread_fn(self, which):
         try:
-            if which is None:
+            # TEMPORARY HACK use zest_basics for some quick testing
+            if which is None or which == "*":
                 which = "zest_basics"
             self.run(include_dirs="/Users/zack/git/zbs.zest", match_string=which, verbose=2)
         finally:
             self.runner_thread = None
 
     def runner_thread_start(self, which):
-        if which == "*":
-            which = None
         self.errors = []
         self.n_success = 0
         self.n_errors = 0
@@ -899,6 +893,20 @@ class ZestConsoleUI(ZestRunner):
             if self.request_run is not None:
                 self.run_state = self.NO_RUN
                 self.dirty = True
+            if self.request_auto_run is not None:
+                self.auto_run_file_watch = self.request_auto_run[3].__code__.co_filename
+                self.auto_run_file_watch_timestamp = os.path.getmtime(self.auto_run_file_watch)
+                self.run_state = self.WATCHING
+                self.dirty = True
+
+        elif self.run_state == self.WATCHING:
+            if self.auto_run_file_watch_timestamp != os.path.getmtime(self.auto_run_file_watch):
+                self.request_run = ".".join(self.request_auto_run[2])
+                self.run_state = self.NO_RUN
+                self.auto_run_file_watch_timestamp = None
+                self.auto_run_file_watch = None
+                self.request_auto_run = None
+                self.dirty = True
 
     def __init__(self, scr):
         self.scr = scr
@@ -918,6 +926,9 @@ class ZestConsoleUI(ZestRunner):
         self.show_error = None
         self.run_state = self.NO_RUN
         self.request_run = "*"
+        self.request_auto_run = None
+        self.auto_run_file_watch = None
+        self.auto_run_file_watch_timestamp = None
 
         curses.use_default_colors()
         for i, p in enumerate(self.pal):
@@ -933,8 +944,9 @@ class ZestConsoleUI(ZestRunner):
                     key = self.scr.getkey()
                     if key in self.num_keys:
                         show_details_i = self.num_key_to_int(key)
-                        self.show_error = self.errors[show_details_i]
-                        self.dirty = True
+                        if 0 <= show_details_i < len(self.errors):
+                            self.show_error = self.errors[show_details_i]
+                            self.dirty = True
 
                     if key == "q":
                         return
@@ -945,7 +957,8 @@ class ZestConsoleUI(ZestRunner):
 
                     if key == "a":
                         if self.show_error is not None:
-                            self.request_run = self.show_error
+                            self.request_auto_run = self.show_error
+                            self.show_error = None
                             self.dirty = True
 
                 time.sleep(0.1)
