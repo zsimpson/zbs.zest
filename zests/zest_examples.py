@@ -70,8 +70,39 @@ def zest_basics():
         assert False
 
     def it_fails_2():
-        #raise Exception("A messed up exception that has a very long message. This message is longer than the screen that's just how long it is! I mean this is very super long so long that it is going to wrap?!")
+        raise Exception("A messed up exception that has a very long message. This message is longer than the screen that's just how long it is! I mean this is very super long so long that it is going to wrap?!")
         pass
+
+    def it_fails_3():
+        assert False
+
+    def it_fails_4():
+        assert False
+
+    def it_fails_5():
+        assert False
+
+    def it_fails_6():
+        assert False
+
+    def it_fails_7():
+        assert False
+
+    def it_fails_8():
+        assert False
+
+    def it_fails_9():
+        assert False
+
+    def it_fails_10():
+        assert False
+
+    def it_fails_11():
+        assert False
+
+    def it_fails_12():
+        assert False
+
 
     def it_calls_start_and_stop_callbacks():
         start_was_called = 0

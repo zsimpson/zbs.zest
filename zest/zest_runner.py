@@ -545,6 +545,7 @@ class ZestResult:
     elapsed: float
     func: Callable
     shortcut_key: int
+    running: bool
 
 
 class ZestConsoleUI(ZestRunner):
@@ -686,7 +687,7 @@ class ZestConsoleUI(ZestRunner):
         """
         self.dirty = True
         self.current_run_test = " . ".join(call_stack)
-        time.sleep(0.2)  # Testing delay
+        time.sleep(0.05)  # Testing delay
 
     def event_test_stop(self, name, call_stack, error, elapsed, func):
         """
@@ -694,7 +695,7 @@ class ZestConsoleUI(ZestRunner):
         """
         self.dirty = True
         self.current_run_test = None
-        self.results[".".join(call_stack)] = ZestResult(error, elapsed, func, None)
+        self.results[".".join(call_stack)] = ZestResult(error, elapsed, func, None, False)
         if error is not None:
             self.n_errors += 1
         else:
@@ -771,6 +772,7 @@ class ZestConsoleUI(ZestRunner):
                 y, 0,
                 self.PAL_NONE, f"Failed tests:"
             )
+            y += 1
 
             error_i = 0
             for i, (name, result) in enumerate(self.results.items()):
@@ -791,7 +793,7 @@ class ZestConsoleUI(ZestRunner):
                         selected = self.show_result is not None and self.show_result == name
                         self.print(
                             y, 0,
-                            self.PAL_FAIL_KEY, str(i+1),
+                            self.PAL_FAIL_KEY, str(error_i),
                             self.PAL_NONE, ") ",
                             self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
                             self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
@@ -802,14 +804,15 @@ class ZestConsoleUI(ZestRunner):
                         )
                         y += 1
 
-            more_errors = self.n_errors - error_i
-            if more_errors > 0:
-                self.print(y, 0, f"+ {more_errors} more")
+            if self.n_errors > 9:
+                self.print(y, 0, f"+ {self.n_errors - 9} more")
                 y += 1
         return y
 
     def draw_result_details(self, y):
-        result = self.results[self.show_result]
+        result = self.results.get(self.show_result)
+        if result is None:
+            return y
 
         if self.run_state == self.WATCHING:
             length = self.print(
@@ -838,50 +841,54 @@ class ZestConsoleUI(ZestRunner):
         self.draw_menu_fill_to_end_of_line(y, length)
         y += 1
 
-        formatted = traceback.format_exception(
-            etype=type(error), value=error, tb=error.__traceback__
-        )
-        lines = []
-        for line in formatted:
-            lines += [sub_line for sub_line in line.strip().split("\n")]
+        if result.running is True:
+            self.print(y, 0, self.PAL_NONE, "Runnning...")
+            y += 1
+        elif result.error is None:
+            self.print(y, 0, self.PAL_SUCCESS, "Passed!")
+            y += 1
+        else:
+            formatted = traceback.format_exception(
+                etype=type(result.error), value=result.error, tb=result.error.__traceback__
+            )
+            lines = []
+            for line in formatted:
+                lines += [sub_line for sub_line in line.strip().split("\n")]
 
-        is_libs = False
-        for line in lines[1:-1]:
-            s = []
-            split_line = self._traceback_match_filename(line)
-            if split_line is None:
-                s += [self.PAL_ERROR_LIB if is_libs else self.PAL_ERROR_BASE, line]
-            else:
-                leading, basename, lineno, context, is_libs = split_line
-                if is_libs:
-                    s += [self.PAL_ERROR_LIB, "File ", leading, "/", basename]
-                    s += [self.PAL_ERROR_LIB, ":", str(lineno)]
-                    s += [self.PAL_ERROR_LIB, " in function "]
-                    s += [self.PAL_ERROR_LIB, context]
+            is_libs = False
+            for line in lines[1:-1]:
+                s = []
+                split_line = self._traceback_match_filename(line)
+                if split_line is None:
+                    s += [self.PAL_ERROR_LIB if is_libs else self.PAL_ERROR_BASE, line]
                 else:
-                    s += [
-                        self.PAL_ERROR_BASE, "File ",
-                        self.PAL_ERROR_PATHNAME, leading,
-                        self.PAL_ERROR_BASE, "/ ",
-                        self.PAL_ERROR_FILENAME, basename,
-                        self.PAL_ERROR_BASE, ":",
-                        self.PAL_ERROR_LINENO, str(lineno),
-                        self.PAL_ERROR_BASE, " in function ",
-                    ]
-                    if leaf_test_name == context:
-                        s += [self.PAL_ERROR_MESSAGE, context]
+                    leading, basename, lineno, context, is_libs = split_line
+                    if is_libs:
+                        s += [self.PAL_ERROR_LIB, "File ", leading, "/", basename]
+                        s += [self.PAL_ERROR_LIB, ":", str(lineno)]
+                        s += [self.PAL_ERROR_LIB, " in function "]
+                        s += [self.PAL_ERROR_LIB, context]
                     else:
-                        s += [self.PAL_ERROR_CONTEXT, context]
+                        s += [
+                            self.PAL_ERROR_BASE, "File ",
+                            self.PAL_ERROR_PATHNAME, leading,
+                            self.PAL_ERROR_BASE, "/ ",
+                            self.PAL_ERROR_FILENAME, basename,
+                            self.PAL_ERROR_BASE, ":",
+                            self.PAL_ERROR_LINENO, str(lineno),
+                            self.PAL_ERROR_BASE, " in function ",
+                        ]
+                        s += [self.PAL_ERROR_MESSAGE, context]
+                self.print(y, 0, *s)
+                y += 1
+
+            s = [self.PAL_ERROR_BASE, "raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__]
             self.print(y, 0, *s)
             y += 1
 
-        s = [self.PAL_ERROR_BASE, "raised: ", self.PAL_ERROR_MESSAGE, error.__class__.__name__]
-        self.print(y, 0, *s)
-        y += 1
-
-        error_message = str(result.error).strip()
-        if error_message != "":
-            self.print(y, 4, self.PAL_ERROR_MESSAGE, error_message)
+            error_message = str(result.error).strip()
+            if error_message != "":
+                self.print(y, 4, self.PAL_ERROR_MESSAGE, error_message)
 
         return y
 
@@ -901,7 +908,6 @@ class ZestConsoleUI(ZestRunner):
         if which == "__fails__":
             run_list = [result.full_name for result in self.results if result.error is not None]
 
-        self.results = {}
         self.n_success = 0
         self.n_errors = 0
         self.n_skips = 0
@@ -922,18 +928,24 @@ class ZestConsoleUI(ZestRunner):
         y = self.draw_title_bar()
         y = self.draw_status(y)
         y = self.draw_summary(y)
-        y = self.draw_fail_lines(y)
+        self.draw_fail_lines(y+1)
         if self.show_result is not None:
-            y = self.draw_result_details(y)
+            y = self.draw_result_details(y+13)
         self.scr.refresh()
 
     def num_key_to_int(self, key):
-        return ord(key) - ord("1")
+        return ord(key) - ord("0")
 
     def update_run_state(self):
         if self.run_state == self.NO_RUN:
             if self.request_run is not None:
                 self.runner_thread_start(which=self.request_run)
+                self.results = {}
+                if self.request_run == "*":
+                    self.results = {}
+                    self.show_result = None
+                else:
+                    self.results[self.request_run] = ZestResult(None, None, None, None, True)
                 self.run_state = self.RUNNING
                 self.request_run = None
                 self.dirty = True
@@ -1007,7 +1019,7 @@ class ZestConsoleUI(ZestRunner):
                     key = self.scr.getkey()
                     if key in self.num_keys:
                         show_details_i = self.num_key_to_int(key)
-                        if 1 <= show_details_i < len(self.n_errors) + 1:
+                        if 1 <= show_details_i < self.n_errors + 1:
                             for name, result in self.results.items():
                                 if result.shortcut_key == show_details_i:
                                     self.show_result = name
@@ -1023,6 +1035,10 @@ class ZestConsoleUI(ZestRunner):
 
                     if key == "f":
                         self.request_run = "__fails__"
+                        self.dirty = True
+
+                    if key == "r":
+                        self.request_run = self.show_result
                         self.dirty = True
 
                     if key == "w":
