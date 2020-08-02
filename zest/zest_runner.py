@@ -548,6 +548,9 @@ class ZestResult:
     running: bool
 
 
+run_lock = threading.Lock()
+
+
 class ZestConsoleUI(ZestRunner):
     """
     Controls console based UI.
@@ -695,7 +698,8 @@ class ZestConsoleUI(ZestRunner):
         """
         self.dirty = True
         self.current_run_test = None
-        self.results[".".join(call_stack)] = ZestResult(error, elapsed, func, None, False)
+        with run_lock:
+            self.results[".".join(call_stack)] = ZestResult(error, elapsed, func, None, False)
         if error is not None:
             self.n_errors += 1
         else:
@@ -775,42 +779,44 @@ class ZestConsoleUI(ZestRunner):
             y += 1
 
             error_i = 0
-            for i, (name, result) in enumerate(self.results.items()):
-                if result.error is not None:
-                    error_i += 1
-                    if error_i < 10:
-                        result.shortcut_key = error_i
-                        formatted = traceback.format_exception(
-                            etype=type(result.error), value=result.error, tb=result.error.__traceback__
-                        )
-                        lines = []
-                        for line in formatted:
-                            lines += [sub_line for sub_line in line.strip().split("\n")]
-                        last_filename_line = lines[-3]
-                        split_line = self._traceback_match_filename(last_filename_line)
-                        leading, basename, lineno, context, is_libs = split_line
+            with run_lock:
+                for i, (name, result) in enumerate(self.results.items()):
+                    if result.error is not None:
+                        error_i += 1
+                        if error_i < 10:
+                            result.shortcut_key = error_i
+                            formatted = traceback.format_exception(
+                                etype=type(result.error), value=result.error, tb=result.error.__traceback__
+                            )
+                            lines = []
+                            for line in formatted:
+                                lines += [sub_line for sub_line in line.strip().split("\n")]
+                            last_filename_line = lines[-3]
+                            split_line = self._traceback_match_filename(last_filename_line)
+                            leading, basename, lineno, context, is_libs = split_line
 
-                        selected = self.show_result is not None and self.show_result == name
-                        self.print(
-                            y, 0,
-                            self.PAL_FAIL_KEY, str(error_i),
-                            self.PAL_NONE, ") ",
-                            self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
-                            self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
-                            self.PAL_ERROR_BASE, " ",
-                            self.PAL_ERROR_PATHNAME, basename,
-                            self.PAL_ERROR_BASE, ":",
-                            self.PAL_ERROR_PATHNAME, str(lineno),
-                        )
-                        y += 1
+                            selected = self.show_result is not None and self.show_result == name
+                            self.print(
+                                y, 0,
+                                self.PAL_FAIL_KEY, str(error_i),
+                                self.PAL_NONE, ") ",
+                                self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
+                                self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
+                                self.PAL_ERROR_BASE, " ",
+                                self.PAL_ERROR_PATHNAME, basename,
+                                self.PAL_ERROR_BASE, ":",
+                                self.PAL_ERROR_PATHNAME, str(lineno),
+                            )
+                            y += 1
 
             if self.n_errors > 9:
-                self.print(y, 0, f"+ {self.n_errors - 9} more")
+                self.print(y, 0, self.PAL_ERROR_BASE, f"+ {self.n_errors - 9} more")
                 y += 1
         return y
 
     def draw_result_details(self, y):
-        result = self.results.get(self.show_result)
+        with run_lock:
+            result = self.results.get(self.show_result)
         if result is None:
             return y
 
@@ -906,7 +912,8 @@ class ZestConsoleUI(ZestRunner):
             which = "zest_basics"
 
         if which == "__fails__":
-            run_list = [result.full_name for result in self.results if result.error is not None]
+            with run_lock:
+                run_list = [name for name, result in self.results.items() if result.error is not None]
 
         self.n_success = 0
         self.n_errors = 0
@@ -940,15 +947,16 @@ class ZestConsoleUI(ZestRunner):
         if self.run_state == self.NO_RUN:
             if self.request_run is not None:
                 self.runner_thread_start(which=self.request_run)
-                self.results = {}
-                if self.request_run == "*":
+                with run_lock:
                     self.results = {}
-                    self.show_result = None
-                else:
-                    self.results[self.request_run] = ZestResult(None, None, None, None, True)
-                self.run_state = self.RUNNING
-                self.request_run = None
-                self.dirty = True
+                    if self.request_run == "*":
+                        self.results = {}
+                        self.show_result = None
+                    else:
+                        self.results[self.request_run] = ZestResult(None, None, None, None, True)
+                    self.run_state = self.RUNNING
+                    self.request_run = None
+                    self.dirty = True
 
         elif self.run_state == self.RUNNING:
             if not self.runner_thread_is_running():
@@ -970,7 +978,8 @@ class ZestConsoleUI(ZestRunner):
                 self.run_state = self.NO_RUN
                 self.dirty = True
             if self.request_watch is not None:
-                self.watch_file = self.results[self.request_watch].func.__code__.co_filename
+                with run_lock:
+                    self.watch_file = self.results[self.request_watch].func.__code__.co_filename
                 self.watch_timestamp = os.path.getmtime(self.watch_file)
                 self.run_state = self.WATCHING
                 self.dirty = True
@@ -990,7 +999,8 @@ class ZestConsoleUI(ZestRunner):
         self.runner_thread = None
         self.dirty = False
         self.current_run_test = None
-        self.results = {}
+        with run_lock:
+            self.results = {}
         self.n_success = 0
         self.n_errors = 0
         self.n_skips = 0
@@ -1020,11 +1030,12 @@ class ZestConsoleUI(ZestRunner):
                     if key in self.num_keys:
                         show_details_i = self.num_key_to_int(key)
                         if 1 <= show_details_i < self.n_errors + 1:
-                            for name, result in self.results.items():
-                                if result.shortcut_key == show_details_i:
-                                    self.show_result = name
-                                    break
-                            self.dirty = True
+                            with run_lock:
+                                for name, result in self.results.items():
+                                    if result.shortcut_key == show_details_i:
+                                        self.show_result = name
+                                        break
+                                self.dirty = True
 
                     if key == "q":
                         return
