@@ -7,18 +7,20 @@ import pkgutil
 import re
 import sys
 import traceback
+import curses
+import copy
+from pathlib import Path
 from typing import Callable
 from importlib import import_module, util
 from dataclasses import dataclass
-import curses
-import copy
+from . import __version__
 if os.name == 'nt':
     import msvcrt
 else:
     import select
 
 from zest import zest
-from _curses import *
+
 
 blue = "\u001b[34m"
 yellow = "\u001b[33m"
@@ -118,8 +120,7 @@ class ZestRunner:
         if error:
             self.s(bold, red, "F")
         elif hasattr(func, "skip"):
-            skip_code = getattr(func, "skip_code", "s")
-            self.s(yellow, skip_code)
+            self.s(yellow, "s")
         else:
             self.s(green, ".")
 
@@ -486,47 +487,6 @@ class ZestRunner:
         return self
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--verbose",
-        default=1,
-        type=int,
-        help="0=silent, 1=dot-mode, 2=run-trace 3=full-trace",
-    )
-    parser.add_argument(
-        "--include_dirs",
-        nargs="?",
-        default=os.getcwd(),
-        help="Colon-delimited list of directories to search",
-    )
-    parser.add_argument(
-        "--disable_shuffle",
-        action="store_true",
-        help="Disable the shuffling of test order",
-    )
-    parser.add_argument(
-        "--add_markers", action="store_true", help="Used for internal debugging"
-    )
-    parser.add_argument(
-        "--version", action="store_true", help="Show version and exit",
-    )
-    parser.add_argument(
-        "match_string", type=str, nargs="?", help="Optional substring to match"
-    )
-    kwargs = vars(parser.parse_args())
-
-    if kwargs.get("version"):
-        from . import __version__
-
-        print(__version__)
-        sys.exit(0)
-    del kwargs["version"]
-
-    runner = ZestRunner().run(**kwargs)
-    sys.exit(runner.retcode)
-
-
 def kbhit():
     '''
     Returns True if a keypress is waiting to be read in stdin, False otherwise.
@@ -573,7 +533,7 @@ class ZestConsoleUI(ZestRunner):
     DONE = 3
     WATCHING = 4
     run_state_strs = [
-        "Nothing to run",
+        "Analyzing",
         "Running",
         "Stopping",
         "Done",
@@ -583,7 +543,7 @@ class ZestConsoleUI(ZestRunner):
     PAL_NONE = 0
     PAL_MENU = 1
     PAL_MENU_KEY = 2
-    PAL_MENU_RUN_STATE = 3
+    PAL_MENU_TITLE = 3
     PAL_MENU_RUN_STATUS = 4
     PAL_NAME = 5
     PAL_NAME_SELECTED = 6
@@ -612,7 +572,7 @@ class ZestConsoleUI(ZestRunner):
         # PAL_MENU_KEY
         (curses.COLOR_RED, curses.COLOR_WHITE, curses.A_BOLD),
 
-        # PAL_MENU_AUTORUN_STATE
+        # PAL_MENU_TITLE
         (curses.COLOR_BLUE, curses.COLOR_WHITE, 0),
 
         # PAL_MENU_AUTORUN_STATUS
@@ -724,7 +684,7 @@ class ZestConsoleUI(ZestRunner):
         y = 0
         length = self.print(
             0, 0,
-            self.PAL_MENU, "Zest-Runner   ",
+            self.PAL_MENU_TITLE, f"Zest-Runner v{__version__}  ",
             self.PAL_MENU_KEY, "q)",
             self.PAL_MENU, "uit   ",
             self.PAL_MENU, "run ",
@@ -900,41 +860,31 @@ class ZestConsoleUI(ZestRunner):
 
     def runner_thread_fn(self, which, run_list):
         try:
-            self.run(include_dirs="/Users/zack/git/zbs.zest", match_string=which, verbose=2, run_list=run_list)
-        except BaseException as e:
-            log(f"runner_thread_fn {e}")
+            self.run(include_dirs="/Users/zack/git/zbs.zest/ui_tests", match_string=which, verbose=2, run_list=run_list)
         finally:
-            log(f"runner_thread finally")
             self.runner_thread = None
 
     def runner_thread_start(self, which):
-        try:
-            log(f"runner_thread_start '{which}'")
-            time.sleep(1.0)
+        if self.runner_thread_is_running():
+            raise Exception("Runner thread already running")
 
-            if self.runner_thread_is_running():
-                raise Exception("Runner thread already running")
+        run_list = None
 
-            run_list = None
+        if which == "*":
+            which = None
 
-            # TEMPORARY HACK use zest_basics for some quick testing
-            if which is None or which == "*":
-                which = "zest_basics"
+        if which == "__fails__":
+            with run_lock:
+                run_list = [name for name, result in self.results.items() if result.error is not None]
 
-            if which == "__fails__":
-                with run_lock:
-                    run_list = [name for name, result in self.results.items() if result.error is not None]
-
-            self.n_success = 0
-            self.n_errors = 0
-            self.n_skips = 0
-            self.complete = False
-            self.stop_requested = False
-            assert self.runner_thread is None
-            self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=(which, run_list))
-            self.runner_thread.start()
-        except Exception as e:
-            log(f"runner_thread_start except {e}")
+        self.n_success = 0
+        self.n_errors = 0
+        self.n_skips = 0
+        self.complete = False
+        self.stop_requested = False
+        assert self.runner_thread is None
+        self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=(which, run_list))
+        self.runner_thread.start()
 
     def runner_thread_is_running(self):
         return self.runner_thread is not None and self.runner_thread.is_alive()
@@ -943,7 +893,7 @@ class ZestConsoleUI(ZestRunner):
         if not self.dirty:
             return
         self.dirty = False
-        # self.scr.clear()
+        self.scr.clear()
         y = self.draw_title_bar()
         y = self.draw_status(y)
         y = self.draw_summary(y)
@@ -1069,94 +1019,80 @@ class ZestConsoleUI(ZestRunner):
                             self.request_watch = self.show_result
                             self.dirty = True
 
-                time.sleep(0.1)
+                time.sleep(0.05)
 
             except KeyboardInterrupt:
                 self.stop_requested = True
 
-            except BaseException as e:
-                log(f"exception in __init__ {e}")
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--verbose",
+        default=1,
+        type=int,
+        help="0=silent, 1=dot-mode, 2=run-trace 3=full-trace",
+    )
+    parser.add_argument(
+        "--include_dirs",
+        nargs="?",
+        default=os.getcwd(),
+        help="Colon-delimited list of directories to search",
+    )
+    parser.add_argument(
+        "--disable_shuffle",
+        action="store_true",
+        help="Disable the shuffling of test order",
+    )
+    parser.add_argument(
+        "--add_markers", action="store_true", help="Used for internal debugging"
+    )
+    parser.add_argument(
+        "--version", action="store_true", help="Show version and exit",
+    )
+    parser.add_argument(
+        "match_string", type=str, nargs="?", help="Optional substring to match"
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="console UI",
+    )
+    kwargs = vars(parser.parse_args())
 
-def main_ui():
-    log("******************")
-    # main()
-    # try:
-    #     import pudb; pudb.set_trace()
-    #     curses.wrapper(ZestConsoleUI)
-    # except Exception as e:
-    #     log(f"exeption at main {e}")
+    if kwargs.pop("ui", False):
+        curses.wrapper(ZestConsoleUI)
+        sys.exit(0)
 
-    try:
-        # Initialize curses
-        stdscr = initscr()
+    if kwargs.pop("version", None):
+        print(__version__)
+        sys.exit(0)
 
-        # Turn off echoing of keys, and enter cbreak mode,
-        # where no buffering is performed on keyboard input
-        noecho()
-        cbreak()
-
-        # In keypad mode, escape sequences for special keys
-        # (like the cursor keys) will be interpreted and
-        # a special value like curses.KEY_LEFT will be returned
-        stdscr.keypad(1)
-
-        # Start color, too.  Harmless if the terminal doesn't have
-        # color; user can test with has_color() later on.  The try/catch
-        # works around a minor bit of over-conscientiousness in the curses
-        # module -- the error return from C start_color() is ignorable.
-        try:
-            start_color()
-        except:
-            pass
-
-        ZestConsoleUI(stdscr)
-        log("back in main")
-    except BaseException as e:
-        formatted = traceback.format_exception(
-            etype=type(e), value=e, tb=e.__traceback__
-        )
-        log(f"main {e} {formatted}")
-    finally:
-        log("main fianlly")
-        # Set everything back to normal
-        if 'stdscr' in locals():
-            stdscr.keypad(0)
-            echo()
-            nocbreak()
-            endwin()
-        pass
+    runner = ZestRunner().run(**kwargs)
+    sys.exit(runner.retcode)
 
 
 if __name__ == "__main__":
-    pidfile = "/Users/zack/zest_runner.pid"  # Temporary hack
-    pid = str(os.getpid())
-    print(f"Starting {pid}")
-    log(f"Starting {pid}")
-    if os.path.isfile(pidfile):
-        print(f"{pidfile} already exists {sys.argv}")
-        log(f"{pidfile} already exists {sys.argv}")
-        sys.exit(1)
+    allow_reentrancy = True
+    if allow_reentrancy:
+        main()
+    else:
+        pidfile = f"{Path.home()}/zest_runner.pid"
+        pid = str(os.getpid())
+        if os.path.isfile(pidfile):
+            print(f"{pidfile} already exists {sys.argv}", file=sys.stderr)
+            sys.exit(1)
 
-    # Possible race here
-    with open(pidfile, 'w') as f:
-        f.write(pid)
-    try:
-        main_ui()
-    finally:
-        log(f"end finally {pid}")
-        found_pid = 0
-        with open(pidfile) as f:
-            try:
-                found_pid = int(f.read())
-            except Exception as e:
-                print(f"except {e} in read pid")
-                pass
-        print(f"found pid {found_pid}")
-        log(f"found pid {found_pid}")
-        if str(found_pid) == str(pid):
-            print(f"unlink {found_pid}")
-            log(f"ulink {found_pid}")
-            os.unlink(pidfile)
-        else:
-            print(f"diff {found_pid} {pid}")
-            log(f"diff {found_pid} {pid}")
+        with open(pidfile, 'w') as f:
+            f.write(pid)
+
+        try:
+            main()
+        finally:
+            found_pid = 0
+            with open(pidfile) as f:
+                try:
+                    found_pid = f.read()
+                except Exception as e:
+                    pass
+            if str(found_pid) == str(pid):
+                os.unlink(pidfile)

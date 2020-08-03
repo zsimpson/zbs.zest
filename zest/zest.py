@@ -209,17 +209,13 @@ class zest:
         zest._disable_shuffle = False
 
     @staticmethod
-    def skip(code="s", reason=None):
+    def skip(reason=None):
         def decorator(fn):
             @wraps(fn)
             def wrapper(*args, **kwargs):
                 return fn(*args, **kwargs)
 
-            if len(code) > 1:
-                raise ValueError("Skip codes can only be one character")
-
             setattr(wrapper, "skip", True)
-            setattr(wrapper, "skip_code", code)
             setattr(wrapper, "skip_reason", reason)
             return wrapper
 

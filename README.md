@@ -306,4 +306,22 @@ You will need the user and password and credentials for Pypi.org
 
 
 # TODO
+* Put "bypass skips" back it for the testing of zest terminal checks
+* Complete UI
+* Fix the substitute_fn vs hook confusion
+* Fix the mock reset problem https://mail.google.com/mail/u/0/#inbox/FMfcgxwJXCKZkTMqdRZFlNSTfQcJSjfk
+* Keep a list of previous results and have a "last fails" and "slowest last" options
+* Add a "slowest last" to UI
+* Add "raises" to mock and stack mock. And error if BOTh returns and raises are set
+* UI handle skips
 * Add --rng_seed option
+* Make searches more clear -- currently hard-coded to only search "zests" directories
+* Deprecate "code" in skip
+* Harden failed imports on zest runner AST import
+* Mirror debug-like stack introspection into a set of check-lie helpers for type, arrays, etc.
+* fully qualified anime substring
+* Add a zest internal test that _after is called even if the subsequent test exceptions (that is, _after is in a finally block)
+* plaster specific problem, see twist here
+* coverage
+
+* DONE Eliminate groups
