@@ -307,6 +307,7 @@ class ZestRunner:
         Track the callback depth and forward to the
         display_stop() or display_abbreviated()
         """
+        log(".".join(call_stack))
         self.timings += [(name, elapsed)]
         self.timings += [(name, elapsed)]
         if self.verbose >= 2:
@@ -356,6 +357,43 @@ class ZestRunner:
                 self.s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
         self.display_warnings(zest._call_warnings)
+
+    '''
+    def _do_work_orders():
+        n_work_orders
+
+        # TODO: Change 2 to n_cpus
+        with ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="zest_runner"
+        ) as executor:
+            try:
+                wo_i_by_future = {}
+                for i, work_order in enumerate(self.work_orders):
+                    future = executor.submit(_run_work_order_fn, i)
+                    wo_i_by_future[future] = i
+
+                self.results = [None] * zap.n_work_orders
+
+                for future in as_completed(wo_i_by_future):
+                    i = wo_i_by_future[future]
+                    work_order = zap.work_orders[i]
+                    result, duration = future.result()
+                    results[i] = _examine_result(zap, result, work_order)
+
+                return results, timings
+
+            except BaseException as e:
+                # Any sort of exception needs to clear all threads.
+                # Note that KeyboardInterrupt inherits from BaseException not
+                # Exception so using BaseException to include KeyboardInterrupts
+                # Unlike above with os.kill(), the thread clears are not so destructive,
+                # so we want to call them in any situation in which we're bubbling up the
+                # exception.
+                executor._threads.clear()
+                thread._threads_queues.clear()
+                raise e
+    '''
 
     def run(
         self,
@@ -650,12 +688,12 @@ class ZestConsoleUI(ZestRunner):
         """
         self.dirty = True
         self.current_run_test = " . ".join(call_stack)
-        time.sleep(0.05)  # Testing delay
 
     def event_test_stop(self, name, call_stack, error, elapsed, func):
         """
         This is a callback in the runner thread
         """
+        log(".".join(call_stack), error)
         self.dirty = True
         self.current_run_test = None
         with run_lock:
@@ -860,7 +898,10 @@ class ZestConsoleUI(ZestRunner):
 
     def runner_thread_fn(self, which, run_list):
         try:
-            self.run(include_dirs="/Users/zack/git/zbs.zest/ui_tests", match_string=which, verbose=2, run_list=run_list)
+            kwargs = self.kwargs
+            kwargs["match_string"] = which
+            kwargs["run_list"] = run_list
+            self.run(**kwargs)
         finally:
             self.runner_thread = None
 
@@ -956,8 +997,9 @@ class ZestConsoleUI(ZestRunner):
                 self.request_watch = None
                 self.dirty = True
 
-    def __init__(self, scr):
+    def __init__(self, scr, **kwargs):
         self.scr = scr
+        self.kwargs = kwargs
         self.runner_thread = None
         self.dirty = False
         self.current_run_test = None
@@ -1023,6 +1065,12 @@ class ZestConsoleUI(ZestRunner):
 
             except KeyboardInterrupt:
                 self.stop_requested = True
+
+
+def zest_ui(**kwargs):
+    # "/Users/zack/git/zbs.zest/ui_tests"
+    curses.wrapper(ZestConsoleUI, **kwargs)
+
 
 def main():
     parser = argparse.ArgumentParser()

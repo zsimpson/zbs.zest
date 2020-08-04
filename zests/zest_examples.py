@@ -164,13 +164,8 @@ def zest_a_named_group():
     pass
 
 
-@zest.skip(reason="it can handle keyword skips")
+@zest.skip("it can handle keyword skips")
 def zest_it_can_handle_keyword_skips():
-    pass
-
-
-@zest.skip("s")
-def zest_it_can_skip_with_a_chracter_mark():
     pass
 
 
