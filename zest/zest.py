@@ -473,48 +473,50 @@ class zest:
                         zest._call_warnings += [s]
 
                 zest._call_stack += [name]
-
-                full_name = ".".join(zest._call_stack)
-                if (
-                    zest._allow_to_run is not None
-                    and full_name not in zest._allow_to_run
-                ):
-                    zest._call_stack.pop()
-                    continue
-
-                zest._call_tree += [full_name]
-                zest._call_log += [name]
-
-                if zest._test_start_callback:
-                    zest._test_start_callback(
-                        call_stack=zest._call_stack, skip=getattr(func, "skip_reason", None)
-                    )
-
-                error = None
-                start_time = time.time()
                 try:
-                    if not hasattr(func, "skip"):
-                        zest._mock_stack += [[]]
-                        func()
-                        zest._clear_stack_mocks()
-                        zest._mock_stack.pop()
-                except Exception as e:
-                    error = e
-                    zest._call_errors += [(e, zest._call_stack.copy())]
-                finally:
-                    stop_time = time.time()
-                    if zest._test_stop_callback:
-                        zest._test_stop_callback(
-                            call_stack=zest._call_stack,
-                            error=error,
-                            elapsed=stop_time - start_time,
-                            skip=getattr(func, "skip_reason", None),
+                    full_name = ".".join(zest._call_stack)
+                    if (
+                        zest._allow_to_run is not None
+                        and full_name not in zest._allow_to_run
+                    ):
+                        continue
+
+                    zest._call_tree += [full_name]
+                    zest._call_log += [name]
+
+                    if zest._test_start_callback:
+                        zest._test_start_callback(
+                            call_stack=zest._call_stack, skip=getattr(func, "skip_reason", None)
                         )
+
+                    error = None
+                    start_time = time.time()
+                    try:
+                        if not hasattr(func, "skip"):
+                            zest._mock_stack += [[]]
+                            func()
+                            zest._clear_stack_mocks()
+                            zest._mock_stack.pop()
+                    except Exception as e:
+                        error = e
+                        zest._call_errors += [(e, zest._call_stack.copy())]
+                    finally:
+                        stop_time = time.time()
+                        if zest._test_stop_callback:
+                            zest._test_stop_callback(
+                                call_stack=zest._call_stack,
+                                error=error,
+                                elapsed=stop_time - start_time,
+                                skip=getattr(func, "skip_reason", None),
+                            )
+
+                    _after = callers_special_local_funcs.get("_after")
+                    if _after:
+                        _after()
+
+                finally:
                     zest._call_stack.pop()
 
-                _after = callers_special_local_funcs.get("_after")
-                if _after:
-                    _after()
         finally:
             if prev_test_start_callback is not None:
                 zest._test_start_callback = prev_test_start_callback

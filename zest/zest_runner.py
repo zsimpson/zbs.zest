@@ -306,7 +306,14 @@ class ZestRunner:
             n_test_funcs > 0
             and parent_name is not None
             and not found_zest_call
-            and not skips
+            and (
+                not skips
+                or (
+                    # self.bypass_skip is only for self-testing.
+                    # See: it_warns_if_no_trailing_zest
+                    skips and self.bypass_skip is not None and self.bypass_skip in skips
+                )
+            )
         ):
             ZestRunner.n_zest_missing_errors += 1
             common_wording = "If you are using local functions that are not tests, prefix them with underscore."
@@ -461,6 +468,7 @@ class ZestRunner:
         self.add_markers = None
         self.root = None
         self.retcode = None
+        self.bypass_skip = None
 
     def run(
         self,
@@ -472,6 +480,7 @@ class ZestRunner:
         add_markers=False,
         run_list=None,
         n_workers=1,
+        bypass_skip=None,
     ):
         """
         verbose=0 if you want no output
@@ -492,6 +501,7 @@ class ZestRunner:
         self.timings = []
         self.last_stack_depth = 0
         self.add_markers = add_markers
+        self.bypass_skip = bypass_skip
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
@@ -1147,6 +1157,12 @@ def main():
         default=1,
         type=int,
         help="Number of parallel processes",
+    )
+    parser.add_argument(
+        "--bypass_skip",
+        nargs="?",
+        default="",
+        help="Colon-delimited list of skips to bypass. Do not use: only for self-testing.",
     )
 
     kwargs = vars(parser.parse_args())
