@@ -588,7 +588,7 @@ def kbhit():
 class ZestResult:
     error: Exception
     elapsed: float
-    func: Callable
+    skip: str
     shortcut_key: int
     running: bool
 
@@ -736,7 +736,7 @@ class ZestConsoleUI(ZestRunner):
         self.dirty = True
         self.current_run_test = " . ".join(call_stack)
 
-    def event_test_stop(self, call_stack, error, elapsed, func):
+    def event_test_stop(self, call_stack, error, elapsed, skip):
         """
         This is a callback in the runner thread
         """
@@ -1168,7 +1168,7 @@ def main():
     kwargs = vars(parser.parse_args())
 
     if kwargs.pop("ui", False):
-        curses.wrapper(ZestConsoleUI)
+        zest_ui()
         sys.exit(0)
 
     if kwargs.pop("version", None):
@@ -1180,7 +1180,7 @@ def main():
 
 
 if __name__ == "__main__":
-    allow_reentrancy = True
+    allow_reentrancy = False
     if allow_reentrancy:
         main()
     else:
