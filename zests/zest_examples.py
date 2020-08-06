@@ -355,4 +355,13 @@ def zest_runner():
         assert "zest_examples.py:" in output
         assert ret_code != 0
 
+    def it_runs_multiprocess():
+        ret_code, output = _call_zest("--verbose=2", "zest_basics", "--n_workers=1")
+        found_tests = _get_run_tests(output)
+        assert len(found_tests) == 11
+
+        ret_code, output = _call_zest("--verbose=2", "zest_basics", "--n_workers=4")
+        found_tests = _get_run_tests(output)
+        assert len(found_tests) == 11
+
     zest()
