@@ -346,7 +346,7 @@ class zest:
         # If some other exception was raised that should just bubble as usual
 
     @staticmethod
-    def do(*funcs, test_start_callback=None, test_stop_callback=None):
+    def do(*funcs, test_start_callback=None, test_stop_callback=None, allow_to_run=None):
         """
         This is the entrypoint of any zest at any depth.
 
@@ -378,7 +378,7 @@ class zest:
         Call _before() (if defined) before each test
         Call _after() (if defined) after each test
 
-        The class member _allow_to_run potentialy contains a list of
+        The class member _allow_to_run potentially contains a list of
         zests that are allowed to execute in dotted form. Eg using above:
             ["zest_test1.it_does_y.it_does_y1"]
 
@@ -389,14 +389,19 @@ class zest:
         Eg: ["zest_test1.it_does_y"] means that it_does_y1 will run too.
 
         """
+
         prev_test_start_callback = None
         prev_test_stop_callback = None
+        prev_allow_to_run = None
         if test_start_callback is not None:
             prev_test_start_callback = zest._test_start_callback
             zest._test_start_callback = test_start_callback
         if test_stop_callback is not None:
             prev_test_stop_callback = zest._test_stop_callback
             zest._test_stop_callback = test_stop_callback
+        if allow_to_run is not None:
+            prev_allow_to_run = zest._allow_to_run
+            zest._allow_to_run = allow_to_run
 
         try:
             callers_special_local_funcs = {}
@@ -482,7 +487,7 @@ class zest:
 
                 if zest._test_start_callback:
                     zest._test_start_callback(
-                        name, call_stack=zest._call_stack, func=func
+                        call_stack=zest._call_stack, skip=getattr(func, "skip_reason", None)
                     )
 
                 error = None
@@ -500,11 +505,10 @@ class zest:
                     stop_time = time.time()
                     if zest._test_stop_callback:
                         zest._test_stop_callback(
-                            name,
                             call_stack=zest._call_stack,
                             error=error,
                             elapsed=stop_time - start_time,
-                            func=func,
+                            skip=getattr(func, "skip_reason", None),
                         )
                     zest._call_stack.pop()
 
@@ -516,6 +520,8 @@ class zest:
                 zest._test_start_callback = prev_test_start_callback
             if prev_test_stop_callback is not None:
                 zest._test_stop_callback = prev_test_stop_callback
+            if prev_allow_to_run is not None:
+                zest._allow_to_run = prev_allow_to_run
 
     def __init__(self, *args, **kwargs):
         self.do(*args, **kwargs)

@@ -12,7 +12,9 @@ import copy
 from pathlib import Path
 from typing import Callable
 from importlib import import_module, util
+from multiprocessing import Pool, Manager
 from dataclasses import dataclass
+from queue import Empty as QueueEmpty
 from . import __version__
 if os.name == 'nt':
     import msvcrt
@@ -50,6 +52,43 @@ def log(*args):
         log_fp = open("log.txt", "a")
     log_fp.write("".join([str(i) for i in args]) + "\n")
     log_fp.flush()
+
+
+def _load_module(root_name, module_name, full_path):
+    # TODO: Add cache here
+    spec = util.spec_from_file_location(module_name, full_path)
+    mod = util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    a = getattr(mod, root_name)
+    return getattr(mod, root_name)
+
+
+def _do_one_root_zest(root_name, module_name, full_path, allow_to_run, queue):
+    """
+    This is called to run a root-level zest function in a multiprocessing context.
+    queue is used to communicate back to the parent process.
+    """
+    try:
+        def event_test_start(call_stack, skip):
+            queue.put(("test_start", call_stack, None, None, skip))
+
+        def event_test_stop(call_stack, error, elapsed, skip):
+            queue.put(("test_stop", call_stack, error, elapsed, skip))
+
+        queue.put(("root_start", root_name, None, None, None))
+        root_zest_func = _load_module(root_name, module_name, full_path)
+
+        zest.do(
+            root_zest_func,
+            test_start_callback=event_test_start,
+            test_stop_callback=event_test_stop,
+            allow_to_run=allow_to_run,
+        )
+
+        queue.put(("root_stop", root_name, None, None, None))
+    except Exception as e:
+        print(f"_do_one_root_zest exception {e}")
 
 
 class ZestRunner:
@@ -91,7 +130,7 @@ class ZestRunner:
             return leading, basename, lineno, context, is_libs
         return None
 
-    def display_start(self, name, curr_depth, func):
+    def display_start(self, name, curr_depth, skip):
         """Overload this to change output behavior"""
         if self.last_stack_depth < curr_depth:
             self.s("\n")
@@ -100,26 +139,26 @@ class ZestRunner:
         self.s("  " * curr_depth, yellow, marker + name, reset, ": ")
         # Note, no \n on this line because it will be added on the display_stop call
 
-    def display_stop(self, name, error, curr_depth, last_depth, elapsed, func):
+    def display_stop(self, name, error, curr_depth, last_depth, elapsed, skip):
         """Overload this to change output behavior"""
         if curr_depth < last_depth:
             self.s(f"{'  ' * curr_depth}")
 
         if isinstance(error, str) and error.startswith("skipped"):
             self.s(bold, yellow, error)
-        elif hasattr(func, "skip"):
-            self.s(bold, yellow, "SKIPPED ", getattr(func, "skip_reason", "") or "")
+        elif skip is not None:
+            self.s(bold, yellow, "SKIPPED ", skip)
         elif error:
             self.s(bold, red, "ERROR", gray, f" (in {int(1000.0 * elapsed)} ms)")
         else:
             self.s(green, "SUCCESS", gray, f" (in {int(1000.0 * elapsed)} ms)")
         self.s("\n")
 
-    def display_abbreviated(self, name, error, func):
+    def display_abbreviated(self, name, error, skip):
         """Overload this to change output behavior"""
         if error:
             self.s(bold, red, "F")
-        elif hasattr(func, "skip"):
+        elif skip:
             self.s(yellow, "s")
         else:
             self.s(green, ".")
@@ -296,28 +335,28 @@ class ZestRunner:
 
         return child_list
 
-    def event_test_start(self, name, call_stack, func):
+    def event_test_start(self, call_stack, skip):
         """Track the callback depth and forward to the display_start()"""
         if self.verbose >= 2:
             self.callback_depth = len(call_stack) - 1
-            self.display_start(name, self.callback_depth, func)
+            self.display_start(call_stack[-1], self.callback_depth, skip)
 
-    def event_test_stop(self, name, call_stack, error, elapsed, func):
+    def event_test_stop(self, call_stack, error, elapsed, skip):
         """
         Track the callback depth and forward to the
         display_stop() or display_abbreviated()
         """
-        log(".".join(call_stack))
+        name = call_stack[-1]
         self.timings += [(name, elapsed)]
         self.timings += [(name, elapsed)]
         if self.verbose >= 2:
             curr_depth = len(call_stack) - 1
             self.display_stop(
-                name, error, curr_depth, self.callback_depth, elapsed, func
+                name, error, curr_depth, self.callback_depth, elapsed, skip
             )
             self.callback_depth = curr_depth
         elif self.verbose == 1:
-            self.display_abbreviated(name, error, func)
+            self.display_abbreviated(name, error, skip)
 
     def event_considering(self, root_name, module_name, package, member_groups):
         if self.verbose > 2:
@@ -351,49 +390,77 @@ class ZestRunner:
             self.s("Slowest 5%\n")
             n_timings = len(self.timings)
             self.timings.sort(key=lambda tup: tup[1])
-            ninty_percentile = 95 * n_timings // 100
-            for i in range(n_timings - 1, ninty_percentile, -1):
+            ninety_percentile = 95 * n_timings // 100
+            for i in range(n_timings - 1, ninety_percentile, -1):
                 name = self.timings[i]
                 self.s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
         self.display_warnings(zest._call_warnings)
 
-    '''
-    def _do_work_orders():
-        n_work_orders
+    def _launch_root_zests(self, root_zest_funcs, allow_to_run, n_workers):
+        if n_workers == 1:
+            for (
+                root_name,
+                (module_name, package, member_groups, full_path),
+            ) in root_zest_funcs.items():
+                root_zest_func = _load_module(root_name, module_name, full_path)
+                zest.do(
+                    root_zest_func,
+                    test_start_callback=self.event_test_start,
+                    test_stop_callback=self.event_test_stop,
+                    allow_to_run=allow_to_run,
+                )
+                assert len(zest._call_stack) == 0
+        else:
+            pool = Pool(n_workers)
+            queue = Manager().Queue()
 
-        # TODO: Change 2 to n_cpus
-        with ThreadPoolExecutor(
-            max_workers=2,
-            thread_name_prefix="zest_runner"
-        ) as executor:
-            try:
-                wo_i_by_future = {}
-                for i, work_order in enumerate(self.work_orders):
-                    future = executor.submit(_run_work_order_fn, i)
-                    wo_i_by_future[future] = i
+            n_started = 0
+            for (
+                root_name,
+                (module_name, package, member_groups, full_path),
+            ) in root_zest_funcs.items():
+                self.event_considering(root_name, module_name, package, member_groups)
+                pool.apply_async(_do_one_root_zest, (root_name, module_name, full_path, allow_to_run, queue))
+                n_started += 1
 
-                self.results = [None] * zap.n_work_orders
+            pool.close()
 
-                for future in as_completed(wo_i_by_future):
-                    i = wo_i_by_future[future]
-                    work_order = zap.work_orders[i]
-                    result, duration = future.result()
-                    results[i] = _examine_result(zap, result, work_order)
+            n_root_stop_messages_received = 0
+            while n_root_stop_messages_received < n_started:
+                try:
+                    msg, call_stack, error, elapsed, skip = queue.get(block=True, timeout=0.1)
 
-                return results, timings
+                    if self.event_stop_requested():
+                        break
 
-            except BaseException as e:
-                # Any sort of exception needs to clear all threads.
-                # Note that KeyboardInterrupt inherits from BaseException not
-                # Exception so using BaseException to include KeyboardInterrupts
-                # Unlike above with os.kill(), the thread clears are not so destructive,
-                # so we want to call them in any situation in which we're bubbling up the
-                # exception.
-                executor._threads.clear()
-                thread._threads_queues.clear()
-                raise e
-    '''
+                    if msg == "root_start":
+                        pass
+
+                    elif msg == "root_stop":
+                        n_root_stop_messages_received += 1
+
+                    elif msg == "test_start":
+                        self.event_test_start(call_stack, skip)
+
+                    elif msg == "test_stop":
+                        self.event_test_stop(call_stack, error, elapsed, skip)
+
+                    # print(f"msg={msg} n_root_stop_messages_received={n_root_stop_messages_received}")
+                except QueueEmpty as e:
+                    pass
+
+            pool.join()
+
+    def __init__(self):
+        self.verbose = None
+        self.callback_depth = None
+        self.include_dirs = None
+        self.timings = None
+        self.last_stack_depth = None
+        self.add_markers = None
+        self.root = None
+        self.retcode = None
 
     def run(
         self,
@@ -401,10 +468,10 @@ class ZestRunner:
         verbose=1,
         include_dirs=None,
         match_string=None,
-        recurse=0,
         disable_shuffle=False,
         add_markers=False,
         run_list=None,
+        n_workers=1,
     ):
         """
         verbose=0 if you want no output
@@ -440,8 +507,8 @@ class ZestRunner:
 
             for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
                 path = os.path.join(curr, module_name + ".py")
-                with open(path) as f:
-                    source = f.read()
+                with open(path) as file:
+                    source = file.read()
 
                 module_ast = ast.parse(source)
                 zests = self.recurse_ast(module_ast.body, None, None, path, 0)
@@ -467,7 +534,6 @@ class ZestRunner:
                         for i in range(len(parts)):
                             allow_to_run += [".".join(parts[0 : i + 1])]
 
-                    if len(parts) == 1:
                         root_zest_funcs[parts[0]] = (
                             module_name,
                             package,
@@ -476,51 +542,22 @@ class ZestRunner:
                         )
 
         if run_list is not None:
-            zest._allow_to_run = []
+            allow_to_run = []
             for run in run_list:
                 parts = run.split(".")
                 for i in range(len(parts)):
-                    zest._allow_to_run += [".".join(parts[0: i + 1])]
+                    allow_to_run += [".".join(parts[0: i + 1])]
         else:
-            zest._allow_to_run = list(set(allow_to_run))
+            allow_to_run = list(set(allow_to_run))
 
-        has_run = {}
+        self._launch_root_zests(root_zest_funcs, allow_to_run, n_workers=n_workers)
 
-        for (
-            root_name,
-            (module_name, package, member_groups, full_name),
-        ) in root_zest_funcs.items():
-            if self.event_stop_requested():
-                break
-
-            self.event_considering(root_name, module_name, package, member_groups)
-
-            if not has_run.get(root_name):
-                self.event_running(root_name)
-
-                spec = util.spec_from_file_location(module_name, full_name)
-                mod = util.module_from_spec(spec)
-                sys.modules[spec.name] = mod
-                spec.loader.exec_module(mod)
-                func = getattr(mod, root_name)
-
-                has_run[root_name] = True
-                assert len(zest._call_stack) == 0
-                zest.do(
-                    func,
-                    test_start_callback=self.event_test_start,
-                    test_stop_callback=self.event_test_stop,
-                )
-            else:
-                self.event_not_running(root_name)
-
-        if recurse == 0:
-            self.event_complete()
-            self.retcode = (
-                0
-                if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0 and not self.event_stop_requested()
-                else 1
-            )
+        self.event_complete()
+        self.retcode = (
+            0
+            if len(zest._call_errors) == 0 and ZestRunner.n_zest_missing_errors == 0 and not self.event_stop_requested()
+            else 1
+        )
 
         return self
 
@@ -682,14 +719,14 @@ class ZestConsoleUI(ZestRunner):
     def event_stop_requested(self):
         return self.stop_requested
 
-    def event_test_start(self, name, call_stack, func):
+    def event_test_start(self, call_stack, skip):
         """
         This is a callback in the runner thread
         """
         self.dirty = True
         self.current_run_test = " . ".join(call_stack)
 
-    def event_test_stop(self, name, call_stack, error, elapsed, func):
+    def event_test_stop(self, call_stack, error, elapsed, func):
         """
         This is a callback in the runner thread
         """
@@ -1105,6 +1142,13 @@ def main():
         action="store_true",
         help="console UI",
     )
+    parser.add_argument(
+        "--n_workers",
+        default=1,
+        type=int,
+        help="Number of parallel processes",
+    )
+
     kwargs = vars(parser.parse_args())
 
     if kwargs.pop("ui", False):
