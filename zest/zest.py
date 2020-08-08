@@ -3,9 +3,11 @@ A function-oriented testing framework for Python 3.
 
 See README.md
 """
+import os
 import time
 import inspect
 import types
+import traceback
 from functools import wraps
 from contextlib import contextmanager
 from random import shuffle
@@ -486,10 +488,14 @@ class zest:
 
                     if zest._test_start_callback:
                         zest._test_start_callback(
-                            call_stack=zest._call_stack, skip=getattr(func, "skip_reason", None)
+                            call_stack=zest._call_stack,
+                            skip=getattr(func, "skip_reason", None),
+                            source=func.__code__.co_filename,
+                            pid = os.getpid(),
                         )
 
                     error = None
+                    error_formatted = None
                     start_time = time.time()
                     try:
                         if not hasattr(func, "skip"):
@@ -499,15 +505,21 @@ class zest:
                             zest._mock_stack.pop()
                     except Exception as e:
                         error = e
-                        zest._call_errors += [(e, zest._call_stack.copy())]
+                        error_formatted = traceback.format_exception(
+                            etype=type(error), value=error, tb=error.__traceback__
+                        )
+                        zest._call_errors += [(e, error_formatted, zest._call_stack.copy())]
                     finally:
                         stop_time = time.time()
                         if zest._test_stop_callback:
                             zest._test_stop_callback(
                                 call_stack=zest._call_stack,
                                 error=error,
+                                error_formatted=error_formatted,
                                 elapsed=stop_time - start_time,
                                 skip=getattr(func, "skip_reason", None),
+                                source=func.__code__.co_filename,
+                                pid=os.getpid(),
                             )
 
                     _after = callers_special_local_funcs.get("_after")

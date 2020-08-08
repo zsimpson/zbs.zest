@@ -12,7 +12,8 @@ import copy
 from pathlib import Path
 from typing import Callable
 from importlib import import_module, util
-from multiprocessing import Pool, Manager
+import multiprocessing
+import multiprocessing.pool
 from dataclasses import dataclass
 from queue import Empty as QueueEmpty
 from . import __version__
@@ -50,8 +51,31 @@ def log(*args):
     global log_fp
     if log_fp is None:
         log_fp = open("log.txt", "a")
-    log_fp.write("".join([str(i) for i in args]) + "\n")
+    log_fp.write("".join([str(i) + " " for i in args]) + "\n")
     log_fp.flush()
+
+
+# Non-Daemon process pool adpated from : https://stackoverflow.com/a/53180921
+# This is necessary because the Pool must be allowed to create other
+# processes within in it (ie, a test could create a process)
+class NonDaemonicProcess(multiprocessing.Process):
+    @property
+    def daemon(self):
+        return False
+
+    @daemon.setter
+    def daemon(self, value):
+        pass
+
+
+class NonDaemonicContext(type(multiprocessing.get_context())):
+    Process = NonDaemonicProcess
+
+
+class NonDaemonicPool(multiprocessing.pool.Pool):
+    def __init__(self, *args, **kwargs):
+        kwargs['context'] = NonDaemonicContext()
+        super(NonDaemonicPool, self).__init__(*args, **kwargs)
 
 
 def _load_module(root_name, module_name, full_path):
@@ -70,13 +94,15 @@ def _do_one_root_zest(root_name, module_name, full_path, allow_to_run, queue):
     queue is used to communicate back to the parent process.
     """
     try:
-        def event_test_start(call_stack, skip):
-            queue.put(("test_start", call_stack, None, None, skip))
+        def event_test_start(call_stack, skip, source, pid):
+            queue.put(("test_start", call_stack, None, None, None, skip, source, pid))
 
-        def event_test_stop(call_stack, error, elapsed, skip):
-            queue.put(("test_stop", call_stack, error, elapsed, skip))
+        def event_test_stop(call_stack, error, error_formatted, elapsed, skip, source, pid):
+            if error_formatted is not None:
+                log(error_formatted)
+            queue.put(("test_stop", call_stack, error, error_formatted, elapsed, skip, source, pid))
 
-        queue.put(("root_start", root_name, None, None, None))
+        queue.put(("root_start", [root_name], None, None, None, None, None, os.getpid()))
         root_zest_func = _load_module(root_name, module_name, full_path)
 
         zest.do(
@@ -86,7 +112,7 @@ def _do_one_root_zest(root_name, module_name, full_path, allow_to_run, queue):
             allow_to_run=allow_to_run,
         )
 
-        queue.put(("root_stop", root_name, None, None, None))
+        queue.put(("root_stop", root_name, None, None, None, None, None, os.getpid()))
     except Exception as e:
         print(f"_do_one_root_zest exception {e}")
 
@@ -179,18 +205,15 @@ class ZestRunner:
             + (edge * (tty_size()[1] - 7 - len(label)))
         )
 
-    def display_error(self, error, stack):
+    def display_error(self, error, error_formatted, stack):
         leaf_test_name = stack[-1]
         formatted_test_name = (
             " . ".join(stack[0:-1]) + bold + " . " + leaf_test_name
         )
 
         self.s("\n", self.error_header("=", red, formatted_test_name), "\n")
-        formatted = traceback.format_exception(
-            etype=type(error), value=error, tb=error.__traceback__
-        )
         lines = []
-        for line in formatted:
+        for line in error_formatted:
             lines += [sub_line for sub_line in line.strip().split("\n")]
 
         is_libs = False
@@ -221,8 +244,8 @@ class ZestRunner:
 
     def display_errors(self, call_log, call_errors):
         self.s("\n")
-        for error, stack in call_errors:
-            self.display_error(error, stack)
+        for error, error_formatted, stack, err in call_errors:
+            self.display_error(error, error_formatted, stack)
 
     def display_complete(self, call_log, call_errors):
         n_errors = len(call_errors)
@@ -342,13 +365,13 @@ class ZestRunner:
 
         return child_list
 
-    def event_test_start(self, call_stack, skip):
+    def event_test_start(self, call_stack, skip, source, pid):
         """Track the callback depth and forward to the display_start()"""
         if self.verbose >= 2:
             self.callback_depth = len(call_stack) - 1
             self.display_start(call_stack[-1], self.callback_depth, skip)
 
-    def event_test_stop(self, call_stack, error, elapsed, skip):
+    def event_test_stop(self, call_stack, error, error_formatted, elapsed, skip, source, pid):
         """
         Track the callback depth and forward to the
         display_stop() or display_abbreviated()
@@ -419,8 +442,8 @@ class ZestRunner:
                 )
                 assert len(zest._call_stack) == 0
         else:
-            pool = Pool(n_workers)
-            queue = Manager().Queue()
+            self.pool = NonDaemonicPool(n_workers)
+            queue = multiprocessing.Manager().Queue()
 
             n_started = 0
             for (
@@ -428,36 +451,34 @@ class ZestRunner:
                 (module_name, package, member_groups, full_path),
             ) in root_zest_funcs.items():
                 self.event_considering(root_name, module_name, package, member_groups)
-                pool.apply_async(_do_one_root_zest, (root_name, module_name, full_path, allow_to_run, queue))
+                self.pool.apply_async(_do_one_root_zest, (root_name, module_name, full_path, allow_to_run, queue))
                 n_started += 1
 
-            pool.close()
+            self.pool.close()
 
             n_root_stop_messages_received = 0
             while n_root_stop_messages_received < n_started:
                 try:
-                    msg, call_stack, error, elapsed, skip = queue.get(block=True, timeout=0.1)
+                    msg, call_stack, error, error_formatted, elapsed, skip, source, pid = queue.get(block=True, timeout=0.1)
 
                     if self.event_stop_requested():
                         break
 
-                    if msg == "root_start":
-                        pass
-
-                    elif msg == "root_stop":
+                    if msg == "root_stop":
                         n_root_stop_messages_received += 1
 
-                    elif msg == "test_start":
-                        self.event_test_start(call_stack, skip)
+                    elif msg == "root_start" or msg == "test_start":
+                        self.event_test_start(call_stack, skip, source, pid)
 
                     elif msg == "test_stop":
-                        self.event_test_stop(call_stack, error, elapsed, skip)
+                        self.event_test_stop(call_stack, error, error_formatted, elapsed, skip, source, pid)
 
                     # print(f"msg={msg} n_root_stop_messages_received={n_root_stop_messages_received}")
                 except QueueEmpty as e:
                     pass
 
-            pool.join()
+            self.pool.join()
+            self.pool = None
 
     def __init__(self):
         self.verbose = None
@@ -469,6 +490,7 @@ class ZestRunner:
         self.root = None
         self.retcode = None
         self.bypass_skip = None
+        self.pool = None
 
     def run(
         self,
@@ -587,6 +609,7 @@ def kbhit():
 @dataclass
 class ZestResult:
     error: Exception
+    error_formatted: str
     elapsed: float
     skip: str
     shortcut_key: int
@@ -729,22 +752,21 @@ class ZestConsoleUI(ZestRunner):
     def event_stop_requested(self):
         return self.stop_requested
 
-    def event_test_start(self, call_stack, skip):
+    def event_test_start(self, call_stack, skip, source, pid):
         """
         This is a callback in the runner thread
         """
         self.dirty = True
-        self.current_run_test = " . ".join(call_stack)
+        self.current_running_tests_by_pid[pid] = " . ".join(call_stack)
 
-    def event_test_stop(self, call_stack, error, elapsed, skip):
+    def event_test_stop(self, call_stack, error, error_formatted, elapsed, skip, source, pid):
         """
         This is a callback in the runner thread
         """
-        log(".".join(call_stack), error)
         self.dirty = True
-        self.current_run_test = None
+        self.current_running_tests_by_pid[pid] = None
         with run_lock:
-            self.results[".".join(call_stack)] = ZestResult(error, elapsed, func, None, False)
+            self.results[".".join(call_stack)] = ZestResult(error, error_formatted, elapsed, skip, None, False)
         if error is not None:
             self.n_errors += 1
         else:
@@ -784,14 +806,29 @@ class ZestConsoleUI(ZestRunner):
         return y
 
     def draw_status(self, y):
+        pids = sorted(self.current_running_tests_by_pid.keys())
         self.print(
             y, 0,
             self.PAL_NONE, "Status  : ",
             self.PAL_STATUS, self.run_state_strs[self.run_state] + " ",
-            self.PAL_NAME_SELECTED, self.current_run_test or "",
-            self.PAL_NAME_SELECTED, self.watch_file or ""
         )
         y += 1
+
+        if len(pids) > 0:
+            self.print(
+                y, 0,
+                self.PAL_NONE, "Pids    : ",
+            )
+            y += 1
+            for pid in pids:
+                name_stack = (self.current_running_tests_by_pid[pid] or "").split(".")
+                self.print(
+                    y, 0,
+                    self.PAL_NONE, f"{pid:>5}) ",
+                    self.PAL_NAME_SELECTED, name_stack[0],
+                    self.PAL_NAME, ".".join(name_stack[1:]),
+                )
+                y += 1
         return y
 
     def draw_summary(self, y):
@@ -830,29 +867,30 @@ class ZestConsoleUI(ZestRunner):
                         error_i += 1
                         if error_i < 10:
                             result.shortcut_key = error_i
-                            formatted = traceback.format_exception(
-                                etype=type(result.error), value=result.error, tb=result.error.__traceback__
-                            )
+                            formatted = result.error_formatted
                             lines = []
                             for line in formatted:
                                 lines += [sub_line for sub_line in line.strip().split("\n")]
-                            last_filename_line = lines[-3]
+                            last_filename_line = ""
+                            if len(lines) >= 3:
+                                last_filename_line = lines[-3]
                             split_line = self._traceback_match_filename(last_filename_line)
-                            leading, basename, lineno, context, is_libs = split_line
+                            if split_line:
+                                leading, basename, lineno, context, is_libs = split_line
 
-                            selected = self.show_result is not None and self.show_result == name
-                            self.print(
-                                y, 0,
-                                self.PAL_FAIL_KEY, str(error_i),
-                                self.PAL_NONE, ") ",
-                                self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
-                                self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
-                                self.PAL_ERROR_BASE, " ",
-                                self.PAL_ERROR_PATHNAME, basename,
-                                self.PAL_ERROR_BASE, ":",
-                                self.PAL_ERROR_PATHNAME, str(lineno),
-                            )
-                            y += 1
+                                selected = self.show_result is not None and self.show_result == name
+                                self.print(
+                                    y, 0,
+                                    self.PAL_FAIL_KEY, str(error_i),
+                                    self.PAL_NONE, ") ",
+                                    self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
+                                    self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
+                                    self.PAL_ERROR_BASE, " ",
+                                    self.PAL_ERROR_PATHNAME, basename,
+                                    self.PAL_ERROR_BASE, ":",
+                                    self.PAL_ERROR_PATHNAME, str(lineno),
+                                )
+                                y += 1
 
             if self.n_errors > 9:
                 self.print(y, 0, self.PAL_ERROR_BASE, f"+ {self.n_errors - 9} more")
@@ -899,9 +937,7 @@ class ZestConsoleUI(ZestRunner):
             self.print(y, 0, self.PAL_SUCCESS, "Passed!")
             y += 1
         else:
-            formatted = traceback.format_exception(
-                etype=type(result.error), value=result.error, tb=result.error.__traceback__
-            )
+            formatted = result.error_formatted
             lines = []
             for line in formatted:
                 lines += [sub_line for sub_line in line.strip().split("\n")]
@@ -1003,7 +1039,7 @@ class ZestConsoleUI(ZestRunner):
                         self.results = {}
                         self.show_result = None
                     else:
-                        self.results[self.request_run] = ZestResult(None, None, None, None, True)
+                        self.results[self.request_run] = ZestResult(None, None, None, None, None, True)
                     self.run_state = self.RUNNING
                     self.request_run = None
                     self.dirty = True
@@ -1045,11 +1081,12 @@ class ZestConsoleUI(ZestRunner):
                 self.dirty = True
 
     def __init__(self, scr, **kwargs):
+        super().__init__()
         self.scr = scr
         self.kwargs = kwargs
         self.runner_thread = None
         self.dirty = False
-        self.current_run_test = None
+        self.current_running_tests_by_pid = {}
         with run_lock:
             self.results = {}
         self.n_success = 0
@@ -1071,47 +1108,52 @@ class ZestConsoleUI(ZestRunner):
             if i > 0:
                 curses.init_pair(i, self.pal[i][0], self.pal[i][1])
 
-        while True:
-            try:
-                self.update_run_state()
+        try:
+            while True:
+                try:
+                    self.update_run_state()
 
-                self.render()
-                if kbhit():
-                    key = self.scr.getkey()
-                    if key in self.num_keys:
-                        show_details_i = self.num_key_to_int(key)
-                        if 1 <= show_details_i < self.n_errors + 1:
-                            with run_lock:
-                                for name, result in self.results.items():
-                                    if result.shortcut_key == show_details_i:
-                                        self.show_result = name
-                                        break
-                                self.dirty = True
+                    self.render()
+                    if kbhit():
+                        key = self.scr.getkey()
+                        if key in self.num_keys:
+                            show_details_i = self.num_key_to_int(key)
+                            if 1 <= show_details_i < self.n_errors + 1:
+                                with run_lock:
+                                    for name, result in self.results.items():
+                                        if result.shortcut_key == show_details_i:
+                                            self.show_result = name
+                                            break
+                                    self.dirty = True
 
-                    if key == "q":
-                        return
+                        if key == "q":
+                            return
 
-                    if key == "a":
-                        self.request_run = "*"
-                        self.dirty = True
-
-                    if key == "f":
-                        self.request_run = "__fails__"
-                        self.dirty = True
-
-                    if key == "r":
-                        self.request_run = self.show_result
-                        self.dirty = True
-
-                    if key == "w":
-                        if self.show_result is not None:
-                            self.request_watch = self.show_result
+                        if key == "a":
+                            self.request_run = "*"
                             self.dirty = True
 
-                time.sleep(0.05)
+                        if key == "f":
+                            self.request_run = "__fails__"
+                            self.dirty = True
 
-            except KeyboardInterrupt:
-                self.stop_requested = True
+                        if key == "r":
+                            self.request_run = self.show_result
+                            self.dirty = True
+
+                        if key == "w":
+                            if self.show_result is not None:
+                                self.request_watch = self.show_result
+                                self.dirty = True
+
+                    time.sleep(0.05)
+
+                except KeyboardInterrupt:
+                    raise
+                    self.stop_requested = True
+        finally:
+            if self.pool is not None:
+                self.pool.terminate()
 
 
 def zest_ui(**kwargs):
