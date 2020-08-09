@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 
-python -u -m zest.zest_runner "$@"
+python -u -m zest.zest_cli "$@"
 
