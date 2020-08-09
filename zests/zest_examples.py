@@ -71,11 +71,11 @@ def zest_basics():
         stop_was_called = 0
 
         # Note the following two callbacks are ignored because they are underscored
-        def _test_start_callback(call_stack, skip):
+        def _test_start_callback(call_stack, skip, source, pid):
             nonlocal start_was_called
             start_was_called += 1
 
-        def _test_stop_callback(call_stack, error, elapsed, skip):
+        def _test_stop_callback(call_stack, error, error_formatted, elapsed, skip, source, pid):
             nonlocal stop_was_called
             stop_was_called += 1
 
