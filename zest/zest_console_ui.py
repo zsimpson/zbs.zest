@@ -4,7 +4,6 @@ import os
 import curses
 import threading
 from zest.zest_runner import log, ZestRunner
-from dataclasses import dataclass
 from . import __version__
 if os.name == 'nt':
     import msvcrt
@@ -22,16 +21,6 @@ def kbhit():
     else:
         dr, dw, de = select.select([sys.stdin], [], [], 0)
         return dr != []
-
-
-@dataclass
-class ZestResult:
-    error: Exception
-    error_formatted: str
-    elapsed: float
-    skip: str
-    shortcut_key: int
-    running: bool
 
 
 run_lock = threading.Lock()
@@ -168,21 +157,13 @@ class ZestConsoleUI(ZestRunner):
     def event_request_stop(self):
         return self.request_stop
 
-    def event_test_start(self, call_stack, skip, source, pid):
-        """
-        This is a callback in the runner thread
-        """
+    def event_test_start(self, zest_result):
         self.dirty = True
-        self.current_running_tests_by_pid[pid] = " . ".join(call_stack)
+        self.current_running_tests_by_pid[zest_result.pid] = " . ".join(zest_result.call_stack)
 
-    def event_test_stop(self, call_stack, error, error_formatted, elapsed, skip, source, pid):
-        """
-        This is a callback in the runner thread
-        """
+    def event_test_stop(self, zest_result):
         self.dirty = True
-        self.current_running_tests_by_pid[pid] = None
-        with run_lock:
-            self.results[".".join(call_stack)] = ZestResult(error, error_formatted, elapsed, skip, None, False)
+        self.current_running_tests_by_pid[zest_result.pid] = None
         if error is not None:
             self.n_errors += 1
         else:
@@ -294,7 +275,7 @@ class ZestConsoleUI(ZestRunner):
                             if split_line:
                                 leading, basename, lineno, context, is_libs = split_line
 
-                                selected = self.show_result is not None and self.show_result == name
+                                selected = self.show_result_full_name is not None and self.show_result_full_name == name
                                 self.print(
                                     y, 0,
                                     self.PAL_FAIL_KEY, str(error_i),
@@ -315,7 +296,7 @@ class ZestConsoleUI(ZestRunner):
 
     def draw_result_details(self, y):
         with run_lock:
-            result = self.results.get(self.show_result)
+            result = self.results.get(self.show_result_full_name)
         if result is None:
             return y
 
@@ -327,11 +308,11 @@ class ZestConsoleUI(ZestRunner):
             )
             self.draw_menu_fill_to_end_of_line(y, length)
             y += 1
-        elif self.show_result is not None:
+        elif self.show_result_full_name is not None:
             length = self.print(
                 y, 0,
                 self.PAL_MENU, "Test result: ",
-                self.PAL_MENU_RUN_STATUS, self.show_result
+                self.PAL_MENU_RUN_STATUS, self.show_result_full_name
             )
             self.draw_menu_fill_to_end_of_line(y, length)
             y += 1
@@ -395,30 +376,18 @@ class ZestConsoleUI(ZestRunner):
 
         return y
 
-    def runner_thread_fn(self, which, run_list):
+    def runner_thread_fn(self):
         log("enter runner_thread")
         try:
-            kwargs = self.kwargs
-            kwargs["match_string"] = which
-            kwargs["run_list"] = run_list
-            self.run(**kwargs)
+            self.run()
         except BaseException as e:
             log(f"runner_thread exception {type(e)} {e}")
         finally:
             log("exit runner_thread")
 
-    def runner_thread_start(self, which):
+    def runner_thread_start(self):
         if self.runner_thread_is_running():
             raise Exception("Runner thread already running")
-
-        run_list = None
-
-        if which == "*":
-            which = None
-
-        if which == "__fails__":
-            with run_lock:
-                run_list = [name for name, result in self.results.items() if result.error is not None]
 
         self.n_success = 0
         self.n_errors = 0
@@ -429,7 +398,7 @@ class ZestConsoleUI(ZestRunner):
         # Why daemonize? Because a daemon thread can not prevent the program from
         # terminating. We do not want the testing thread to be able to prevent
         # the tester application to terminating.
-        self.runner_thread = threading.Thread(target=self.runner_thread_fn, args=(which, run_list), daemon=True)
+        self.runner_thread = threading.Thread(target=self.runner_thread_fn, daemon=True)
         self.runner_thread.name = "runner_thread"
         self.runner_thread.start()
         log(f"self.runner_thread native_id={self.runner_thread.native_id} ident={self.runner_thread.ident}")
@@ -446,7 +415,7 @@ class ZestConsoleUI(ZestRunner):
         y = self.draw_status(y)
         y = self.draw_summary(y)
         self.draw_fail_lines(y+1)
-        if self.show_result is not None:
+        if self.show_result_full_name is not None:
             y = self.draw_result_details(y+13)
         self.scr.refresh()
 
@@ -499,7 +468,7 @@ class ZestConsoleUI(ZestRunner):
               (which could be set by the self.run_state == self.STOPPING
               logic in this function). If it is set then it calls "pool.terminate()"
 
-
+            TODO: Finish
 
             Check state for corruptions
             Check for exit cases
@@ -528,15 +497,11 @@ class ZestConsoleUI(ZestRunner):
                 return False
 
             if self.request_run is not None:
-                self.runner_thread_start(which=self.request_run)
-                with run_lock:
-                    self.request_run = None
-                    self.results = {}
-                    # if self.request_run == "*":
-                    #     self.show_result = None
-                    # else:
-                    #     self.results[self.request_run] = ZestResult(None, None, None, None, None, True)
-                    new_state(self.RUNNING)
+                self.runner_thread_start()
+                self.results = {}
+                self.show_result_full_name = None
+                self.request_run = None
+                new_state(self.RUNNING)
 
         elif self.run_state == self.RUNNING:
             # Tests are running.
@@ -579,13 +544,29 @@ class ZestConsoleUI(ZestRunner):
         return True  # True means keep running
 
     def __init__(self, **kwargs):
-        log("enter ZestConsoleUI", str(kwargs))
         super().__init__(**kwargs)
+        self.show_result_full_name = None
+        self.request_run = None
+        self.scr = None
+        self.runner_thread = None
+        self.current_running_tests_by_pid = None
+        self.n_success = None
+        self.n_errors = None
+        self.n_skips = None
+        self.complete = None
+        self.key = None
+        self.num_keys = [str(i) for i in range(1, 10)]
+        self.run_state = None
+        self.watch_file = None
+        self.watch_timestamp = None
+
+    def run(self):
+        log("enter ZestConsoleUI", str(kwargs))
         threading.current_thread().name = "zest_ui_thread"
-        curses.wrapper(self.start, **kwargs)
+        curses.wrapper(self._run)
         log("exit ZestConsoleUI")
 
-    def start(self, scr, **kwargs):
+    def _run(self, scr):
         self.scr = scr
         self.runner_thread = None
         self.dirty = False
@@ -596,21 +577,12 @@ class ZestConsoleUI(ZestRunner):
         self.n_skips = 0
         self.complete = False
         self.key = None
-        self.num_keys = [str(i) for i in range(1, 10)]
-        self.show_result = None
+        self.show_result_full_name = None
         self.run_state = self.STOPPED
         self.watch_file = None
         self.watch_timestamp = None
-        self.kwargs = kwargs
 
-        # match_string is nt the same thing as a test
-        # We can't set that here
-        #self.request_run = kwargs.pop("match_string", "*")
-        #if self.request_run is None:
-        #    self.request_run = "*"
-        # HACK: Temporarily run just the one test: zest_slow_simple_test
-        #self.request_run = "zest_slow_simple_test"
-        self.request_run = "*"
+        self.request_run = "__all__"
         self.request_watch = None
         self.request_stop = False
         self.request_end = False
@@ -634,7 +606,7 @@ class ZestConsoleUI(ZestRunner):
                             with run_lock:
                                 for name, result in self.results.items():
                                     if result.shortcut_key == show_details_i:
-                                        self.show_result = name
+                                        self.show_result_full_name = name
                                         break
                                 self.dirty = True
 
@@ -642,7 +614,7 @@ class ZestConsoleUI(ZestRunner):
                         self.request_end = True
 
                     if key == "a":
-                        self.request_run = "*"
+                        self.request_run = "__all__"
                         self.dirty = True
 
                     if key == "f":
@@ -650,12 +622,12 @@ class ZestConsoleUI(ZestRunner):
                         self.dirty = True
 
                     if key == "r":
-                        self.request_run = self.show_result
+                        self.request_run = self.show_result_full_name
                         self.dirty = True
 
                     if key == "w":
-                        if self.show_result is not None:
-                            self.request_watch = self.show_result
+                        if self.show_result_full_name is not None:
+                            self.request_watch = self.show_result_full_name
                             self.dirty = True
 
                 time.sleep(0.05)

@@ -8,6 +8,7 @@ import time
 import inspect
 import types
 import traceback
+from dataclasses import dataclass
 from functools import wraps
 from contextlib import contextmanager
 from random import shuffle
@@ -162,6 +163,17 @@ class MockFunction:
             return False
 
         return kws == self.normalized_calls()[0]
+
+
+@dataclass
+class ZestResult:
+    call_start: list
+    error: Exception = None
+    error_formatted: str = None
+    elapsed: float = None
+    skip: str = None
+    source: str = None
+    pid: int = None
 
 
 class zest:
@@ -488,10 +500,15 @@ class zest:
 
                     if zest._test_start_callback:
                         zest._test_start_callback(
-                            call_stack=zest._call_stack,
-                            skip=getattr(func, "skip_reason", None),
-                            source=func.__code__.co_filename,
-                            pid = os.getpid(),
+                            ZestResult(
+                                zest._call_stack,
+                                None,
+                                None,
+                                None,
+                                getattr(func, "skip_reason", None),
+                                func.__code__.co_filename,
+                                os.getpid(),
+                            )
                         )
 
                     error = None
@@ -513,13 +530,15 @@ class zest:
                         stop_time = time.time()
                         if zest._test_stop_callback:
                             zest._test_stop_callback(
-                                call_stack=zest._call_stack,
-                                error=error,
-                                error_formatted=error_formatted,
-                                elapsed=stop_time - start_time,
-                                skip=getattr(func, "skip_reason", None),
-                                source=func.__code__.co_filename,
-                                pid=os.getpid(),
+                                ZestResult(
+                                    zest._call_stack,
+                                    error,
+                                    error_formatted,
+                                    stop_time - start_time,
+                                    getattr(func, "skip_reason", None),
+                                    func.__code__.co_filename,
+                                    os.getpid(),
+                                )
                             )
 
                     _after = callers_special_local_funcs.get("_after")
