@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 from zest.zest_runner import ZestRunner
 from zest.zest_console_ui import ZestConsoleUI
+from . import __version__
 
 def main():
     parser = argparse.ArgumentParser()
@@ -67,7 +68,7 @@ def main():
 
 
 if __name__ == "__main__":
-    allow_reentrancy = False
+    allow_reentrancy = True
     if allow_reentrancy:
         main()
     else:

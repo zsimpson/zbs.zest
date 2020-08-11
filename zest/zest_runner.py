@@ -12,7 +12,7 @@ from importlib import import_module, util
 import multiprocessing
 import multiprocessing.pool
 from queue import Empty as QueueEmpty
-from zest import zest
+from zest import zest, ZestResult
 
 
 blue = "\u001b[34m"
@@ -257,8 +257,8 @@ class ZestRunner:
         full_name, short_name = self._stack_to_name(zest_result)
         self.results[full_name] = None
         if self.verbose >= 2:
-            self.callback_depth = len(call_stack) - 1
-            self.display_start(short_name, self.callback_depth, skip)
+            self.callback_depth = len(zest_result.call_stack) - 1
+            self.display_start(short_name, self.callback_depth, zest_result.skip)
 
     def event_test_stop(self, zest_result):
         """
@@ -400,7 +400,7 @@ class ZestRunner:
                 or (
                     # self.bypass_skip is only for self-testing.
                     # See: it_warns_if_no_trailing_zest
-                        skips and self.bypass_skip is not None and self.bypass_skip in skips
+                    skips and self.bypass_skip is not None and self.bypass_skip in skips
                 )
             )
         ):
@@ -413,9 +413,9 @@ class ZestRunner:
                     "Zest function '",
                     bold, red,
                     parent_name,
-                    reset,
-                    f" (@ {path}:{lineno}) ",
-                    f"' did not call zest() before all functions were defined. {common_wording}\n",
+                    reset, "'",
+                    f" (@ {path}:{lineno})",
+                    f" did not call zest() before all functions were defined. {common_wording}\n",
                 )
             else:
                 self.s(
@@ -424,9 +424,9 @@ class ZestRunner:
                     "Zest function '",
                     bold, red,
                     parent_name,
-                    reset,
-                    f" (@ {path}:{lineno}) ",
-                    f"' did not terminate with a call to zest(). {common_wording}\n",
+                    reset, "'",
+                    f" (@ {path}:{lineno})",
+                    f" did not terminate with a call to zest(). {common_wording}\n",
                 )
 
         return child_list
@@ -480,7 +480,8 @@ class ZestRunner:
                         if match_string is None or match_string in full_name:
                             # Include this and all ancestors in the list
                             for i in range(len(parts)):
-                                return_allow_to_run.update(".".join(parts[0: i + 1]))
+                                name = ".".join(parts[0: i + 1])
+                                return_allow_to_run.update({name})
 
                             root_zest_funcs[parts[0]] = (module_name, package, path)
 
@@ -604,9 +605,9 @@ class ZestRunner:
         n_workers:
             Number of parallel workers. When 1, does not create any child workers
             and is easier to debug.
-        _add_markers:
+        add_markers:
             Used for debugging. Ignore.
-        _bypass_skip:
+        bypass_skip:
             Used for debugging. Ignore.
         """
         self.root = root

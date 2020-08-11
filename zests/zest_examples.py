@@ -71,11 +71,11 @@ def zest_basics():
         stop_was_called = 0
 
         # Note the following two callbacks are ignored because they are underscored
-        def _test_start_callback(call_stack, skip, source, pid):
+        def _test_start_callback(zest_result):
             nonlocal start_was_called
             start_was_called += 1
 
-        def _test_stop_callback(call_stack, error, error_formatted, elapsed, skip, source, pid):
+        def _test_stop_callback(zest_result):
             nonlocal stop_was_called
             stop_was_called += 1
 
@@ -286,7 +286,7 @@ def _call_zest(*args):
     # Run zest_runner in a sub-processes so that we don't end up with
     # recursion problems since these tests themselves is running under ZestRunner
     try:
-        to_run = "python -m zest.zest_runner " + " --add_markers " + " ".join(args)
+        to_run = "python -m zest.zest_cli " + " --add_markers " + " ".join(args)
         # print(f"TO RUN: {to_run}")
         output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
         ret_code = 0
