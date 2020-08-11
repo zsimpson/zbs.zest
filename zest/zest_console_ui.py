@@ -158,13 +158,15 @@ class ZestConsoleUI(ZestRunner):
         return self.request_stop
 
     def event_test_start(self, zest_result):
+        super().event_test_start(zest_result)
         self.dirty = True
         self.current_running_tests_by_pid[zest_result.pid] = " . ".join(zest_result.call_stack)
 
     def event_test_stop(self, zest_result):
+        super().event_test_stop(zest_result)
         self.dirty = True
         self.current_running_tests_by_pid[zest_result.pid] = None
-        if error is not None:
+        if zest_result.error is not None:
             self.n_errors += 1
         else:
             self.n_success += 1
@@ -250,6 +252,7 @@ class ZestConsoleUI(ZestRunner):
         return y
 
     def draw_fail_lines(self, y):
+        self.result_by_shortcut_number = {}
         if self.n_errors > 0:
             self.print(
                 y, 0,
@@ -263,7 +266,7 @@ class ZestConsoleUI(ZestRunner):
                     if result.error is not None:
                         error_i += 1
                         if error_i < 10:
-                            result.shortcut_key = error_i
+                            self.result_by_shortcut_number[error_i] = result
                             formatted = result.error_formatted
                             lines = []
                             for line in formatted:
@@ -327,7 +330,7 @@ class ZestConsoleUI(ZestRunner):
         self.draw_menu_fill_to_end_of_line(y, length)
         y += 1
 
-        if result.running is True:
+        if result.is_running is True:
             self.print(y, 0, self.PAL_NONE, "Runnning...")
             y += 1
         elif result.error is None:
@@ -379,7 +382,7 @@ class ZestConsoleUI(ZestRunner):
     def runner_thread_fn(self):
         log("enter runner_thread")
         try:
-            self.run()
+            super().run()
         except BaseException as e:
             log(f"runner_thread exception {type(e)} {e}")
         finally:
@@ -401,7 +404,7 @@ class ZestConsoleUI(ZestRunner):
         self.runner_thread = threading.Thread(target=self.runner_thread_fn, daemon=True)
         self.runner_thread.name = "runner_thread"
         self.runner_thread.start()
-        log(f"self.runner_thread native_id={self.runner_thread.native_id} ident={self.runner_thread.ident}")
+        log(f"self.runner_thread_start native_id={self.runner_thread.native_id} ident={self.runner_thread.ident}")
 
     def runner_thread_is_running(self):
         return self.runner_thread is not None and self.runner_thread.is_alive()
@@ -547,6 +550,7 @@ class ZestConsoleUI(ZestRunner):
         super().__init__(**kwargs)
         self.show_result_full_name = None
         self.request_run = None
+        self.request_stop = False
         self.scr = None
         self.runner_thread = None
         self.current_running_tests_by_pid = None
@@ -559,12 +563,14 @@ class ZestConsoleUI(ZestRunner):
         self.run_state = None
         self.watch_file = None
         self.watch_timestamp = None
+        self.result_by_shortcut_number = None
 
     def run(self):
-        log("enter ZestConsoleUI", str(kwargs))
+        log("enter ZestConsoleUI")
         threading.current_thread().name = "zest_ui_thread"
         curses.wrapper(self._run)
         log("exit ZestConsoleUI")
+        return self
 
     def _run(self, scr):
         self.scr = scr
@@ -604,11 +610,11 @@ class ZestConsoleUI(ZestRunner):
                         show_details_i = self.num_key_to_int(key)
                         if 1 <= show_details_i < self.n_errors + 1:
                             with run_lock:
-                                for name, result in self.results.items():
-                                    if result.shortcut_key == show_details_i:
-                                        self.show_result_full_name = name
-                                        break
-                                self.dirty = True
+                                if self.result_by_shortcut_number is not None:
+                                    result = self.result_by_shortcut_number.get(show_details_i)
+                                    if result is not None:
+                                        self.show_result_full_name = result.full_name
+                                        self.dirty = True
 
                     if key == "q":
                         self.request_end = True

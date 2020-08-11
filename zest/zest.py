@@ -168,12 +168,15 @@ class MockFunction:
 @dataclass
 class ZestResult:
     call_stack: list
+    full_name: str
+    short_name: str
     error: Exception = None
     error_formatted: str = None
     elapsed: float = None
     skip: str = None
     source: str = None
     pid: int = None
+    is_running: bool = False
 
 
 class zest:
@@ -502,12 +505,15 @@ class zest:
                         zest._test_start_callback(
                             ZestResult(
                                 zest._call_stack,
+                                ".".join(zest._call_stack),
+                                zest._call_stack[-1],
                                 None,
                                 None,
                                 None,
                                 getattr(func, "skip_reason", None),
                                 func.__code__.co_filename,
                                 os.getpid(),
+                                True,
                             )
                         )
 
@@ -532,12 +538,15 @@ class zest:
                             zest._test_stop_callback(
                                 ZestResult(
                                     zest._call_stack,
+                                    ".".join(zest._call_stack),
+                                    zest._call_stack[-1],
                                     error,
                                     error_formatted,
                                     stop_time - start_time,
                                     getattr(func, "skip_reason", None),
                                     func.__code__.co_filename,
                                     os.getpid(),
+                                    False,
                                 )
                             )
 

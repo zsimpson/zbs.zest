@@ -50,6 +50,9 @@ def zest_basics():
 
             zest()
 
+    def it_fails():
+        raise AssertionError
+
     def it_ignores_underscored_functions():
         test_count = 0
         ignored_count = 0

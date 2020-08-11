@@ -244,37 +244,29 @@ class ZestRunner:
         else:
             self.s(red, bold, f"{n_errors} ERROR(s)\n")
 
-    def _stack_to_name(self, zest_result):
-        """
-        Returns full_name (dot delimited) and short_name (the last name in the list)
-        """
-        return ".".join(zest_result.call_stack), zest_result.call_stack[-1]
-
     # Events
     # -----------------------------------------------------------------------------------
     def event_test_start(self, zest_result):
         """Track the callback depth and forward to the display_start()"""
-        full_name, short_name = self._stack_to_name(zest_result)
-        self.results[full_name] = None
+        self.results[zest_result.full_name] = None
         if self.verbose >= 2:
             self.callback_depth = len(zest_result.call_stack) - 1
-            self.display_start(short_name, self.callback_depth, zest_result.skip)
+            self.display_start(zest_result.short_name, self.callback_depth, zest_result.skip)
 
     def event_test_stop(self, zest_result):
         """
         Track the callback depth and forward to the
         display_stop() or display_abbreviated()
         """
-        full_name, short_name = self._stack_to_name(zest_result)
-        self.results[full_name] = zest_result
+        self.results[zest_result.full_name] = zest_result
         if self.verbose >= 2:
             curr_depth = len(zest_result.call_stack) - 1
             self.display_stop(
-                short_name, zest_result.error, curr_depth, self.callback_depth, zest_result.elapsed, zest_result.skip
+                zest_result.short_name, zest_result.error, curr_depth, self.callback_depth, zest_result.elapsed, zest_result.skip
             )
             self.callback_depth = curr_depth
         elif self.verbose == 1:
-            self.display_abbreviated(short_name, zest_result.error, zest_result.skip)
+            self.display_abbreviated(zest_result.short_name, zest_result.error, zest_result.skip)
 
     def event_considering(self, root_name, module_name, package):
         if self.verbose > 2:
