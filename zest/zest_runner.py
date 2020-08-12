@@ -7,6 +7,7 @@ import re
 import sys
 import traceback
 import copy
+import io
 from typing import Callable
 from importlib import import_module, util
 import multiprocessing
@@ -230,6 +231,7 @@ class ZestRunner:
         error_message = str(error).strip()
         if error_message != "":
             self.s(red, error_message, "\n")
+        self.s()
 
     def display_errors(self, call_log, call_errors):
         self.s("\n")
@@ -268,6 +270,12 @@ class ZestRunner:
         elif self.verbose == 1:
             self.display_abbreviated(zest_result.short_name, zest_result.error, zest_result.skip)
 
+        if self.verbose > 0:
+            if zest_result.stdout is not None:
+                print(f"  Stdout: {zest_result.stdout}")
+            if zest_result.stderr is not None:
+                print(f"  Stderr: {zest_result.stderr}")
+
     def event_considering(self, root_name, module_name, package):
         if self.verbose > 2:
             marker = "?" if self.add_markers else ""
@@ -295,8 +303,9 @@ class ZestRunner:
         return False
 
     def event_complete(self):
-        self.display_errors(zest._call_log, zest._call_errors)
-        self.display_complete(zest._call_log, zest._call_errors)
+        if self.verbose > 0:
+            self.display_errors(zest._call_log, zest._call_errors)
+            self.display_complete(zest._call_log, zest._call_errors)
         if self.verbose > 1:
             self.s("Slowest 5%\n")
             n_timings = len(self.results)
@@ -307,7 +316,8 @@ class ZestRunner:
                 name = timings[i]
                 self.s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
-        self.display_warnings(zest._call_warnings)
+        if self.verbose > 0:
+            self.display_warnings(zest._call_warnings)
 
     # Searching
     # -----------------------------------------------------------------------------------
@@ -429,7 +439,8 @@ class ZestRunner:
 
         Arguments:
             allow_to_run:
-                If not None: a list of full test names (dot-delikmited) that will be included.
+                If not None: a list of full test names (dot-delimited) that will be included.
+                Plus two specials: "__all__" and "__failed__"
             match_string:
                 If not None then any zest full name that *contains* this string will be included.
                 Note that match_string only narrows the scope from allow_to_run
@@ -449,9 +460,12 @@ class ZestRunner:
             )
         """
 
+        if allow_to_run is None:
+            allow_to_run = []
+
         n_root_parts = len(self.root.split(os.sep))
-        if allow_to_run == "__fails__":
-            allow_to_run = [name for name, result in self.results.items() if result.error is not None]
+        if "__failed__" in allow_to_run:
+            allow_to_run += [name for name, result in self.results.items() if result.error is not None]
 
         return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
         root_zest_funcs = {}  # A dict of entrypoints (root zests) -> (module_name, package, path)
@@ -468,7 +482,7 @@ class ZestRunner:
                     parts = full_name.split(".")
                     package = ".".join(curr.split(os.sep)[n_root_parts:])
 
-                    if allow_to_run == "__all__" or full_name in allow_to_run:
+                    if "__all__" in allow_to_run or full_name in allow_to_run:
                         if match_string is None or match_string in full_name:
                             # Include this and all ancestors in the list
                             for i in range(len(parts)):
@@ -619,7 +633,10 @@ class ZestRunner:
         self.pool = None
         self.results = {}
 
-    def run(self):
+    def run(self, **kwargs):
+        allow_to_run = kwargs.pop("allow_to_run", self.allow_to_run)
+        match_string = kwargs.pop("match_string", self.match_string)
+
         zest.reset()
         zest._disable_shuffle = self.disable_shuffle
         self.callback_depth = 0
@@ -632,7 +649,7 @@ class ZestRunner:
         self.root = self.root or os.getcwd()
         assert self.root[0] == os.sep
 
-        root_zests, allow_to_run = self.find_zests(self.allow_to_run, self.match_string)
+        root_zests, allow_to_run = self.find_zests(allow_to_run, match_string)
         self._launch_root_zests(root_zests, allow_to_run, n_workers=self.n_workers)
 
         self.event_complete()

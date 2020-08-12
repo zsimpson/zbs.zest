@@ -1,3 +1,5 @@
+import itertools
+import copy
 import time
 import sys
 import os
@@ -74,6 +76,9 @@ class ZestConsoleUI(ZestRunner):
     PAL_ERROR_BASE = 17
     PAL_ERROR_LINENO = 18
     PAL_LINE = 19
+    PAL_STDOUT = 20
+    PAL_STDERR = 21
+    PAL_STATUS_KEY = 22
 
     pal = [
         # PAL_NONE
@@ -135,6 +140,15 @@ class ZestConsoleUI(ZestRunner):
 
         # PAL_LINE
         (curses.COLOR_RED, -1, curses.A_BOLD),
+
+        # PAL_STDOUT
+        (curses.COLOR_YELLOW, -1, 0),
+
+        # PAL_STDERR
+        (curses.COLOR_YELLOW, -1, curses.A_BOLD),
+
+        # PAL_STATUS_KEY
+        (curses.COLOR_RED, -1, curses.A_BOLD),
     ]
 
     # Event overloads from super class
@@ -172,14 +186,39 @@ class ZestConsoleUI(ZestRunner):
             self.n_success += 1
 
     def print(self, y, x, *args):
-        pal = self.PAL_MENU
+        def words_and_spaces(s):
+            # Inspired by http://stackoverflow.com/a/8769863/262271
+            return list(itertools.chain.from_iterable(zip(s.split(), itertools.repeat(" "))))[:-1]
+
+        height = curses.LINES
+        width = curses.COLS
+        _y = y
+        _x = x
+        mode = self.pal[self.PAL_MENU][2] | curses.color_pair(self.PAL_MENU)
         for arg in args:
             if isinstance(arg, int):
-                pal = arg
+                mode = self.pal[arg][2] | curses.color_pair(arg)
             else:
-                self.scr.addstr(y, x, str(arg), self.pal[pal][2] | curses.color_pair(pal))
-                x += len(str(arg))
-        return x
+                arg = str(arg)
+                len_arg = len(arg)
+                if _x + len_arg <= width:
+                    self.scr.addstr(_y, _x, arg, mode)
+                    _x += len_arg
+                else:
+                    # Word-wrap
+                    for word in words_and_spaces(arg):
+                        if len(word) + _x <= width:
+                            self.scr.addstr(_y, _x, word, mode)
+                        else:
+                            _y += 1
+                            _x = x
+                            if y >= height - 1:
+                                # Can't go down another line
+                                break
+                            self.scr.addstr(_y, _x, word, mode)
+                        _x += len(word)
+        _y += 1
+        return _y, _x
 
     def draw_menu_fill_to_end_of_line(self, y, length):
         rows, cols = self.scr.getmaxyx()
@@ -188,16 +227,16 @@ class ZestConsoleUI(ZestRunner):
 
     def draw_title_bar(self):
         y = 0
-        length = self.print(
+        _, length = self.print(
             0, 0,
             self.PAL_MENU_TITLE, f"Zest-Runner v{__version__}  ",
-            self.PAL_MENU_KEY, "q)",
+            self.PAL_MENU_KEY, "q",
             self.PAL_MENU, "uit   ",
             self.PAL_MENU, "run ",
-            self.PAL_MENU_KEY, "a)",
+            self.PAL_MENU_KEY, "a",
             self.PAL_MENU, "ll   ",
             self.PAL_MENU, "run ",
-            self.PAL_MENU_KEY, "f)",
+            self.PAL_MENU_KEY, "f",
             self.PAL_MENU, "ails   ",
         )
         self.draw_menu_fill_to_end_of_line(0, length)
@@ -205,6 +244,15 @@ class ZestConsoleUI(ZestRunner):
         return y
 
     def draw_status(self, y):
+        self.print(
+            y, 0,
+            self.PAL_STATUS_KEY, "M",
+            self.PAL_NONE, "atch   : \"",
+            self.PAL_STATUS, self.match_string,
+            self.PAL_NONE, "\"",
+        )
+        y += 1
+
         pids = sorted(self.current_running_tests_by_pid.keys())
         self.print(
             y, 0,
@@ -263,7 +311,7 @@ class ZestConsoleUI(ZestRunner):
             error_i = 0
             with run_lock:
                 for i, (name, result) in enumerate(self.results.items()):
-                    if result.error is not None:
+                    if result is not None and result.error is not None:
                         error_i += 1
                         if error_i < 10:
                             self.result_by_shortcut_number[error_i] = result
@@ -282,7 +330,7 @@ class ZestConsoleUI(ZestRunner):
                                 self.print(
                                     y, 0,
                                     self.PAL_FAIL_KEY, str(error_i),
-                                    self.PAL_NONE, ") ",
+                                    self.PAL_NONE, " ",
                                     self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
                                     self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
                                     self.PAL_ERROR_BASE, " ",
@@ -300,11 +348,12 @@ class ZestConsoleUI(ZestRunner):
     def draw_result_details(self, y):
         with run_lock:
             result = self.results.get(self.show_result_full_name)
+
         if result is None:
             return y
 
         if self.run_state == self.WATCHING:
-            length = self.print(
+            _, length = self.print(
                 y, 0,
                 self.PAL_MENU, "Watching: ",
                 self.PAL_MENU_RUN_STATUS, self.watch_file
@@ -312,7 +361,7 @@ class ZestConsoleUI(ZestRunner):
             self.draw_menu_fill_to_end_of_line(y, length)
             y += 1
         elif self.show_result_full_name is not None:
-            length = self.print(
+            _, length = self.print(
                 y, 0,
                 self.PAL_MENU, "Test result: ",
                 self.PAL_MENU_RUN_STATUS, self.show_result_full_name
@@ -320,11 +369,11 @@ class ZestConsoleUI(ZestRunner):
             self.draw_menu_fill_to_end_of_line(y, length)
             y += 1
 
-        length = self.print(
+        _, length = self.print(
             y, 0,
-            self.PAL_MENU_KEY, "r)",
+            self.PAL_MENU_KEY, "r",
             self.PAL_MENU, "e-run this test   ",
-            self.PAL_MENU_KEY, "w)",
+            self.PAL_MENU_KEY, "w",
             self.PAL_MENU, "atch test file (auto-re-run)   ",
         )
         self.draw_menu_fill_to_end_of_line(y, length)
@@ -377,12 +426,25 @@ class ZestConsoleUI(ZestRunner):
             if error_message != "":
                 self.print(y, 4, self.PAL_ERROR_MESSAGE, error_message)
 
+            if result.stdout is not None and result.stdout != "":
+                y += 1
+                y, _ = self.print(y, 0, self.PAL_NONE, "Stdout:")
+                y, _ = self.print(y, 0, self.PAL_STDOUT, result.stdout)
+                y += 1
+
+            if result.stderr is not None and result.stderr != "":
+                y += 1
+                y, _ = self.print(y, 0, self.PAL_NONE, "Stderr:")
+                y, _ = self.print(y, 0, self.PAL_STDOUT, result.stderr)
+                y += 1
+
         return y
 
-    def runner_thread_fn(self):
+    def runner_thread_fn(self, allow_to_run, match_string):
         log("enter runner_thread")
         try:
-            super().run()
+            log(f"runner_thread_fn. match_string={match_string}")
+            super().run(allow_to_run=allow_to_run, match_string=match_string)
         except BaseException as e:
             log(f"runner_thread exception {type(e)} {e}")
         finally:
@@ -401,7 +463,11 @@ class ZestConsoleUI(ZestRunner):
         # Why daemonize? Because a daemon thread can not prevent the program from
         # terminating. We do not want the testing thread to be able to prevent
         # the tester application to terminating.
-        self.runner_thread = threading.Thread(target=self.runner_thread_fn, daemon=True)
+        log(f"starting... {self.match_string}")
+        self.runner_thread = threading.Thread(target=self.runner_thread_fn, daemon=True, args=(
+            copy.copy(self.allow_to_run),
+            copy.copy(self.match_string),
+        ))
         self.runner_thread.name = "runner_thread"
         self.runner_thread.start()
         log(f"self.runner_thread_start native_id={self.runner_thread.native_id} ident={self.runner_thread.ident}")
@@ -418,8 +484,7 @@ class ZestConsoleUI(ZestRunner):
         y = self.draw_status(y)
         y = self.draw_summary(y)
         self.draw_fail_lines(y+1)
-        if self.show_result_full_name is not None:
-            y = self.draw_result_details(y+13)
+        y = self.draw_result_details(y+13)
         self.scr.refresh()
 
     def num_key_to_int(self, key):
@@ -500,9 +565,9 @@ class ZestConsoleUI(ZestRunner):
                 return False
 
             if self.request_run is not None:
-                self.runner_thread_start()
                 self.results = {}
-                self.show_result_full_name = None
+                self.allow_to_run = [self.request_run]
+                self.runner_thread_start()
                 self.request_run = None
                 new_state(self.RUNNING)
 
@@ -564,6 +629,7 @@ class ZestConsoleUI(ZestRunner):
         self.watch_file = None
         self.watch_timestamp = None
         self.result_by_shortcut_number = None
+        self.verbose = 0
 
     def run(self):
         log("enter ZestConsoleUI")
@@ -613,7 +679,11 @@ class ZestConsoleUI(ZestRunner):
                                 if self.result_by_shortcut_number is not None:
                                     result = self.result_by_shortcut_number.get(show_details_i)
                                     if result is not None:
-                                        self.show_result_full_name = result.full_name
+                                        if self.show_result_full_name == result.full_name:
+                                            # Already showing, hide it
+                                            self.show_result_full_name = None
+                                        else:
+                                            self.show_result_full_name = result.full_name
                                         self.dirty = True
 
                     if key == "q":
@@ -624,7 +694,7 @@ class ZestConsoleUI(ZestRunner):
                         self.dirty = True
 
                     if key == "f":
-                        self.request_run = "__fails__"
+                        self.request_run = "__failed__"
                         self.dirty = True
 
                     if key == "r":
