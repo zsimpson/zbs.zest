@@ -365,6 +365,12 @@ class ZestRunner:
                         full_name = f"{parent_name}.{part.name}"
 
                 _skips = []
+
+                def add_to_skips(reason):
+                    nonlocal _skips
+                    if self.bypass_skip is None or reason in self.bypass_skip:
+                        _skips += [reason]
+
                 if part.decorator_list:
                     for dec in part.decorator_list:
                         if isinstance(dec, ast.Call):
@@ -373,11 +379,11 @@ class ZestRunner:
                                     if len(dec.args) > 0 and isinstance(
                                         dec.args[0], ast.Str
                                     ):
-                                        _skips += [dec.args[0].s]
+                                        add_to_skips(dec.args[0].s)
                                     elif len(dec.keywords) > 0 and isinstance(
                                         dec.keywords[0].value, ast.Str
                                     ):
-                                        _skips += [dec.keywords[0].value.s]
+                                        add_to_skips(dec.keywords[0].value.s)
 
                 if full_name is not None:
                     child_list += [(full_name, _skips)]
@@ -393,18 +399,25 @@ class ZestRunner:
                         if part.value.func.id == "zest":
                             found_zest_call = True
 
+        if parent_name == "zest_bad_zests":
+            import pudb; pudb.set_trace()
+            print("foo")
+
+        # Show error message if this function did not end with a zest() call
+        # unless this function is skipped
+        this_func_skipped = False
+        if skips is not None and len(skips) > 0:
+            this_func_skipped = True
+
+            # There is a skip request on this func, but is there a bypass for it?
+            if self.bypass_skip is not None and self.bypass_skip in skips:
+                this_func_skipped = False
+
         if (
             n_test_funcs > 0
             and parent_name is not None
             and not found_zest_call
-            and (
-                not skips
-                or (
-                    # self.bypass_skip is only for self-testing.
-                    # See: it_warns_if_no_trailing_zest
-                    skips and self.bypass_skip is not None and self.bypass_skip in skips
-                )
-            )
+            and not this_func_skipped
         ):
             ZestRunner.n_zest_missing_errors += 1
             common_wording = "If you are using local functions that are not tests, prefix them with underscore."
@@ -581,6 +594,7 @@ class ZestRunner:
         verbose=1,
         disable_shuffle=False,
         n_workers=1,
+        capture=False,
         add_markers=False,
         bypass_skip=None,
     ):
@@ -611,6 +625,8 @@ class ZestRunner:
         n_workers:
             Number of parallel workers. When 1, does not create any child workers
             and is easier to debug.
+        capture:
+            If True, capture all stdio
         add_markers:
             Used for debugging. Ignore.
         bypass_skip:
@@ -623,6 +639,7 @@ class ZestRunner:
         self.verbose = verbose
         self.disable_shuffle = disable_shuffle
         self.n_workers = n_workers
+        self.capture = capture
         self.add_markers = add_markers
         self.bypass_skip = bypass_skip
 
@@ -636,9 +653,11 @@ class ZestRunner:
     def run(self, **kwargs):
         allow_to_run = kwargs.pop("allow_to_run", self.allow_to_run)
         match_string = kwargs.pop("match_string", self.match_string)
+        capture = kwargs.pop("capture", self.capture)
 
         zest.reset()
         zest._disable_shuffle = self.disable_shuffle
+        zest._capture_stdio = capture
         self.callback_depth = 0
         self.timings = []
         self.last_stack_depth = 0

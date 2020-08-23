@@ -444,7 +444,7 @@ class ZestConsoleUI(ZestRunner):
         log("enter runner_thread")
         try:
             log(f"runner_thread_fn. match_string={match_string}")
-            super().run(allow_to_run=allow_to_run, match_string=match_string)
+            super().run(allow_to_run=allow_to_run, match_string=match_string, capture=True)
         except BaseException as e:
             log(f"runner_thread exception {type(e)} {e}")
         finally:

@@ -50,17 +50,17 @@ def zest_basics():
 
             zest()
 
-    def it_fails_1():
-        import sys
-        print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
-        print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
-        raise AssertionError
-        pass
-
-    def it_fails_2():
-        import time
-        time.sleep(1)
-        raise AssertionError
+    # def it_fails_1():
+    #     import sys
+    #     print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
+    #     print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
+    #     raise AssertionError
+    #     pass
+    #
+    # def it_fails_2():
+    #     import time
+    #     time.sleep(1)
+    #     raise AssertionError
 
     def it_ignores_underscored_functions():
         test_count = 0
@@ -294,6 +294,15 @@ def zest_bad_zests():
     # NOTE, this does not call zest() as it should!
 
 
+@zest.skip(reason="noisy_zests")
+def zest_noisy_zests():
+    def it_foobars():
+        print("This is to stdout")
+        print("This is to stderr", file=sys.stderr)
+
+    zest()
+
+
 def _call_zest(*args):
     # Run zest_runner in a sub-processes so that we don't end up with
     # recursion problems since these tests themselves is running under ZestRunner
@@ -375,5 +384,15 @@ def zest_runner():
         ret_code, output = _call_zest("--verbose=2", "zest_basics", "--n_workers=4")
         found_tests = _get_run_tests(output)
         assert len(found_tests) == 11
+
+    def it_captures_stdio():
+        ret_code, output = _call_zest(
+            "--verbose=2", "--bypass_skip=noisy_zests", "zest_noisy_zests"
+        )
+        assert "This is to stdout" not in output
+        assert "This is to stderr" not in output
+        assert "zest_noisy_zests" in output
+        assert ret_code != 0
+
 
     zest()

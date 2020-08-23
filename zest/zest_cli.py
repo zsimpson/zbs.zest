@@ -32,6 +32,9 @@ def main():
         "--version", action="store_true", help="Show version and exit",
     )
     parser.add_argument(
+        "--capture", action="store_true", help="Capture all stdio",
+    )
+    parser.add_argument(
         "match_string", type=str, nargs="?", help="Optional substring to match"
     )
     parser.add_argument(
