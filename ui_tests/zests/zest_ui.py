@@ -1,7 +1,7 @@
 from zest import zest
 
-
-def zest_basics():
+'''
+def zest_ui_basics():
     def it_calls_before_and_after():
         test_count = 0
         before_count = 0
@@ -53,3 +53,4 @@ def zest_basics():
         pass
 
     zest()
+'''

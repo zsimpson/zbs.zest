@@ -10,7 +10,7 @@ import pretend_unit_under_test
 from zest.version import __version__
 import subprocess
 
-
+'''
 def zest_basics():
     def it_calls_before_and_after():
         test_count = 0
@@ -281,17 +281,39 @@ def zest_mocks():
         assert m_foo.called_once_with_kws(arg1="arg1", arg2="arg2")
 
     zest()
+'''
 
-
-@zest.skip(reason="bad_zests")
-def zest_bad_zests():
+@zest.skip(reason="bad_zest_1")
+def zest_bad_zest_1():
     # These are special cases that are bad which are excluded
     # except in the zest_runner case below that tests that the
     # errors are correctly detected
     def it_foobars():
         pass
 
-    # NOTE, this does not call zest() as it should!
+    def outer_foobar():
+        def inner_foobar():
+            pass
+
+        # Inner does call zest
+        zest()
+
+    # Outer does not call zest
+
+
+@zest.skip(reason="bad_zest_2")
+def zest_bad_zest_2():
+    # These are special cases that are bad which are excluded
+    # except in the zest_runner case below that tests that the
+    # errors are correctly detected
+    def it_foobars():
+        pass
+
+    # zest before final
+    zest()
+
+    def outer_foobar():
+        pass
 
 
 @zest.skip(reason="noisy_zests")
@@ -366,11 +388,20 @@ def zest_runner():
     def it_runs_parent_tests():
         ret_code, output = _call_zest("--verbose=2", "level_two")
         found_tests = _get_run_tests(output)
+        import pudb; pudb.set_trace()
         assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
 
     def it_warns_if_no_trailing_zest():
         ret_code, output = _call_zest(
-            "--verbose=2", "--bypass_skip=bad_zests", "zest_bad_zests"
+            "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
+        )
+        assert "did not terminate with a call to zest" in output
+        assert "zest_examples.py:" in output
+        assert ret_code != 0
+
+    def it_warns_if_zest_not_final():
+        ret_code, output = _call_zest(
+            "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
         )
         assert "did not terminate with a call to zest" in output
         assert "zest_examples.py:" in output

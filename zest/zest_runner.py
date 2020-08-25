@@ -175,7 +175,7 @@ class ZestRunner:
         if isinstance(error, str) and error.startswith("skipped"):
             self.s(bold, yellow, error)
         elif skip is not None:
-            self.s(bold, yellow, "SKIPPED ", skip)
+            self.s(bold, yellow, "SKIPPED (reason: ", skip, ")")
         elif error:
             self.s(bold, red, "ERROR", gray, f" (in {int(1000.0 * elapsed)} ms)")
         else:
@@ -335,12 +335,12 @@ class ZestRunner:
                 if curr.endswith("/zests"):
                     yield curr
 
-    def recurse_ast(self, func_body, parent_name, skips, path, lineno):
+    def recurse_ast(self, body, parent_name, skips, path, lineno, func_name):
         """
         Recursively traverse the Abstract Syntax Tree extracting zests
 
         Args:
-            func_body: the AST func_body or module body
+            body: the AST func_body or module body
             parent_name: The parent function name or None if a module
             skips: a list of skip names for the current func_body or None if module
 
@@ -351,9 +351,9 @@ class ZestRunner:
         found_zest_call = False
         found_zest_call_before_final_func_def = False
         child_list = []
-        for i, part in enumerate(func_body):
+        for i, part in enumerate(body):
             if isinstance(part, ast.With):
-                child_list += self.recurse_ast(part.body, parent_name, skips, path, part.lineno)
+                child_list += self.recurse_ast(part.body, parent_name, skips, path, part.lineno, func_name=None)
 
             if isinstance(part, ast.FunctionDef):
                 full_name = None
@@ -368,7 +368,7 @@ class ZestRunner:
 
                 def add_to_skips(reason):
                     nonlocal _skips
-                    if self.bypass_skip is None or reason in self.bypass_skip:
+                    if self.bypass_skip is None or self.bypass_skip == "" or reason in self.bypass_skip:
                         _skips += [reason]
 
                 if part.decorator_list:
@@ -388,7 +388,7 @@ class ZestRunner:
                 if full_name is not None:
                     child_list += [(full_name, _skips)]
                     n_test_funcs += 1
-                    child_list += self.recurse_ast(part.body, full_name, _skips, path, part.lineno)
+                    child_list += self.recurse_ast(part.body, full_name, _skips, path, part.lineno, func_name=full_name)
 
                 if found_zest_call:
                     found_zest_call_before_final_func_def = True
@@ -399,50 +399,47 @@ class ZestRunner:
                         if part.value.func.id == "zest":
                             found_zest_call = True
 
-        if parent_name == "zest_bad_zests":
-            import pudb; pudb.set_trace()
-            print("foo")
-
         # Show error message if this function did not end with a zest() call
         # unless this function is skipped
-        this_func_skipped = False
-        if skips is not None and len(skips) > 0:
-            this_func_skipped = True
+        if func_name is not None:
+            this_func_skipped = False
+            if skips and len(skips) > 0:
+                this_func_skipped = True
 
-            # There is a skip request on this func, but is there a bypass for it?
-            if self.bypass_skip is not None and self.bypass_skip in skips:
-                this_func_skipped = False
+                # There is a skip request on this func, but is there a bypass for it?
+                if self.bypass_skip and self.bypass_skip in skips:
+                    this_func_skipped = False
 
-        if (
-            n_test_funcs > 0
-            and parent_name is not None
-            and not found_zest_call
-            and not this_func_skipped
-        ):
-            ZestRunner.n_zest_missing_errors += 1
-            common_wording = "If you are using local functions that are not tests, prefix them with underscore."
-            if found_zest_call_before_final_func_def:
-                self.s(
-                    red, "\nERROR: ",
-                    reset,
-                    "Zest function '",
-                    bold, red,
-                    parent_name,
-                    reset, "'",
-                    f" (@ {path}:{lineno})",
-                    f" did not call zest() before all functions were defined. {common_wording}\n",
-                )
-            else:
-                self.s(
-                    red, "\nERROR: ",
-                    reset,
-                    "Zest function '",
-                    bold, red,
-                    parent_name,
-                    reset, "'",
-                    f" (@ {path}:{lineno})",
-                    f" did not terminate with a call to zest(). {common_wording}\n",
-                )
+            if (
+                n_test_funcs > 0
+                and parent_name is not None
+                and not found_zest_call
+                and not this_func_skipped
+            ):
+                ZestRunner.n_zest_missing_errors += 1
+                common_wording = "Reminder: if you are using local functions that are not tests, prefix them with underscore."
+                if found_zest_call_before_final_func_def:
+                    self.s(
+                        red, "\nERROR: ",
+                        reset,
+                        "Zest function '",
+                        bold, red,
+                        parent_name,
+                        reset, "'",
+                        f" (@ {path}:{lineno})",
+                        f" called zest() before all functions were defined. {common_wording}\n",
+                    )
+                else:
+                    self.s(
+                        red, "\nERROR: ",
+                        reset,
+                        "Zest function '",
+                        bold, red,
+                        parent_name,
+                        reset, "'",
+                        f" (@ {path}:{lineno})",
+                        f" did not terminate with a call to zest(). {common_wording}\n",
+                    )
 
         return child_list
 
@@ -489,7 +486,7 @@ class ZestRunner:
                     source = file.read()
 
                 module_ast = ast.parse(source)
-                zests = self.recurse_ast(module_ast.body, None, None, path, 0)
+                zests = self.recurse_ast(module_ast.body, None, None, path, 0, func_name=None)
 
                 for full_name, skips in zests:
                     parts = full_name.split(".")
