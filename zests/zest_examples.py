@@ -10,7 +10,7 @@ import pretend_unit_under_test
 from zest.version import __version__
 import subprocess
 
-'''
+
 def zest_basics():
     def it_calls_before_and_after():
         test_count = 0
@@ -281,7 +281,7 @@ def zest_mocks():
         assert m_foo.called_once_with_kws(arg1="arg1", arg2="arg2")
 
     zest()
-'''
+
 
 @zest.skip(reason="bad_zest_1")
 def zest_bad_zest_1():
@@ -339,7 +339,6 @@ def _call_zest(*args):
     return ret_code, output.decode("utf-8")
 
 
-@zest.group("zest_runner")
 def zest_runner():
     def _get_run_tests(output):
         found_tests = []
@@ -388,7 +387,6 @@ def zest_runner():
     def it_runs_parent_tests():
         ret_code, output = _call_zest("--verbose=2", "level_two")
         found_tests = _get_run_tests(output)
-        import pudb; pudb.set_trace()
         assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
 
     def it_warns_if_no_trailing_zest():
@@ -407,6 +405,7 @@ def zest_runner():
         assert "zest_examples.py:" in output
         assert ret_code != 0
 
+    @zest.skip(reason="defer multiprocess")
     def it_runs_multiprocess():
         ret_code, output = _call_zest("--verbose=2", "zest_basics", "--n_workers=1")
         found_tests = _get_run_tests(output)

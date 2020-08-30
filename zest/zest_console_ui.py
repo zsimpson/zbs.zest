@@ -51,7 +51,7 @@ class ZestConsoleUI(ZestRunner):
     run_state_strs = [
         "Stopped",
         "Running",
-        "Stopping",
+        "Stopping (^C to force)",
         "Watching",
     ]
 
@@ -248,8 +248,16 @@ class ZestConsoleUI(ZestRunner):
             y, 0,
             self.PAL_STATUS_KEY, "M",
             self.PAL_NONE, "atch   : \"",
-            self.PAL_STATUS, self.match_string,
+            self.PAL_STATUS, self.match_string or "",
             self.PAL_NONE, "\"",
+        )
+        y += 1
+
+        self.print(
+            y, 0,
+            self.PAL_STATUS_KEY, "C",
+            self.PAL_NONE, "apture : ",
+            self.PAL_STATUS, str(self.capture),
         )
         y += 1
 
@@ -440,11 +448,11 @@ class ZestConsoleUI(ZestRunner):
 
         return y
 
-    def runner_thread_fn(self, allow_to_run, match_string):
+    def runner_thread_fn(self, allow_to_run, match_string, capture):
         log("enter runner_thread")
         try:
-            log(f"runner_thread_fn. match_string={match_string}")
-            super().run(allow_to_run=allow_to_run, match_string=match_string, capture=True)
+            log(f"runner_thread_fn. allow_to_run={allow_to_run} match_string={match_string}")
+            super().run(allow_to_run=allow_to_run, match_string=match_string, capture=capture)
         except BaseException as e:
             log(f"runner_thread exception {type(e)} {e}")
         finally:
@@ -467,6 +475,7 @@ class ZestConsoleUI(ZestRunner):
         self.runner_thread = threading.Thread(target=self.runner_thread_fn, daemon=True, args=(
             copy.copy(self.allow_to_run),
             copy.copy(self.match_string),
+            copy.copy(self.capture),
         ))
         self.runner_thread.name = "runner_thread"
         self.runner_thread.start()
@@ -566,7 +575,7 @@ class ZestConsoleUI(ZestRunner):
 
             if self.request_run is not None:
                 self.results = {}
-                self.allow_to_run = [self.request_run]
+                self.allow_to_run = self.request_run
                 self.runner_thread_start()
                 self.request_run = None
                 new_state(self.RUNNING)
@@ -630,6 +639,7 @@ class ZestConsoleUI(ZestRunner):
         self.watch_timestamp = None
         self.result_by_shortcut_number = None
         self.verbose = 0
+        self.capture = True
 
     def run(self):
         log("enter ZestConsoleUI")
@@ -701,6 +711,10 @@ class ZestConsoleUI(ZestRunner):
                         self.request_run = self.show_result_full_name
                         self.dirty = True
 
+                    if key == "c":
+                        self.capture = not self.capture
+                        self.dirty = True
+
                     if key == "w":
                         if self.show_result_full_name is not None:
                             self.request_watch = self.show_result_full_name
@@ -709,4 +723,7 @@ class ZestConsoleUI(ZestRunner):
                 time.sleep(0.05)
 
             except KeyboardInterrupt:
-                self.request_stop = True
+                if self.request_end:
+                    break
+
+                self.request_end = True

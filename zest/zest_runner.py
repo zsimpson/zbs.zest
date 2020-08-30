@@ -602,7 +602,7 @@ class ZestRunner:
         include_dirs:
             The folders (relative to root) that should be included in recursive search
         allow_to_run:
-            If not None: A list of full test names (dot-delimited) that will be allowed to run
+            If not None: A colon-delimited list of full test names (dot-delimited) that will be allowed to run
             Special values:
                 __all__: Consider all zests to run
                 __failed__: Consider previous failed zests
@@ -665,7 +665,7 @@ class ZestRunner:
         self.root = self.root or os.getcwd()
         assert self.root[0] == os.sep
 
-        root_zests, allow_to_run = self.find_zests(allow_to_run, match_string)
+        root_zests, allow_to_run = self.find_zests(allow_to_run.split(":"), match_string)
         self._launch_root_zests(root_zests, allow_to_run, n_workers=self.n_workers)
 
         self.event_complete()

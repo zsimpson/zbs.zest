@@ -8,52 +8,59 @@ from . import __version__
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--verbose",
-        default=1,
-        type=int,
+
+    # fmt: off
+    parser.add_argument("--version", action="store_true",
+        help="Show version and exit",
+    )
+
+    parser.add_argument("--root", nargs="?", default=os.getcwd(),
+        help="Optional root directory to search (default: cwd).",
+    )
+
+    parser.add_argument("--include_dirs", nargs="?", default=".",
+        help="Optional colon-delimited list of directories to search.",
+    )
+
+    parser.add_argument("--allow_to_run", nargs="?", default="__all__",
+        help=(
+            "Optional colon-delimited list of full test names (eg: 'zest_name.it_tests') "
+            "that will be allowed to run. Specials: '__all__', '__failed__'."
+        )
+    )
+
+    parser.add_argument("match_string", type=str, nargs="?",
+        help="Optional substring that must be present in a test to run."
+    )
+
+    parser.add_argument("--verbose", default=1, type=int,
         help="0=silent, 1=dot-mode, 2=run-trace 3=full-trace",
     )
-    parser.add_argument(
-        "--include_dirs",
-        nargs="?",
-        default=os.getcwd(),
-        help="Colon-delimited list of directories to search",
+
+    parser.add_argument("--disable_shuffle", action="store_true",
+        help="Disable the shuffling of test order.",
     )
-    parser.add_argument(
-        "--disable_shuffle",
-        action="store_true",
-        help="Disable the shuffling of test order",
+
+    parser.add_argument("--n_workers", default=1, type=int,
+        help="Number of parallel processes.",
     )
-    parser.add_argument(
-        "--add_markers", action="store_true", help="Used for internal debugging"
+
+    parser.add_argument("--capture", action="store_true",
+        help="Capture all stdio.",
     )
-    parser.add_argument(
-        "--version", action="store_true", help="Show version and exit",
+
+    parser.add_argument("--ui", action="store_true",
+        help="Use console UI.",
     )
-    parser.add_argument(
-        "--capture", action="store_true", help="Capture all stdio",
+
+    parser.add_argument("--add_markers", action="store_true",
+        help="For internal debugging."
     )
-    parser.add_argument(
-        "match_string", type=str, nargs="?", help="Optional substring to match"
+
+    parser.add_argument("--bypass_skip", nargs="?", default="",
+        help="For internal debugging."
     )
-    parser.add_argument(
-        "--ui",
-        action="store_true",
-        help="console UI",
-    )
-    parser.add_argument(
-        "--n_workers",
-        default=1,
-        type=int,
-        help="Number of parallel processes",
-    )
-    parser.add_argument(
-        "--bypass_skip",
-        nargs="?",
-        default="",
-        help="Colon-delimited list of skips to bypass. Do not use: only for self-testing.",
-    )
+    # fmt: on
 
     kwargs = vars(parser.parse_args())
 
