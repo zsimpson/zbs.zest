@@ -5,7 +5,7 @@ import sys
 import os
 import curses
 import threading
-from zest.zest_runner import log, ZestRunner
+from zest.zest_runner import log, ZestRunner, run_lock
 from . import __version__
 if os.name == 'nt':
     import msvcrt
@@ -23,9 +23,6 @@ def kbhit():
     else:
         dr, dw, de = select.select([sys.stdin], [], [], 0)
         return dr != []
-
-
-run_lock = threading.Lock()
 
 
 class ZestConsoleUI(ZestRunner):
@@ -247,9 +244,9 @@ class ZestConsoleUI(ZestRunner):
         self.print(
             y, 0,
             self.PAL_STATUS_KEY, "M",
-            self.PAL_NONE, "atch   : \"",
+            self.PAL_NONE, "atch   : ",
             self.PAL_STATUS, self.match_string or "",
-            self.PAL_NONE, "\"",
+            self.PAL_NONE, "",
         )
         y += 1
 
@@ -318,39 +315,51 @@ class ZestConsoleUI(ZestRunner):
 
             error_i = 0
             with run_lock:
-                for i, (name, result) in enumerate(self.results.items()):
-                    if result is not None and result.error is not None:
-                        error_i += 1
-                        if error_i < 10:
-                            self.result_by_shortcut_number[error_i] = result
-                            formatted = result.error_formatted
-                            lines = []
-                            for line in formatted:
-                                lines += [sub_line for sub_line in line.strip().split("\n")]
-                            last_filename_line = ""
-                            if len(lines) >= 3:
-                                last_filename_line = lines[-3]
-                            split_line = self._traceback_match_filename(last_filename_line)
-                            if split_line:
-                                leading, basename, lineno, context, is_libs = split_line
+                results = copy.copy(self.results)
 
-                                selected = self.show_result_full_name is not None and self.show_result_full_name == name
-                                self.print(
-                                    y, 0,
-                                    self.PAL_FAIL_KEY, str(error_i),
-                                    self.PAL_NONE, " ",
-                                    self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
-                                    self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
-                                    self.PAL_ERROR_BASE, " ",
-                                    self.PAL_ERROR_PATHNAME, basename,
-                                    self.PAL_ERROR_BASE, ":",
-                                    self.PAL_ERROR_PATHNAME, str(lineno),
-                                )
-                                y += 1
+            for i, (name, result) in enumerate(results.items()):
+                if result is not None and result.error is not None:
+                    error_i += 1
+                    if error_i < 10:
+                        self.result_by_shortcut_number[error_i] = result
+                        formatted = result.error_formatted
+                        lines = []
+                        for line in formatted:
+                            lines += [sub_line for sub_line in line.strip().split("\n")]
+                        last_filename_line = ""
+                        if len(lines) >= 3:
+                            last_filename_line = lines[-3]
+                        split_line = self._traceback_match_filename(last_filename_line)
+                        if split_line:
+                            leading, basename, lineno, context, is_libs = split_line
+
+                            selected = self.show_result_full_name is not None and self.show_result_full_name == name
+                            self.print(
+                                y, 0,
+                                self.PAL_FAIL_KEY, str(error_i),
+                                self.PAL_NONE, " ",
+                                self.PAL_NAME_SELECTED if selected else self.PAL_NAME, name,
+                                self.PAL_ERROR_BASE, " raised: ", self.PAL_ERROR_MESSAGE, result.error.__class__.__name__,
+                                self.PAL_ERROR_BASE, " ",
+                                self.PAL_ERROR_PATHNAME, basename,
+                                self.PAL_ERROR_BASE, ":",
+                                self.PAL_ERROR_PATHNAME, str(lineno),
+                            )
+                            y += 1
 
             if self.n_errors > 9:
                 self.print(y, 0, self.PAL_ERROR_BASE, f"+ {self.n_errors - 9} more")
                 y += 1
+        return y
+
+    def draw_warnings(self, y):
+        for i, warn in enumerate(self.warnings):
+            self.print(
+                y, 0,
+                self.PAL_ERROR_BASE, f"WARNING {i}: {warn}",
+            )
+            time.sleep(1)  # HACK
+            y += 1
         return y
 
     def draw_result_details(self, y):
@@ -448,11 +457,11 @@ class ZestConsoleUI(ZestRunner):
 
         return y
 
-    def runner_thread_fn(self, allow_to_run, match_string, capture):
+    def runner_thread_fn(self, allow_to_run, match_string, exclude_string, capture):
         log("enter runner_thread")
         try:
-            log(f"runner_thread_fn. allow_to_run={allow_to_run} match_string={match_string}")
-            super().run(allow_to_run=allow_to_run, match_string=match_string, capture=capture)
+            log(f"runner_thread_fn. allow_to_run={allow_to_run} match_string={match_string} exclude_string={exclude_string}")
+            super().run(allow_to_run=allow_to_run, match_string=match_string, exclude_string=exclude_string, capture=capture)
         except BaseException as e:
             log(f"runner_thread exception {type(e)} {e}")
         finally:
@@ -462,6 +471,7 @@ class ZestConsoleUI(ZestRunner):
         if self.runner_thread_is_running():
             raise Exception("Runner thread already running")
 
+        self.warnings = []
         self.n_success = 0
         self.n_errors = 0
         self.n_skips = 0
@@ -471,10 +481,11 @@ class ZestConsoleUI(ZestRunner):
         # Why daemonize? Because a daemon thread can not prevent the program from
         # terminating. We do not want the testing thread to be able to prevent
         # the tester application to terminating.
-        log(f"starting... {self.match_string}")
+        log(f"starting... {self.match_string} {self.exclude_string}")
         self.runner_thread = threading.Thread(target=self.runner_thread_fn, daemon=True, args=(
             copy.copy(self.allow_to_run),
             copy.copy(self.match_string),
+            copy.copy(self.exclude_string),
             copy.copy(self.capture),
         ))
         self.runner_thread.name = "runner_thread"
@@ -492,6 +503,7 @@ class ZestConsoleUI(ZestRunner):
         y = self.draw_title_bar()
         y = self.draw_status(y)
         y = self.draw_summary(y)
+        y = self.draw_warnings(y)
         self.draw_fail_lines(y+1)
         y = self.draw_result_details(y+13)
         self.scr.refresh()
@@ -574,7 +586,8 @@ class ZestConsoleUI(ZestRunner):
                 return False
 
             if self.request_run is not None:
-                self.results = {}
+                with run_lock:
+                    self.results = {}
                 self.allow_to_run = self.request_run
                 self.runner_thread_start()
                 self.request_run = None
@@ -620,6 +633,9 @@ class ZestConsoleUI(ZestRunner):
 
         return True  # True means keep running
 
+    def s(self, *strs):
+        self.warnings += ["".join([str(s) for s in strs if not s.startswith("\u001b")])]
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.show_result_full_name = None
@@ -639,7 +655,8 @@ class ZestConsoleUI(ZestRunner):
         self.watch_timestamp = None
         self.result_by_shortcut_number = None
         self.verbose = 0
-        self.capture = True
+        self.capture = False
+        self.warnings = []
 
     def run(self):
         log("enter ZestConsoleUI")
@@ -649,11 +666,12 @@ class ZestConsoleUI(ZestRunner):
         return self
 
     def _run(self, scr):
+        with run_lock:
+            self.results = {}
         self.scr = scr
         self.runner_thread = None
-        self.dirty = False
+        self.dirty = True
         self.current_running_tests_by_pid = {}
-        self.results = {}
         self.n_success = 0
         self.n_errors = 0
         self.n_skips = 0
@@ -664,7 +682,7 @@ class ZestConsoleUI(ZestRunner):
         self.watch_file = None
         self.watch_timestamp = None
 
-        self.request_run = "__all__"
+        self.request_run = None
         self.request_watch = None
         self.request_stop = False
         self.request_end = False
@@ -682,6 +700,8 @@ class ZestConsoleUI(ZestRunner):
                 self.render()
                 if kbhit():
                     key = self.scr.getkey()
+                    log(f"key = {key}")
+
                     if key in self.num_keys:
                         show_details_i = self.num_key_to_int(key)
                         if 1 <= show_details_i < self.n_errors + 1:
@@ -719,6 +739,20 @@ class ZestConsoleUI(ZestRunner):
                         if self.show_result_full_name is not None:
                             self.request_watch = self.show_result_full_name
                             self.dirty = True
+
+                    if key == "m":
+                        curses.echo()
+                        scr.move(1, 10)
+                        scr.clrtoeol()
+                        s = scr.getstr(1, 10, 15).decode("ascii")
+                        curses.noecho()
+                        log(f"s={s}")
+                        self.match_string = s
+                        self.dirty = True
+
+                    if key == "z":
+                        print("foo to stdout")
+                        print("foo to stderr", file=sys.stderr)
 
                 time.sleep(0.05)
 

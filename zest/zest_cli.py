@@ -33,6 +33,10 @@ def main():
         help="Optional substring that must be present in a test to run."
     )
 
+    parser.add_argument("exclude_string", type=str, nargs="?",
+        help="Optional substring that must be absent in a test to run."
+    )
+
     parser.add_argument("--verbose", default=1, type=int,
         help="0=silent, 1=dot-mode, 2=run-trace 3=full-trace",
     )

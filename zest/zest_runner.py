@@ -30,6 +30,9 @@ reset = "\u001b[0m"
 _tty_size_cache = None
 
 
+run_lock = threading.Lock()
+
+
 def tty_size():
     global _tty_size_cache
     if _tty_size_cache is None:
@@ -63,6 +66,10 @@ class NonDaemonicProcess(multiprocessing.Process):
     def daemon(self, value):
         pass
 
+    def run(self):
+        log(f"Process run")
+        super().run()
+
 
 class NonDaemonicContext(type(multiprocessing.get_context())):
     Process = NonDaemonicProcess
@@ -92,6 +99,7 @@ def _do_one_root_zest(root_name, module_name, full_path, allow_to_run, queue):
     """
     threading.current_thread().name = f"root_name-{root_name}"
     log(f"enter _do_one_root_zest {root_name}")
+
     try:
         def event_test_start(zest_result):
             queue.put(("test_start", zest_result))
@@ -108,11 +116,18 @@ def _do_one_root_zest(root_name, module_name, full_path, allow_to_run, queue):
             allow_to_run=allow_to_run,
         )
 
-        queue.put(("root_stop", ZestResult([root_name])))
+        queue.put(("root_stop", ZestResult(root_name, "root_stop", "root_stop")))
     except Exception as e:
-        print(f"_do_one_root_zest exception {e}")
+        log(f"_do_one_root_zest exception {e}")
+        formatted = traceback.format_exception(
+            etype=type(e), value=e, tb=e.__traceback__
+        )
+        log(formatted)
     finally:
         log(f"exit _do_one_root_zest {root_name}")
+
+def async_result_done(result):
+    log(f"async_result_done result={result}")
 
 
 class ZestRunner:
@@ -250,7 +265,8 @@ class ZestRunner:
     # -----------------------------------------------------------------------------------
     def event_test_start(self, zest_result):
         """Track the callback depth and forward to the display_start()"""
-        self.results[zest_result.full_name] = None
+        with run_lock:
+            self.results[zest_result.full_name] = None
         if self.verbose >= 2:
             self.callback_depth = len(zest_result.call_stack) - 1
             self.display_start(zest_result.short_name, self.callback_depth, zest_result.skip)
@@ -260,7 +276,8 @@ class ZestRunner:
         Track the callback depth and forward to the
         display_stop() or display_abbreviated()
         """
-        self.results[zest_result.full_name] = zest_result
+        with run_lock:
+            self.results[zest_result.full_name] = zest_result
         if self.verbose >= 2:
             curr_depth = len(zest_result.call_stack) - 1
             self.display_stop(
@@ -271,6 +288,7 @@ class ZestRunner:
             self.display_abbreviated(zest_result.short_name, zest_result.error, zest_result.skip)
 
         if self.verbose > 0:
+            log("LOG VERBOSE in event_test_stop")
             if zest_result.stdout is not None:
                 print(f"  Stdout: {zest_result.stdout}")
             if zest_result.stderr is not None:
@@ -308,8 +326,9 @@ class ZestRunner:
             self.display_complete(zest._call_log, zest._call_errors)
         if self.verbose > 1:
             self.s("Slowest 5%\n")
-            n_timings = len(self.results)
-            timings = [(full_name, result.elapsed) for full_name, result in self.results.items()]
+            with run_lock:
+                n_timings = len(self.results)
+                timings = [(full_name, result.elapsed) for full_name, result in self.results.items()]
             timings.sort(key=lambda tup: tup[1])
             ninety_percentile = 95 * n_timings // 100
             for i in range(n_timings - 1, ninety_percentile, -1):
@@ -443,7 +462,7 @@ class ZestRunner:
 
         return child_list
 
-    def find_zests(self, allow_to_run=None, match_string=None):
+    def find_zests(self, allow_to_run=None, match_string=None, exclude_string=None):
         """
         Traverses the tree looking for /zests/ folders and opens and parses any file found
 
@@ -454,6 +473,8 @@ class ZestRunner:
             match_string:
                 If not None then any zest full name that *contains* this string will be included.
                 Note that match_string only narrows the scope from allow_to_run
+            exclude_string:
+                If not None then any zest full name that *contains* this string will be excluded.
 
         Returns:
             dict of root zests by name -> (module_name, package, path)
@@ -475,7 +496,8 @@ class ZestRunner:
 
         n_root_parts = len(self.root.split(os.sep))
         if "__failed__" in allow_to_run:
-            allow_to_run += [name for name, result in self.results.items() if result.error is not None]
+            with run_lock:
+                allow_to_run += [name for name, result in self.results.items() if result.error is not None]
 
         return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
         root_zest_funcs = {}  # A dict of entrypoints (root zests) -> (module_name, package, path)
@@ -494,6 +516,9 @@ class ZestRunner:
 
                     if "__all__" in allow_to_run or full_name in allow_to_run:
                         if match_string is None or match_string in full_name:
+                            if exclude_string is not None and exclude_string in full_name:
+                                continue
+
                             # Include this and all ancestors in the list
                             for i in range(len(parts)):
                                 name = ".".join(parts[0: i + 1])
@@ -535,10 +560,18 @@ class ZestRunner:
                     (module_name, package, full_path),
                 ) in root_zest_funcs.items():
                     self.event_considering(root_name, module_name, package)
-                    async_results += [self.pool.apply_async(_do_one_root_zest, (root_name, module_name, full_path, allow_to_run, queue))]
+                    log(f"root_name={root_name}")
+                    async_results += [
+                        self.pool.apply_async(
+                            _do_one_root_zest,
+                            (root_name, module_name, full_path, allow_to_run, queue),
+                            callback=async_result_done,
+                        )
+                    ]
                     n_started += 1
 
                 self.pool.close()
+                log(f"pool closed")
 
                 for p in self.pool._pool:
                     log(f"pool_proc pid:{p.pid}")
@@ -561,8 +594,13 @@ class ZestRunner:
                             self.event_test_stop(zest_result)
                     except QueueEmpty:
                         pass
+                log(f"pool done")
             except Exception as e:
                 log(f"_launch_root_zests exception {type(e)} {e}")
+                formatted = traceback.format_exception(
+                    etype=type(e), value=e, tb=e.__traceback__
+                )
+                log(formatted)
             finally:
                 # CONSUME remainder of queue before we're done to free chlidren
                 # See "Joining processes that use queues": https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.AsyncResult
@@ -572,14 +610,17 @@ class ZestRunner:
                         queue.get(block=False)
                     except QueueEmpty:
                         break
+
+                # Reap (I'm not sure this is necessary but seems like it might prevent zombies)
+                log("mp reap")
+                for res in async_results:
+                    res.get()
+
+                log(f"finally close pool {self.pool}")
                 if self.pool:
-                    self.pool.terminate()
+                    # self.pool.terminate()
                     self.pool.join()
                 self.pool = None
-                # Reap (I'm not sure this is necessary but seems like it might prevent zombies)
-                # log("mp reap")
-                # for res in async_results:
-                #     res.get()
                 log("mp done")
 
     def __init__(
@@ -588,6 +629,7 @@ class ZestRunner:
         include_dirs=None,
         allow_to_run="__all__",
         match_string=None,
+        exclude_string=None,
         verbose=1,
         disable_shuffle=False,
         n_workers=1,
@@ -611,6 +653,8 @@ class ZestRunner:
             Note: If allow_to_run includes only a subset of zests then this match_string
             can only further restrict the set. A match_string of None does not further restrict
             the list at all.
+        exclude_string:
+            If not None: A substring that if found in a zest name will exclude it
         verbose:
             0: no output
             1: normal output (dots notation)
@@ -633,6 +677,7 @@ class ZestRunner:
         self.include_dirs = (include_dirs or "").split(":")
         self.allow_to_run = allow_to_run
         self.match_string = match_string
+        self.exclude_string = exclude_string
         self.verbose = verbose
         self.disable_shuffle = disable_shuffle
         self.n_workers = n_workers
@@ -645,11 +690,13 @@ class ZestRunner:
         self.last_stack_depth = None
         self.retcode = None
         self.pool = None
-        self.results = {}
+        with run_lock:
+            self.results = {}
 
     def run(self, **kwargs):
         allow_to_run = kwargs.pop("allow_to_run", self.allow_to_run)
         match_string = kwargs.pop("match_string", self.match_string)
+        exclude_string = kwargs.pop("exclude_string", self.exclude_string)
         capture = kwargs.pop("capture", self.capture)
 
         zest.reset()
@@ -658,14 +705,15 @@ class ZestRunner:
         self.callback_depth = 0
         self.timings = []
         self.last_stack_depth = 0
-        self.results = {}
+        with run_lock:
+            self.results = {}
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
         self.root = self.root or os.getcwd()
         assert self.root[0] == os.sep
 
-        root_zests, allow_to_run = self.find_zests(allow_to_run.split(":"), match_string)
+        root_zests, allow_to_run = self.find_zests(allow_to_run.split(":"), match_string, exclude_string)
         self._launch_root_zests(root_zests, allow_to_run, n_workers=self.n_workers)
 
         self.event_complete()
