@@ -1,3 +1,33 @@
+"""
+Ways to run a zest
+1. Single threaded, no UI, from the CLI, all stdio to single console
+   The status is printed in one of various verbose modes.
+2. Console UI. In this mode each root test is run as a subprocess
+   via the zest_shim and the output goes to a cache tree.
+3. Multi-process like (2) but without the UI?
+
+Is 1 really its own mode? It is true that it doesn't go through the shim
+Maybe it would be best to always go through the shim for consistency
+I don't have to actually push the stdio to a different handle?
+OH but it means that json progress stuff would show up
+but that really messes it up.
+Yeah this means that mode 1 really is its own thing so it can show progress
+
+
+class ZestBaseRunner:
+    def walk(self):
+    def recurse_ast(self, body, parent_name, skips, path, lineno, func_name):
+    def find_zests(self, allow_to_run=None, match_string=None, exclude_string=None):
+
+class ZestSingleThreadRunner(ZestBaseRunner):
+    # Adds all the callback stuff
+
+class ZestMultiThreadRunner(ZestBaseRunner):
+    # Hands to shum, uses filesystem for caching, etc.
+
+"""
+
+
 import threading
 import time
 import ast
@@ -16,126 +46,208 @@ from queue import Empty as QueueEmpty
 from zest import zest, ZestResult
 
 
-blue = "\u001b[34m"
-yellow = "\u001b[33m"
-red = "\u001b[31m"
-green = "\u001b[32m"
-gray = "\u001b[30;1m"
-cyan = "\u001b[36m"
-magenta = "\u001b[35m"
-bold = "\u001b[1m"
-reset = "\u001b[0m"
+# TODO: Maybe the following are just free function helpers
+# TODO: One thing I don't like is how __init__ and run feel redundant
+
+class ZestBaseRunner:
+    # Searching
+    # -----------------------------------------------------------------------------------
+
+    def walk(self):
+        """
+        Generator to walk from self.root though all self.included_dirs
+        finding any folder that is called "/zests/"
+        """
+        for folder in self.include_dirs:
+            for curr, dirs, files in os.walk(
+                os.path.abspath(os.path.join(self.root, folder))
+            ):
+                dirs[:] = [d for d in dirs if d[0] != "."]
+                if curr.endswith("/zests"):
+                    yield curr
+
+    def recurse_ast(self, body, parent_name, skips, path, lineno, func_name):
+        """
+        Recursively traverse the Abstract Syntax Tree extracting zests
+
+        Args:
+            body: the AST func_body or module body
+            parent_name: The parent function name or None if a module
+            skips: a list of skip names for the current func_body or None if module
+
+        Returns:
+            list of children: [(full_name, skips)]
+        """
+        n_test_funcs = 0
+        found_zest_call = False
+        found_zest_call_before_final_func_def = False
+        child_list = []
+        for i, part in enumerate(body):
+            if isinstance(part, ast.With):
+                child_list += self.recurse_ast(part.body, parent_name, skips, path, part.lineno, func_name=None)
+
+            if isinstance(part, ast.FunctionDef):
+                full_name = None
+                if parent_name is None:
+                    if part.name.startswith("zest_"):
+                        full_name = f"{part.name}"
+                else:
+                    if not part.name.startswith("_"):
+                        full_name = f"{parent_name}.{part.name}"
+
+                _skips = []
+
+                def add_to_skips(reason):
+                    nonlocal _skips
+                    if self.bypass_skip is None or self.bypass_skip == "" or reason in self.bypass_skip:
+                        _skips += [reason]
+
+                if part.decorator_list:
+                    for dec in part.decorator_list:
+                        if isinstance(dec, ast.Call):
+                            if isinstance(dec.func, ast.Attribute):
+                                if dec.func.attr == "skip":
+                                    if len(dec.args) > 0 and isinstance(
+                                        dec.args[0], ast.Str
+                                    ):
+                                        add_to_skips(dec.args[0].s)
+                                    elif len(dec.keywords) > 0 and isinstance(
+                                        dec.keywords[0].value, ast.Str
+                                    ):
+                                        add_to_skips(dec.keywords[0].value.s)
+
+                if full_name is not None:
+                    child_list += [(full_name, _skips)]
+                    n_test_funcs += 1
+                    child_list += self.recurse_ast(part.body, full_name, _skips, path, part.lineno, func_name=full_name)
+
+                if found_zest_call:
+                    found_zest_call_before_final_func_def = True
+
+            if isinstance(part, ast.Expr):
+                if isinstance(part.value, ast.Call):
+                    if isinstance(part.value.func, ast.Name):
+                        if part.value.func.id == "zest":
+                            found_zest_call = True
+
+        # Show error message if this function did not end with a zest() call
+        # unless this function is skipped
+        if func_name is not None:
+            this_func_skipped = False
+            if skips and len(skips) > 0:
+                this_func_skipped = True
+
+                # There is a skip request on this func, but is there a bypass for it?
+                if self.bypass_skip and self.bypass_skip in skips:
+                    this_func_skipped = False
+
+            if (
+                n_test_funcs > 0
+                and parent_name is not None
+                and not found_zest_call
+                and not this_func_skipped
+            ):
+                ZestRunner.n_zest_missing_errors += 1
+# TODO: Return these delay prints
+                common_wording = "Reminder: if you are using local functions that are not tests, prefix them with underscore."
+                if found_zest_call_before_final_func_def:
+                    self.s(
+                        red, "\nERROR: ",
+                        reset,
+                        "Zest function '",
+                        bold, red,
+                        parent_name,
+                        reset, "'",
+                        f" (@ {path}:{lineno})",
+                        f" called zest() before all functions were defined. {common_wording}\n",
+                    )
+                else:
+                    self.s(
+                        red, "\nERROR: ",
+                        reset,
+                        "Zest function '",
+                        bold, red,
+                        parent_name,
+                        reset, "'",
+                        f" (@ {path}:{lineno})",
+                        f" did not terminate with a call to zest(). {common_wording}\n",
+                    )
+
+        return child_list
+
+    def find_zests(self, allow_to_run=None, match_string=None, exclude_string=None):
+        """
+        Traverses the tree looking for /zests/ folders and opens and parses any file found
+
+        Arguments:
+            allow_to_run:
+                If not None: a list of full test names (dot-delimited) that will be included.
+                Plus two specials: "__all__" and "__failed__"
+            match_string:
+                If not None then any zest full name that *contains* this string will be included.
+                Note that match_string only narrows the scope from allow_to_run
+            exclude_string:
+                If not None then any zest full name that *contains* this string will be excluded.
+
+        Returns:
+            dict of root zests by name -> (module_name, package, path)
+            set of full names allowed to run (not all test under a root have to be allowed)
+
+        Note, when a zest is identified all of its ancestor are also be added to the the list.
+        Example:
+            full_name = "zest_test1.it_does_y.it_does_y1"
+            match_string = "it_does_y1"
+            Then return_allow_to_run == set(
+                "zest_test1",
+                "zest_test1.it_does_y",
+                "zest_test1.it_does_y.it_does_y1",
+            )
+        """
+
+        if allow_to_run is None:
+            allow_to_run = []
+
+        n_root_parts = len(self.root.split(os.sep))
+        if "__failed__" in allow_to_run:
+            with run_lock:
+                allow_to_run += [name for name, result in self.results.items() if result.error is not None]
+
+        return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
+        root_zest_funcs = {}  # A dict of entrypoints (root zests) -> (module_name, package, path)
+        for curr in self.walk():
+            for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
+                path = os.path.join(curr, module_name + ".py")
+                with open(path) as file:
+                    source = file.read()
+
+                module_ast = ast.parse(source)
+                zests = self.recurse_ast(module_ast.body, None, None, path, 0, func_name=None)
+
+                for full_name, skips in zests:
+                    parts = full_name.split(".")
+                    package = ".".join(curr.split(os.sep)[n_root_parts:])
+
+                    if "__all__" in allow_to_run or full_name in allow_to_run:
+                        if match_string is None or match_string in full_name:
+                            if exclude_string is not None and exclude_string in full_name:
+                                continue
+
+                            # Include this and all ancestors in the list
+                            for i in range(len(parts)):
+                                name = ".".join(parts[0: i + 1])
+                                return_allow_to_run.update({name})
+
+                            root_zest_funcs[parts[0]] = (module_name, package, path)
+
+        return root_zest_funcs, return_allow_to_run
 
 
-_tty_size_cache = None
-
-
-run_lock = threading.Lock()
-
-
-def tty_size():
-    global _tty_size_cache
-    if _tty_size_cache is None:
-        rows, cols = os.popen("stty size", "r").read().split()
-        _tty_size_cache = (int(rows), int(cols))
-    return _tty_size_cache
-
-
-log_fp = None
-def log(*args):
-    global log_fp
-    if log_fp is None:
-        log_fp = open("log.txt", "a")
-    log_fp.write(f"pid:{os.getpid():6d} tname:{threading.current_thread().name[0:39]:40s} native:{threading.current_thread().native_id:6d}: ")
-    log_fp.write("".join([str(i) + " " for i in args]) + "\n")
-    log_fp.flush()
-
-
-# Non-Daemon process pool adpated from : https://stackoverflow.com/a/53180921
-# This is necessary because the Pool must be allowed to create other
-# processes within in it (ie, a test could create a process)
-class NonDaemonicProcess(multiprocessing.Process):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    @property
-    def daemon(self):
-        return False
-
-    @daemon.setter
-    def daemon(self, value):
-        pass
-
-    def run(self):
-        log(f"Process run")
-        super().run()
-
-
-class NonDaemonicContext(type(multiprocessing.get_context())):
-    Process = NonDaemonicProcess
-
-
-class NonDaemonicPool(multiprocessing.pool.Pool):
-    def __init__(self, *args, **kwargs):
-        kwargs['context'] = NonDaemonicContext()
-        super(NonDaemonicPool, self).__init__(*args, **kwargs)
-
-
-def _load_module(root_name, module_name, full_path):
-    # TODO: Add cache here
-    spec = util.spec_from_file_location(module_name, full_path)
-    mod = util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    a = getattr(mod, root_name)
-    return getattr(mod, root_name)
-
-
-def _do_one_root_zest(root_name, module_name, full_path, allow_to_run, queue):
-    """
-    This is called to run a root-level zest function in a multiprocessing context.
-    queue is used to communicate back to the parent process.
-
-    """
-    threading.current_thread().name = f"root_name-{root_name}"
-    log(f"enter _do_one_root_zest {root_name}")
-
-    try:
-        def event_test_start(zest_result):
-            queue.put(("test_start", zest_result))
-
-        def event_test_stop(zest_result):
-            queue.put(("test_stop", zest_result))
-
-        root_zest_func = _load_module(root_name, module_name, full_path)
-
-        zest.do(
-            root_zest_func,
-            test_start_callback=event_test_start,
-            test_stop_callback=event_test_stop,
-            allow_to_run=allow_to_run,
-        )
-
-        queue.put(("root_stop", ZestResult(root_name, "root_stop", "root_stop")))
-    except Exception as e:
-        log(f"_do_one_root_zest exception {e}")
-        formatted = traceback.format_exception(
-            etype=type(e), value=e, tb=e.__traceback__
-        )
-        log(formatted)
-    finally:
-        log(f"exit _do_one_root_zest {root_name}")
-
-def async_result_done(result):
-    log(f"async_result_done result={result}")
-
-
-class ZestRunner:
+class ZestSingleThreadRunner(ZestBaseRunner):
     n_zest_missing_errors = 0
 
     tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
 
-    # Display (NO UI, See ZestConsoleUI)
+    # Display
     # -----------------------------------------------------------------------------------
     def s(self, *strs):
         return sys.stdout.write("".join(strs) + reset)
@@ -338,290 +450,23 @@ class ZestRunner:
         if self.verbose > 0:
             self.display_warnings(zest._call_warnings)
 
-    # Searching
-    # -----------------------------------------------------------------------------------
-
-    def walk(self):
-        """
-        Generator to walk from self.root though all self.included_dirs
-        finding any folder that is called "/zests/"
-        """
-        for folder in self.include_dirs:
-            for curr, dirs, files in os.walk(
-                os.path.abspath(os.path.join(self.root, folder))
-            ):
-                dirs[:] = [d for d in dirs if d[0] != "."]
-                if curr.endswith("/zests"):
-                    yield curr
-
-    def recurse_ast(self, body, parent_name, skips, path, lineno, func_name):
-        """
-        Recursively traverse the Abstract Syntax Tree extracting zests
-
-        Args:
-            body: the AST func_body or module body
-            parent_name: The parent function name or None if a module
-            skips: a list of skip names for the current func_body or None if module
-
-        Returns:
-            list of children: [(full_name, skips)]
-        """
-        n_test_funcs = 0
-        found_zest_call = False
-        found_zest_call_before_final_func_def = False
-        child_list = []
-        for i, part in enumerate(body):
-            if isinstance(part, ast.With):
-                child_list += self.recurse_ast(part.body, parent_name, skips, path, part.lineno, func_name=None)
-
-            if isinstance(part, ast.FunctionDef):
-                full_name = None
-                if parent_name is None:
-                    if part.name.startswith("zest_"):
-                        full_name = f"{part.name}"
-                else:
-                    if not part.name.startswith("_"):
-                        full_name = f"{parent_name}.{part.name}"
-
-                _skips = []
-
-                def add_to_skips(reason):
-                    nonlocal _skips
-                    if self.bypass_skip is None or self.bypass_skip == "" or reason in self.bypass_skip:
-                        _skips += [reason]
-
-                if part.decorator_list:
-                    for dec in part.decorator_list:
-                        if isinstance(dec, ast.Call):
-                            if isinstance(dec.func, ast.Attribute):
-                                if dec.func.attr == "skip":
-                                    if len(dec.args) > 0 and isinstance(
-                                        dec.args[0], ast.Str
-                                    ):
-                                        add_to_skips(dec.args[0].s)
-                                    elif len(dec.keywords) > 0 and isinstance(
-                                        dec.keywords[0].value, ast.Str
-                                    ):
-                                        add_to_skips(dec.keywords[0].value.s)
-
-                if full_name is not None:
-                    child_list += [(full_name, _skips)]
-                    n_test_funcs += 1
-                    child_list += self.recurse_ast(part.body, full_name, _skips, path, part.lineno, func_name=full_name)
-
-                if found_zest_call:
-                    found_zest_call_before_final_func_def = True
-
-            if isinstance(part, ast.Expr):
-                if isinstance(part.value, ast.Call):
-                    if isinstance(part.value.func, ast.Name):
-                        if part.value.func.id == "zest":
-                            found_zest_call = True
-
-        # Show error message if this function did not end with a zest() call
-        # unless this function is skipped
-        if func_name is not None:
-            this_func_skipped = False
-            if skips and len(skips) > 0:
-                this_func_skipped = True
-
-                # There is a skip request on this func, but is there a bypass for it?
-                if self.bypass_skip and self.bypass_skip in skips:
-                    this_func_skipped = False
-
-            if (
-                n_test_funcs > 0
-                and parent_name is not None
-                and not found_zest_call
-                and not this_func_skipped
-            ):
-                ZestRunner.n_zest_missing_errors += 1
-                common_wording = "Reminder: if you are using local functions that are not tests, prefix them with underscore."
-                if found_zest_call_before_final_func_def:
-                    self.s(
-                        red, "\nERROR: ",
-                        reset,
-                        "Zest function '",
-                        bold, red,
-                        parent_name,
-                        reset, "'",
-                        f" (@ {path}:{lineno})",
-                        f" called zest() before all functions were defined. {common_wording}\n",
-                    )
-                else:
-                    self.s(
-                        red, "\nERROR: ",
-                        reset,
-                        "Zest function '",
-                        bold, red,
-                        parent_name,
-                        reset, "'",
-                        f" (@ {path}:{lineno})",
-                        f" did not terminate with a call to zest(). {common_wording}\n",
-                    )
-
-        return child_list
-
-    def find_zests(self, allow_to_run=None, match_string=None, exclude_string=None):
-        """
-        Traverses the tree looking for /zests/ folders and opens and parses any file found
-
-        Arguments:
-            allow_to_run:
-                If not None: a list of full test names (dot-delimited) that will be included.
-                Plus two specials: "__all__" and "__failed__"
-            match_string:
-                If not None then any zest full name that *contains* this string will be included.
-                Note that match_string only narrows the scope from allow_to_run
-            exclude_string:
-                If not None then any zest full name that *contains* this string will be excluded.
-
-        Returns:
-            dict of root zests by name -> (module_name, package, path)
-            set of full names allowed to run (not all test under a root have to be allowed)
-
-        Note, when a zest is identified all of its ancestor are also be added to the the list.
-        Example:
-            full_name = "zest_test1.it_does_y.it_does_y1"
-            match_string = "it_does_y1"
-            Then return_allow_to_run == set(
-                "zest_test1",
-                "zest_test1.it_does_y",
-                "zest_test1.it_does_y.it_does_y1",
-            )
-        """
-
-        if allow_to_run is None:
-            allow_to_run = []
-
-        n_root_parts = len(self.root.split(os.sep))
-        if "__failed__" in allow_to_run:
-            with run_lock:
-                allow_to_run += [name for name, result in self.results.items() if result.error is not None]
-
-        return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
-        root_zest_funcs = {}  # A dict of entrypoints (root zests) -> (module_name, package, path)
-        for curr in self.walk():
-            for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
-                path = os.path.join(curr, module_name + ".py")
-                with open(path) as file:
-                    source = file.read()
-
-                module_ast = ast.parse(source)
-                zests = self.recurse_ast(module_ast.body, None, None, path, 0, func_name=None)
-
-                for full_name, skips in zests:
-                    parts = full_name.split(".")
-                    package = ".".join(curr.split(os.sep)[n_root_parts:])
-
-                    if "__all__" in allow_to_run or full_name in allow_to_run:
-                        if match_string is None or match_string in full_name:
-                            if exclude_string is not None and exclude_string in full_name:
-                                continue
-
-                            # Include this and all ancestors in the list
-                            for i in range(len(parts)):
-                                name = ".".join(parts[0: i + 1])
-                                return_allow_to_run.update({name})
-
-                            root_zest_funcs[parts[0]] = (module_name, package, path)
-
-        return root_zest_funcs, return_allow_to_run
-
     # Run
     # -----------------------------------------------------------------------------------
 
     def _launch_root_zests(self, root_zest_funcs, allow_to_run, n_workers):
-        if n_workers == 1:
-            for (
-                root_name,
-                (module_name, package, full_path),
-            ) in root_zest_funcs.items():
-                if self.event_request_stop():
-                    break
-                root_zest_func = _load_module(root_name, module_name, full_path)
-                zest.do(
-                    root_zest_func,
-                    test_start_callback=self.event_test_start,
-                    test_stop_callback=self.event_test_stop,
-                    allow_to_run=allow_to_run,
-                )
-        else:
-            self.pool = None
-            queue = None
-            async_results = []
-            n_started = 0
-            try:
-                self.pool = NonDaemonicPool(n_workers)
-                queue = multiprocessing.Manager().Queue()
-
-                for (
-                    root_name,
-                    (module_name, package, full_path),
-                ) in root_zest_funcs.items():
-                    self.event_considering(root_name, module_name, package)
-                    log(f"root_name={root_name}")
-                    async_results += [
-                        self.pool.apply_async(
-                            _do_one_root_zest,
-                            (root_name, module_name, full_path, allow_to_run, queue),
-                            callback=async_result_done,
-                        )
-                    ]
-                    n_started += 1
-
-                self.pool.close()
-                log(f"pool closed")
-
-                for p in self.pool._pool:
-                    log(f"pool_proc pid:{p.pid}")
-
-                n_root_stop_messages_received = 0
-                while n_root_stop_messages_received < n_started:
-                    try:
-                        msg, zest_result = queue.get(block=True, timeout=0.1)
-
-                        if self.event_request_stop():
-                            break
-
-                        if msg == "root_stop":
-                            n_root_stop_messages_received += 1
-
-                        elif msg == "test_start":
-                            self.event_test_start(zest_result)
-
-                        elif msg == "test_stop":
-                            self.event_test_stop(zest_result)
-                    except QueueEmpty:
-                        pass
-                log(f"pool done")
-            except Exception as e:
-                log(f"_launch_root_zests exception {type(e)} {e}")
-                formatted = traceback.format_exception(
-                    etype=type(e), value=e, tb=e.__traceback__
-                )
-                log(formatted)
-            finally:
-                # CONSUME remainder of queue before we're done to free chlidren
-                # See "Joining processes that use queues": https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.AsyncResult
-                log("_launch_root_zests finally")
-                while queue is not None:
-                    try:
-                        queue.get(block=False)
-                    except QueueEmpty:
-                        break
-
-                # Reap (I'm not sure this is necessary but seems like it might prevent zombies)
-                log("mp reap")
-                for res in async_results:
-                    res.get()
-
-                log(f"finally close pool {self.pool}")
-                if self.pool:
-                    # self.pool.terminate()
-                    self.pool.join()
-                self.pool = None
-                log("mp done")
+        for (
+            root_name,
+            (module_name, package, full_path),
+        ) in root_zest_funcs.items():
+            if self.event_request_stop():
+                break
+            root_zest_func = _load_module(root_name, module_name, full_path)
+            zest.do(
+                root_zest_func,
+                test_start_callback=self.event_test_start,
+                test_stop_callback=self.event_test_stop,
+                allow_to_run=allow_to_run,
+            )
 
     def __init__(
         self,
@@ -632,7 +477,6 @@ class ZestRunner:
         exclude_string=None,
         verbose=1,
         disable_shuffle=False,
-        n_workers=1,
         capture=False,
         add_markers=False,
         bypass_skip=None,
@@ -663,9 +507,6 @@ class ZestRunner:
         disable_shuffle:
             True: runs zests in consistent order.
             False (default): shuffles zests to root out order dependencies
-        n_workers:
-            Number of parallel workers. When 1, does not create any child workers
-            and is easier to debug.
         capture:
             If True, capture all stdio
         add_markers:
@@ -680,7 +521,6 @@ class ZestRunner:
         self.exclude_string = exclude_string
         self.verbose = verbose
         self.disable_shuffle = disable_shuffle
-        self.n_workers = n_workers
         self.capture = capture
         self.add_markers = add_markers
         self.bypass_skip = bypass_skip
@@ -724,3 +564,187 @@ class ZestRunner:
         )
 
         return self
+
+
+
+
+
+'''
+# Launch several CLIs that emit things
+import re
+import time
+import sys
+import json
+from subprocess import Popen, DEVNULL
+
+
+fin_outs = []
+fin_errs = []
+procs = []
+
+for i in range(3):
+    fout = open(f"out_{i}", "w")
+    ferr = open(f"err_{i}", "w")
+    fin_outs += [open(f"out_{i}", "r")]
+    fin_errs += [open(f"err_{i}", "r")]
+    procs += [
+        Popen(
+            args=["python", "-u", "test.py", str(i)],
+            bufsize=0,
+            executable="python",
+            stdin=DEVNULL,  # If I don't pass this then pudb can try to get in
+            stdout=fout,
+            stderr=ferr,
+            cwd=None,
+            env=None,
+        )
+    ]
+
+pat = re.compile(r"\@\@\@(.+)\@\@\@")
+ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
+
+while True:
+    n_done = 0
+    for i, (p, fin_out, fin_err) in enumerate(zip(procs, fin_outs, fin_errs)):
+        ret_code = p.poll()
+
+        lines = fin_out.readlines()
+        for line in lines:
+            m = re.match(pat, line)
+            if m:
+                try:
+                    payload = json.loads(m.group(1))
+                    is_running = payload.get("is_running")
+                    full_name = payload.get("full_name", "n/a")
+                    if is_running is True:
+                        print(f"start: {full_name}")
+                    elif is_running is False:
+                        print(f"stop: {full_name}")
+                except json.JSONDecodeError:
+                    pass
+            else:
+                line = ansi_escape.sub("", line)
+                sys.stdout.write(f"{i} out: {line}")
+
+        if ret_code is not None:
+            n_done += 1
+
+    if n_done == len(procs):
+        break
+
+    time.sleep(0.1)
+
+
+blue = "\u001b[34m"
+yellow = "\u001b[33m"
+red = "\u001b[31m"
+green = "\u001b[32m"
+gray = "\u001b[30;1m"
+cyan = "\u001b[36m"
+magenta = "\u001b[35m"
+bold = "\u001b[1m"
+reset = "\u001b[0m"
+
+
+_tty_size_cache = None
+
+
+run_lock = threading.Lock()
+
+
+def tty_size():
+    global _tty_size_cache
+    if _tty_size_cache is None:
+        rows, cols = os.popen("stty size", "r").read().split()
+        _tty_size_cache = (int(rows), int(cols))
+    return _tty_size_cache
+
+
+log_fp = None
+def log(*args):
+    global log_fp
+    if log_fp is None:
+        log_fp = open("log.txt", "a")
+    log_fp.write(f"pid:{os.getpid():6d} tname:{threading.current_thread().name[0:39]:40s} native:{threading.current_thread().native_id:6d}: ")
+    log_fp.write("".join([str(i) + " " for i in args]) + "\n")
+    log_fp.flush()
+
+
+# Non-Daemon process pool adpated from : https://stackoverflow.com/a/53180921
+# This is necessary because the Pool must be allowed to create other
+# processes within in it (ie, a test could create a process)
+class NonDaemonicProcess(multiprocessing.Process):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @property
+    def daemon(self):
+        return False
+
+    @daemon.setter
+    def daemon(self, value):
+        pass
+
+    def run(self):
+        log(f"Process run")
+        super().run()
+
+
+class NonDaemonicContext(type(multiprocessing.get_context())):
+    Process = NonDaemonicProcess
+
+
+class NonDaemonicPool(multiprocessing.pool.Pool):
+    def __init__(self, *args, **kwargs):
+        kwargs['context'] = NonDaemonicContext()
+        super(NonDaemonicPool, self).__init__(*args, **kwargs)
+
+
+def _load_module(root_name, module_name, full_path):
+    # TODO: Add cache here
+    spec = util.spec_from_file_location(module_name, full_path)
+    mod = util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    a = getattr(mod, root_name)
+    return getattr(mod, root_name)
+
+
+def _do_one_root_zest(root_name, module_name, full_path, allow_to_run, queue):
+    """
+    This is called to run a root-level zest function in a multiprocessing context.
+    queue is used to communicate back to the parent process.
+
+    """
+    threading.current_thread().name = f"root_name-{root_name}"
+    log(f"enter _do_one_root_zest {root_name}")
+
+    try:
+        def event_test_start(zest_result):
+            queue.put(("test_start", zest_result))
+
+        def event_test_stop(zest_result):
+            queue.put(("test_stop", zest_result))
+
+        root_zest_func = _load_module(root_name, module_name, full_path)
+
+        zest.do(
+            root_zest_func,
+            test_start_callback=event_test_start,
+            test_stop_callback=event_test_stop,
+            allow_to_run=allow_to_run,
+        )
+
+        queue.put(("root_stop", ZestResult(root_name, "root_stop", "root_stop")))
+    except Exception as e:
+        log(f"_do_one_root_zest exception {e}")
+        formatted = traceback.format_exception(
+            etype=type(e), value=e, tb=e.__traceback__
+        )
+        log(formatted)
+    finally:
+        log(f"exit _do_one_root_zest {root_name}")
+
+def async_result_done(result):
+    log(f"async_result_done result={result}")
+'''
