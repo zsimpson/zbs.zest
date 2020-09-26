@@ -401,7 +401,7 @@ def zest_runner_single_thread():
         ret_code, output = _call_zest(
             "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
         )
-        assert "did not terminate with a call to zest" in output
+        assert "before all functions were defined" in output
         assert "zest_examples.py:" in output
         assert ret_code != 0
 

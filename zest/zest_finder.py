@@ -40,7 +40,7 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
     errors = []
     for i, part in enumerate(body):
         if isinstance(part, ast.With):
-            child_list += _recurse_ast(
+            _child_list, _errors = _recurse_ast(
                 part.body,
                 parent_name,
                 skips,
@@ -49,6 +49,8 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                 bypass_skip,
                 func_name=None,
             )
+            child_list += _child_list
+            errors += _errors
 
         if isinstance(part, ast.FunctionDef):
             full_name = None
@@ -81,9 +83,8 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                                     add_to_skips(dec.keywords[0].value.s)
 
             if full_name is not None:
-                child_list += [(full_name, _skips, errors)]
                 n_test_funcs += 1
-                child_list += _recurse_ast(
+                _child_list, _errors = _recurse_ast(
                     part.body,
                     full_name,
                     _skips,
@@ -92,6 +93,9 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                     bypass_skip,
                     func_name=full_name,
                 )
+                child_list += [(full_name, _skips)]
+                child_list += _child_list
+                errors += _errors
 
             if found_zest_call:
                 found_zest_call_before_final_func_def = True
@@ -116,17 +120,16 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
         if (
             n_test_funcs > 0
             and parent_name is not None
-            and not found_zest_call
             and not this_func_skipped
         ):
             if found_zest_call_before_final_func_def:
                 error_message = "called zest() before all functions were defined."
-            else:
+                errors += [(parent_name, path, lineno, error_message)]
+            elif not found_zest_call:
                 error_message = "did not terminate with a call to zest()"
+                errors += [(parent_name, path, lineno, error_message)]
 
-            errors += [(parent_name, path, lineno, error_message)]
-
-    return child_list
+    return child_list, errors
 
 
 def load_module(root_name, module_name, full_path):
@@ -188,7 +191,7 @@ def find_zests(
     root_zest_funcs = (
         {}
     )  # A dict of entrypoints (root zests) -> (module_name, package, path)
-    errors = []
+    errors_to_show = []
     for curr in _walk_inlcude_dirs(root, include_dirs):
         for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
             path = os.path.join(curr, module_name + ".py")
@@ -196,14 +199,11 @@ def find_zests(
                 source = file.read()
 
             module_ast = ast.parse(source)
-            zests = _recurse_ast(
+            zests, errors = _recurse_ast(
                 module_ast.body, None, None, path, 0, bypass_skip, func_name=None
             )
 
-            for full_name, skips, _errors in zests:
-                if len(_errors) > 0:
-                    import pudb; pudb.set_trace()
-                errors += _errors
+            for full_name, skips in zests:
                 parts = full_name.split(".")
                 package = ".".join(curr.split(os.sep)[n_root_parts:])
 
@@ -212,6 +212,11 @@ def find_zests(
                         if exclude_string is not None and exclude_string in full_name:
                             continue
 
+                        # FIND any errors from this zest:
+                        for error in errors:
+                            if error[0] == full_name:
+                                errors_to_show += [error]
+
                         # Include this and all ancestors in the list
                         for i in range(len(parts)):
                             name = ".".join(parts[0 : i + 1])
@@ -219,4 +224,4 @@ def find_zests(
 
                         root_zest_funcs[parts[0]] = (module_name, package, path)
 
-    return root_zest_funcs, return_allow_to_run, errors
+    return root_zest_funcs, return_allow_to_run, errors_to_show

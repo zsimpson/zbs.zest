@@ -224,7 +224,6 @@ def run_zests(
     root = root or os.getcwd()
     assert root[0] == os.sep
 
-    import pudb; pudb.set_trace()
     root_zests, allow_to_run, errors = zest_finder.find_zests(
         root, include_dirs, allow_to_run.split(":"), match_string, exclude_string, bypass_skip
     )
@@ -241,7 +240,7 @@ def run_zests(
             reset,
             f" (@ {path}:{lineno}) ",
             f"{error_message}\n",
-            f"If you are using local functions that are not tests, prefix them with underscore."
+            f"If you are using local functions that are not tests, prefix them with underscore.\n"
         )
 
     if len(errors) > 0:
