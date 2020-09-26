@@ -369,7 +369,9 @@ class zest:
         # If some other exception was raised that should just bubble as usual
 
     @staticmethod
-    def do(*funcs, test_start_callback=None, test_stop_callback=None, allow_to_run=None):
+    def do(
+        *funcs, test_start_callback=None, test_stop_callback=None, allow_to_run=None
+    ):
         """
         This is the entrypoint of any zest at any depth.
 
@@ -534,7 +536,9 @@ class zest:
                         error_formatted = traceback.format_exception(
                             etype=type(error), value=error, tb=error.__traceback__
                         )
-                        zest._call_errors += [(e, error_formatted, zest._call_stack.copy())]
+                        zest._call_errors += [
+                            (e, error_formatted, zest._call_stack.copy())
+                        ]
                     finally:
                         stop_time = time.time()
                         if zest._test_stop_callback:
@@ -576,7 +580,6 @@ class zest:
                             _run(name, func, so, se)
                 else:
                     _run(name, func, None, None)
-
 
         finally:
             if prev_test_start_callback is not None:

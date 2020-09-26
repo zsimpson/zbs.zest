@@ -2,9 +2,11 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from zest.zest_runner import ZestRunner
-from zest.zest_console_ui import ZestConsoleUI
+from zest import zest_runner_single_thread
+
+# from zest.zest_console_ui import ZestConsoleUI
 from . import __version__
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -73,12 +75,13 @@ def main():
         sys.exit(0)
 
     if kwargs.pop("ui", False):
-        runner_klass = ZestConsoleUI
+        raise NotImplementedError
+        # runner_klass = ZestConsoleUI
+        # runner = runner_klass(**kwargs).run()
+        # sys.exit(runner.retcode)
     else:
-        runner_klass = ZestRunner
-
-    runner = runner_klass(**kwargs).run()
-    sys.exit(runner.retcode)
+        retcode = zest_runner_single_thread.run_zests(**kwargs)
+        sys.exit(retcode)
 
 
 if __name__ == "__main__":
@@ -92,7 +95,7 @@ if __name__ == "__main__":
             print(f"{pidfile} already exists {sys.argv}", file=sys.stderr)
             sys.exit(1)
 
-        with open(pidfile, 'w') as f:
+        with open(pidfile, "w") as f:
             f.write(pid)
 
         try:

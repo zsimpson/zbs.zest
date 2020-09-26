@@ -339,7 +339,7 @@ def _call_zest(*args):
     return ret_code, output.decode("utf-8")
 
 
-def zest_runner():
+def zest_runner_single_thread():
     def _get_run_tests(output):
         found_tests = []
         for line in output.split("\n"):
@@ -404,25 +404,5 @@ def zest_runner():
         assert "did not terminate with a call to zest" in output
         assert "zest_examples.py:" in output
         assert ret_code != 0
-
-    @zest.skip(reason="defer multiprocess")
-    def it_runs_multiprocess():
-        ret_code, output = _call_zest("--verbose=2", "zest_basics", "--n_workers=1")
-        found_tests = _get_run_tests(output)
-        assert len(found_tests) == 11
-
-        ret_code, output = _call_zest("--verbose=2", "zest_basics", "--n_workers=4")
-        found_tests = _get_run_tests(output)
-        assert len(found_tests) == 11
-
-    def it_captures_stdio():
-        ret_code, output = _call_zest(
-            "--verbose=2", "--bypass_skip=noisy_zests", "zest_noisy_zests"
-        )
-        assert "This is to stdout" not in output
-        assert "This is to stderr" not in output
-        assert "zest_noisy_zests" in output
-        assert ret_code != 0
-
 
     zest()
