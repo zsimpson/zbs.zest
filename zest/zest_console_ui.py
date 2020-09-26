@@ -1,3 +1,8 @@
+"""
+Controls console based UI.
+"""
+
+
 import itertools
 import copy
 import time
@@ -25,562 +30,545 @@ def kbhit():
         dr, dw, de = select.select([sys.stdin], [], [], 0)
         return dr != []
 
+# States
+# ----------------------------------------------------------------------------
 
-class ZestConsoleUI(ZestRunner):
-    """
-    Controls console based UI.
-    States:
-        * main_menu
-        * focus: "running/re-running" a test until pass
-            - on fail, waits for a file change or 'enter' to re-run
-            - on success or "n", moves to next
-        * inspection: look at and re-run failed tests
-            - 1-9 keys move into focus mode
-        * running:
-            Shows a status of number of tests run and cumuative errors
+STOPPED = 0
+RUNNING = 1
+STOPPING = 2
+WATCHING = 3
+run_state_strs = [
+    "Stopped",
+    "Running",
+    "Stopping (^C to force)",
+    "Watching",
+]
 
-    A state implies a set of keyboard commands and a layout
-    """
 
-    STOPPED = 0
-    RUNNING = 1
-    STOPPING = 2
-    WATCHING = 3
-    run_state_strs = [
-        "Stopped",
-        "Running",
-        "Stopping (^C to force)",
-        "Watching",
-    ]
+# Draw
+# ----------------------------------------------------------------------------
 
-    PAL_NONE = 0
-    PAL_MENU = 1
-    PAL_MENU_KEY = 2
-    PAL_MENU_TITLE = 3
-    PAL_MENU_RUN_STATUS = 4
-    PAL_NAME = 5
-    PAL_NAME_SELECTED = 6
-    PAL_STATUS = 7
-    PAL_SUCCESS = 8
-    PAL_FAIL = 9
-    PAL_SKIPPED = 10
-    PAL_FAIL_KEY = 11
+PAL_NONE = 0
+PAL_MENU = 1
+PAL_MENU_KEY = 2
+PAL_MENU_TITLE = 3
+PAL_MENU_RUN_STATUS = 4
+PAL_NAME = 5
+PAL_NAME_SELECTED = 6
+PAL_STATUS = 7
+PAL_SUCCESS = 8
+PAL_FAIL = 9
+PAL_SKIPPED = 10
+PAL_FAIL_KEY = 11
 
-    PAL_ERROR_LIB = 12
-    PAL_ERROR_PATHNAME = 13
-    PAL_ERROR_FILENAME = 14
-    PAL_ERROR_CONTEXT = 15
-    PAL_ERROR_MESSAGE = 16
-    PAL_ERROR_BASE = 17
-    PAL_ERROR_LINENO = 18
-    PAL_LINE = 19
-    PAL_STDOUT = 20
-    PAL_STDERR = 21
-    PAL_STATUS_KEY = 22
+PAL_ERROR_LIB = 12
+PAL_ERROR_PATHNAME = 13
+PAL_ERROR_FILENAME = 14
+PAL_ERROR_CONTEXT = 15
+PAL_ERROR_MESSAGE = 16
+PAL_ERROR_BASE = 17
+PAL_ERROR_LINENO = 18
+PAL_LINE = 19
+PAL_STDOUT = 20
+PAL_STDERR = 21
+PAL_STATUS_KEY = 22
 
-    pal = [
-        # PAL_NONE
-        (-1, -1, 0),
-        # PAL_MENU
-        (curses.COLOR_BLACK, curses.COLOR_WHITE, 0),
-        # PAL_MENU_KEY
-        (curses.COLOR_RED, curses.COLOR_WHITE, curses.A_BOLD),
-        # PAL_MENU_TITLE
-        (curses.COLOR_BLUE, curses.COLOR_WHITE, 0),
-        # PAL_MENU_AUTORUN_STATUS
-        (curses.COLOR_CYAN, curses.COLOR_WHITE, 0),
-        # PAL_NAME
-        (curses.COLOR_CYAN, -1, 0),
-        # PAL_NAME_SELECTED
-        (curses.COLOR_CYAN, -1, curses.A_BOLD),
-        # PAL_STATUS
-        (curses.COLOR_CYAN, -1, 0),
-        # PAL_SUCCESS
-        (curses.COLOR_GREEN, -1, 0),
-        # PAL_FAIL
-        (curses.COLOR_RED, -1, curses.A_BOLD),
-        # PAL_SKIPPED
-        (curses.COLOR_YELLOW, -1, 0),
-        # PAL_FAIL_KEY
-        (curses.COLOR_RED, -1, curses.A_BOLD),
-        # PAL_ERROR_LIB
-        (curses.COLOR_BLACK, -1, curses.A_BOLD),
-        # PAL_ERROR_PATHNAME
-        (curses.COLOR_YELLOW, -1, 0),
-        # PAL_ERROR_FILENAME
-        (curses.COLOR_YELLOW, -1, curses.A_BOLD),
-        # PAL_ERROR_CONTEXT
-        (curses.COLOR_MAGENTA, -1, curses.A_BOLD),
-        # PAL_ERROR_MESSAGE
-        (curses.COLOR_RED, -1, curses.A_BOLD),
-        # PAL_ERROR_BASE
-        (curses.COLOR_WHITE, -1, 0),
-        # PAL_ERROR_LINENO
-        (curses.COLOR_YELLOW, -1, curses.A_BOLD),
-        # PAL_LINE
-        (curses.COLOR_RED, -1, curses.A_BOLD),
-        # PAL_STDOUT
-        (curses.COLOR_YELLOW, -1, 0),
-        # PAL_STDERR
-        (curses.COLOR_YELLOW, -1, curses.A_BOLD),
-        # PAL_STATUS_KEY
-        (curses.COLOR_RED, -1, curses.A_BOLD),
-    ]
+pal = [
+    # PAL_NONE
+    (-1, -1, 0),
+    # PAL_MENU
+    (curses.COLOR_BLACK, curses.COLOR_WHITE, 0),
+    # PAL_MENU_KEY
+    (curses.COLOR_RED, curses.COLOR_WHITE, curses.A_BOLD),
+    # PAL_MENU_TITLE
+    (curses.COLOR_BLUE, curses.COLOR_WHITE, 0),
+    # PAL_MENU_AUTORUN_STATUS
+    (curses.COLOR_CYAN, curses.COLOR_WHITE, 0),
+    # PAL_NAME
+    (curses.COLOR_CYAN, -1, 0),
+    # PAL_NAME_SELECTED
+    (curses.COLOR_CYAN, -1, curses.A_BOLD),
+    # PAL_STATUS
+    (curses.COLOR_CYAN, -1, 0),
+    # PAL_SUCCESS
+    (curses.COLOR_GREEN, -1, 0),
+    # PAL_FAIL
+    (curses.COLOR_RED, -1, curses.A_BOLD),
+    # PAL_SKIPPED
+    (curses.COLOR_YELLOW, -1, 0),
+    # PAL_FAIL_KEY
+    (curses.COLOR_RED, -1, curses.A_BOLD),
+    # PAL_ERROR_LIB
+    (curses.COLOR_BLACK, -1, curses.A_BOLD),
+    # PAL_ERROR_PATHNAME
+    (curses.COLOR_YELLOW, -1, 0),
+    # PAL_ERROR_FILENAME
+    (curses.COLOR_YELLOW, -1, curses.A_BOLD),
+    # PAL_ERROR_CONTEXT
+    (curses.COLOR_MAGENTA, -1, curses.A_BOLD),
+    # PAL_ERROR_MESSAGE
+    (curses.COLOR_RED, -1, curses.A_BOLD),
+    # PAL_ERROR_BASE
+    (curses.COLOR_WHITE, -1, 0),
+    # PAL_ERROR_LINENO
+    (curses.COLOR_YELLOW, -1, curses.A_BOLD),
+    # PAL_LINE
+    (curses.COLOR_RED, -1, curses.A_BOLD),
+    # PAL_STDOUT
+    (curses.COLOR_YELLOW, -1, 0),
+    # PAL_STDERR
+    (curses.COLOR_YELLOW, -1, curses.A_BOLD),
+    # PAL_STATUS_KEY
+    (curses.COLOR_RED, -1, curses.A_BOLD),
+]
 
-    # Event overloads from super class
-    def event_considering(self, root_name, module_name, package):
-        pass
+def print(self, y, x, *args):
+    def words_and_spaces(s):
+        # Inspired by http://stackoverflow.com/a/8769863/262271
+        return list(
+            itertools.chain.from_iterable(zip(s.split(), itertools.repeat(" ")))
+        )[:-1]
 
-    def event_skip(self, root_name):
-        pass
-
-    def event_running(self, root_name):
-        pass
-
-    def event_not_running(self, root_name):
-        pass
-
-    def event_complete(self):
-        self.complete = True
-        self.dirty = True
-
-    def event_request_stop(self):
-        return self.request_stop
-
-    def event_test_start(self, zest_result):
-        super().event_test_start(zest_result)
-        self.dirty = True
-        self.current_running_tests_by_pid[zest_result.pid] = " . ".join(
-            zest_result.call_stack
-        )
-
-    def event_test_stop(self, zest_result):
-        super().event_test_stop(zest_result)
-        self.dirty = True
-        self.current_running_tests_by_pid[zest_result.pid] = None
-        if zest_result.error is not None:
-            self.n_errors += 1
+    height = curses.LINES
+    width = curses.COLS
+    _y = y
+    _x = x
+    mode = self.pal[self.PAL_MENU][2] | curses.color_pair(self.PAL_MENU)
+    for arg in args:
+        if isinstance(arg, int):
+            mode = self.pal[arg][2] | curses.color_pair(arg)
         else:
-            self.n_success += 1
-
-    def print(self, y, x, *args):
-        def words_and_spaces(s):
-            # Inspired by http://stackoverflow.com/a/8769863/262271
-            return list(
-                itertools.chain.from_iterable(zip(s.split(), itertools.repeat(" ")))
-            )[:-1]
-
-        height = curses.LINES
-        width = curses.COLS
-        _y = y
-        _x = x
-        mode = self.pal[self.PAL_MENU][2] | curses.color_pair(self.PAL_MENU)
-        for arg in args:
-            if isinstance(arg, int):
-                mode = self.pal[arg][2] | curses.color_pair(arg)
+            arg = str(arg)
+            len_arg = len(arg)
+            if _x + len_arg <= width:
+                self.scr.addstr(_y, _x, arg, mode)
+                _x += len_arg
             else:
-                arg = str(arg)
-                len_arg = len(arg)
-                if _x + len_arg <= width:
-                    self.scr.addstr(_y, _x, arg, mode)
-                    _x += len_arg
-                else:
-                    # Word-wrap
-                    for word in words_and_spaces(arg):
-                        if len(word) + _x <= width:
-                            self.scr.addstr(_y, _x, word, mode)
-                        else:
-                            _y += 1
-                            _x = x
-                            if y >= height - 1:
-                                # Can't go down another line
-                                break
-                            self.scr.addstr(_y, _x, word, mode)
-                        _x += len(word)
-        _y += 1
-        return _y, _x
+                # Word-wrap
+                for word in words_and_spaces(arg):
+                    if len(word) + _x <= width:
+                        self.scr.addstr(_y, _x, word, mode)
+                    else:
+                        _y += 1
+                        _x = x
+                        if y >= height - 1:
+                            # Can't go down another line
+                            break
+                        self.scr.addstr(_y, _x, word, mode)
+                    _x += len(word)
+    _y += 1
+    return _y, _x
 
-    def draw_menu_fill_to_end_of_line(self, y, length):
-        rows, cols = self.scr.getmaxyx()
-        if cols - length > 0:
-            self.scr.addstr(
-                y, length, f"{' ':<{cols - length}}", curses.color_pair(self.PAL_MENU)
-            )
-
-    def draw_title_bar(self):
-        y = 0
-        _, length = self.print(
-            0,
-            0,
-            self.PAL_MENU_TITLE,
-            f"Zest-Runner v{__version__}  ",
-            self.PAL_MENU_KEY,
-            "q",
-            self.PAL_MENU,
-            "uit   ",
-            self.PAL_MENU,
-            "run ",
-            self.PAL_MENU_KEY,
-            "a",
-            self.PAL_MENU,
-            "ll   ",
-            self.PAL_MENU,
-            "run ",
-            self.PAL_MENU_KEY,
-            "f",
-            self.PAL_MENU,
-            "ails   ",
+def draw_menu_fill_to_end_of_line(self, y, length):
+    rows, cols = self.scr.getmaxyx()
+    if cols - length > 0:
+        self.scr.addstr(
+            y, length, f"{' ':<{cols - length}}", curses.color_pair(self.PAL_MENU)
         )
-        self.draw_menu_fill_to_end_of_line(0, length)
-        y += 1
-        return y
 
-    def draw_status(self, y):
+def draw_title_bar(self):
+    y = 0
+    _, length = self.print(
+        0,
+        0,
+        self.PAL_MENU_TITLE,
+        f"Zest-Runner v{__version__}  ",
+        self.PAL_MENU_KEY,
+        "q",
+        self.PAL_MENU,
+        "uit   ",
+        self.PAL_MENU,
+        "run ",
+        self.PAL_MENU_KEY,
+        "a",
+        self.PAL_MENU,
+        "ll   ",
+        self.PAL_MENU,
+        "run ",
+        self.PAL_MENU_KEY,
+        "f",
+        self.PAL_MENU,
+        "ails   ",
+    )
+    self.draw_menu_fill_to_end_of_line(0, length)
+    y += 1
+    return y
+
+def draw_status(self, y):
+    self.print(
+        y,
+        0,
+        self.PAL_STATUS_KEY,
+        "M",
+        self.PAL_NONE,
+        "atch   : ",
+        self.PAL_STATUS,
+        self.match_string or "",
+        self.PAL_NONE,
+        "",
+    )
+    y += 1
+
+    self.print(
+        y,
+        0,
+        self.PAL_STATUS_KEY,
+        "C",
+        self.PAL_NONE,
+        "apture : ",
+        self.PAL_STATUS,
+        str(self.capture),
+    )
+    y += 1
+
+    pids = sorted(self.current_running_tests_by_pid.keys())
+    self.print(
+        y,
+        0,
+        self.PAL_NONE,
+        "Status  : ",
+        self.PAL_STATUS,
+        self.run_state_strs[self.run_state] + " ",
+    )
+    y += 1
+
+    if len(pids) > 0:
         self.print(
-            y,
-            0,
-            self.PAL_STATUS_KEY,
-            "M",
-            self.PAL_NONE,
-            "atch   : ",
-            self.PAL_STATUS,
-            self.match_string or "",
-            self.PAL_NONE,
-            "",
+            y, 0, self.PAL_NONE, "Pids    : ",
         )
         y += 1
-
-        self.print(
-            y,
-            0,
-            self.PAL_STATUS_KEY,
-            "C",
-            self.PAL_NONE,
-            "apture : ",
-            self.PAL_STATUS,
-            str(self.capture),
-        )
-        y += 1
-
-        pids = sorted(self.current_running_tests_by_pid.keys())
-        self.print(
-            y,
-            0,
-            self.PAL_NONE,
-            "Status  : ",
-            self.PAL_STATUS,
-            self.run_state_strs[self.run_state] + " ",
-        )
-        y += 1
-
-        if len(pids) > 0:
+        for pid in pids:
+            name_stack = (self.current_running_tests_by_pid[pid] or "").split(".")
             self.print(
-                y, 0, self.PAL_NONE, "Pids    : ",
+                y,
+                0,
+                self.PAL_ERROR_LIB,
+                f"{pid:>5}) ",
+                self.PAL_NAME_SELECTED,
+                name_stack[0],
+                self.PAL_NAME,
+                ".".join(name_stack[1:]),
             )
             y += 1
-            for pid in pids:
-                name_stack = (self.current_running_tests_by_pid[pid] or "").split(".")
-                self.print(
-                    y,
-                    0,
-                    self.PAL_ERROR_LIB,
-                    f"{pid:>5}) ",
-                    self.PAL_NAME_SELECTED,
-                    name_stack[0],
-                    self.PAL_NAME,
-                    ".".join(name_stack[1:]),
-                )
-                y += 1
-        return y
+    return y
 
-    def draw_summary(self, y):
-        self.print(
-            y,
-            0,
-            self.PAL_NONE,
-            "Last run: ",
-            self.PAL_SUCCESS,
-            "Success",
-            self.PAL_NONE,
-            " + ",
-            self.PAL_FAIL,
-            "Fails",
-            self.PAL_NONE,
-            " + ",
-            self.PAL_SKIPPED,
-            "Skipped",
-            self.PAL_NONE,
-            " = ",
-            self.PAL_SUCCESS,
-            str(self.n_success),
-            self.PAL_NONE,
-            " + ",
-            self.PAL_FAIL,
-            str(self.n_errors),
-            self.PAL_NONE,
-            " + ",
-            self.PAL_SKIPPED,
-            str(self.n_skips),
-            self.PAL_NONE,
-            " = ",
-            self.PAL_NONE,
-            str(self.n_success + self.n_errors + self.n_skips),
-        )
+def draw_summary(self, y):
+    self.print(
+        y,
+        0,
+        self.PAL_NONE,
+        "Last run: ",
+        self.PAL_SUCCESS,
+        "Success",
+        self.PAL_NONE,
+        " + ",
+        self.PAL_FAIL,
+        "Fails",
+        self.PAL_NONE,
+        " + ",
+        self.PAL_SKIPPED,
+        "Skipped",
+        self.PAL_NONE,
+        " = ",
+        self.PAL_SUCCESS,
+        str(self.n_success),
+        self.PAL_NONE,
+        " + ",
+        self.PAL_FAIL,
+        str(self.n_errors),
+        self.PAL_NONE,
+        " + ",
+        self.PAL_SKIPPED,
+        str(self.n_skips),
+        self.PAL_NONE,
+        " = ",
+        self.PAL_NONE,
+        str(self.n_success + self.n_errors + self.n_skips),
+    )
+    y += 1
+    return y
+
+def draw_fail_lines(self, y):
+    self.result_by_shortcut_number = {}
+    if self.n_errors > 0:
+        self.print(y, 0, self.PAL_NONE, f"Failed tests:")
         y += 1
-        return y
 
-    def draw_fail_lines(self, y):
-        self.result_by_shortcut_number = {}
-        if self.n_errors > 0:
-            self.print(y, 0, self.PAL_NONE, f"Failed tests:")
-            y += 1
-
-            error_i = 0
-            with run_lock:
-                results = copy.copy(self.results)
-
-            for i, (name, result) in enumerate(results.items()):
-                if result is not None and result.error is not None:
-                    error_i += 1
-                    if error_i < 10:
-                        self.result_by_shortcut_number[error_i] = result
-                        formatted = result.error_formatted
-                        lines = []
-                        for line in formatted:
-                            lines += [sub_line for sub_line in line.strip().split("\n")]
-                        last_filename_line = ""
-                        if len(lines) >= 3:
-                            last_filename_line = lines[-3]
-                        split_line = self._traceback_match_filename(last_filename_line)
-                        if split_line:
-                            leading, basename, lineno, context, is_libs = split_line
-
-                            selected = (
-                                self.show_result_full_name is not None
-                                and self.show_result_full_name == name
-                            )
-                            self.print(
-                                y,
-                                0,
-                                self.PAL_FAIL_KEY,
-                                str(error_i),
-                                self.PAL_NONE,
-                                " ",
-                                self.PAL_NAME_SELECTED if selected else self.PAL_NAME,
-                                name,
-                                self.PAL_ERROR_BASE,
-                                " raised: ",
-                                self.PAL_ERROR_MESSAGE,
-                                result.error.__class__.__name__,
-                                self.PAL_ERROR_BASE,
-                                " ",
-                                self.PAL_ERROR_PATHNAME,
-                                basename,
-                                self.PAL_ERROR_BASE,
-                                ":",
-                                self.PAL_ERROR_PATHNAME,
-                                str(lineno),
-                            )
-                            y += 1
-
-            if self.n_errors > 9:
-                self.print(y, 0, self.PAL_ERROR_BASE, f"+ {self.n_errors - 9} more")
-                y += 1
-        return y
-
-    def draw_warnings(self, y):
-        for i, warn in enumerate(self.warnings):
-            self.print(
-                y, 0, self.PAL_ERROR_BASE, f"WARNING {i}: {warn}",
-            )
-            time.sleep(1)  # HACK
-            y += 1
-        return y
-
-    def draw_result_details(self, y):
+        error_i = 0
         with run_lock:
-            result = self.results.get(self.show_result_full_name)
+            results = copy.copy(self.results)
 
-        if result is None:
-            return y
+        for i, (name, result) in enumerate(results.items()):
+            if result is not None and result.error is not None:
+                error_i += 1
+                if error_i < 10:
+                    self.result_by_shortcut_number[error_i] = result
+                    formatted = result.error_formatted
+                    lines = []
+                    for line in formatted:
+                        lines += [sub_line for sub_line in line.strip().split("\n")]
+                    last_filename_line = ""
+                    if len(lines) >= 3:
+                        last_filename_line = lines[-3]
+                    split_line = self._traceback_match_filename(last_filename_line)
+                    if split_line:
+                        leading, basename, lineno, context, is_libs = split_line
 
-        if self.run_state == self.WATCHING:
-            _, length = self.print(
-                y,
-                0,
-                self.PAL_MENU,
-                "Watching: ",
-                self.PAL_MENU_RUN_STATUS,
-                self.watch_file,
-            )
-            self.draw_menu_fill_to_end_of_line(y, length)
+                        selected = (
+                            self.show_result_full_name is not None
+                            and self.show_result_full_name == name
+                        )
+                        self.print(
+                            y,
+                            0,
+                            self.PAL_FAIL_KEY,
+                            str(error_i),
+                            self.PAL_NONE,
+                            " ",
+                            self.PAL_NAME_SELECTED if selected else self.PAL_NAME,
+                            name,
+                            self.PAL_ERROR_BASE,
+                            " raised: ",
+                            self.PAL_ERROR_MESSAGE,
+                            result.error.__class__.__name__,
+                            self.PAL_ERROR_BASE,
+                            " ",
+                            self.PAL_ERROR_PATHNAME,
+                            basename,
+                            self.PAL_ERROR_BASE,
+                            ":",
+                            self.PAL_ERROR_PATHNAME,
+                            str(lineno),
+                        )
+                        y += 1
+
+        if self.n_errors > 9:
+            self.print(y, 0, self.PAL_ERROR_BASE, f"+ {self.n_errors - 9} more")
             y += 1
-        elif self.show_result_full_name is not None:
-            _, length = self.print(
-                y,
-                0,
-                self.PAL_MENU,
-                "Test result: ",
-                self.PAL_MENU_RUN_STATUS,
-                self.show_result_full_name,
-            )
-            self.draw_menu_fill_to_end_of_line(y, length)
-            y += 1
+    return y
 
+def draw_warnings(self, y):
+    for i, warn in enumerate(self.warnings):
+        self.print(
+            y, 0, self.PAL_ERROR_BASE, f"WARNING {i}: {warn}",
+        )
+        time.sleep(1)  # HACK
+        y += 1
+    return y
+
+def draw_result_details(self, y):
+    with run_lock:
+        result = self.results.get(self.show_result_full_name)
+
+    if result is None:
+        return y
+
+    if self.run_state == self.WATCHING:
         _, length = self.print(
             y,
             0,
-            self.PAL_MENU_KEY,
-            "r",
             self.PAL_MENU,
-            "e-run this test   ",
-            self.PAL_MENU_KEY,
-            "w",
+            "Watching: ",
+            self.PAL_MENU_RUN_STATUS,
+            self.watch_file,
+        )
+        self.draw_menu_fill_to_end_of_line(y, length)
+        y += 1
+    elif self.show_result_full_name is not None:
+        _, length = self.print(
+            y,
+            0,
             self.PAL_MENU,
-            "atch test file (auto-re-run)   ",
+            "Test result: ",
+            self.PAL_MENU_RUN_STATUS,
+            self.show_result_full_name,
         )
         self.draw_menu_fill_to_end_of_line(y, length)
         y += 1
 
-        if result.is_running is True:
-            self.print(y, 0, self.PAL_NONE, "Runnning...")
-            y += 1
-        elif result.error is None:
-            self.print(y, 0, self.PAL_SUCCESS, "Passed!")
-            y += 1
-        else:
-            formatted = result.error_formatted
-            lines = []
-            for line in formatted:
-                lines += [sub_line for sub_line in line.strip().split("\n")]
+    _, length = self.print(
+        y,
+        0,
+        self.PAL_MENU_KEY,
+        "r",
+        self.PAL_MENU,
+        "e-run this test   ",
+        self.PAL_MENU_KEY,
+        "w",
+        self.PAL_MENU,
+        "atch test file (auto-re-run)   ",
+    )
+    self.draw_menu_fill_to_end_of_line(y, length)
+    y += 1
 
-            is_libs = False
-            for line in lines[1:-1]:
-                s = []
-                split_line = self._traceback_match_filename(line)
-                if split_line is None:
-                    s += [self.PAL_ERROR_LIB if is_libs else self.PAL_ERROR_BASE, line]
+    if result.is_running is True:
+        self.print(y, 0, self.PAL_NONE, "Runnning...")
+        y += 1
+    elif result.error is None:
+        self.print(y, 0, self.PAL_SUCCESS, "Passed!")
+        y += 1
+    else:
+        formatted = result.error_formatted
+        lines = []
+        for line in formatted:
+            lines += [sub_line for sub_line in line.strip().split("\n")]
+
+        is_libs = False
+        for line in lines[1:-1]:
+            s = []
+            split_line = self._traceback_match_filename(line)
+            if split_line is None:
+                s += [self.PAL_ERROR_LIB if is_libs else self.PAL_ERROR_BASE, line]
+            else:
+                leading, basename, lineno, context, is_libs = split_line
+                if is_libs:
+                    s += [self.PAL_ERROR_LIB, "File ", leading, "/", basename]
+                    s += [self.PAL_ERROR_LIB, ":", str(lineno)]
+                    s += [self.PAL_ERROR_LIB, " in function "]
+                    s += [self.PAL_ERROR_LIB, context]
                 else:
-                    leading, basename, lineno, context, is_libs = split_line
-                    if is_libs:
-                        s += [self.PAL_ERROR_LIB, "File ", leading, "/", basename]
-                        s += [self.PAL_ERROR_LIB, ":", str(lineno)]
-                        s += [self.PAL_ERROR_LIB, " in function "]
-                        s += [self.PAL_ERROR_LIB, context]
-                    else:
-                        s += [
-                            self.PAL_ERROR_BASE,
-                            "File ",
-                            self.PAL_ERROR_PATHNAME,
-                            leading,
-                            self.PAL_ERROR_BASE,
-                            "/ ",
-                            self.PAL_ERROR_FILENAME,
-                            basename,
-                            self.PAL_ERROR_BASE,
-                            ":",
-                            self.PAL_ERROR_LINENO,
-                            str(lineno),
-                            self.PAL_ERROR_BASE,
-                            " in function ",
-                        ]
-                        s += [self.PAL_ERROR_MESSAGE, context]
-                self.print(y, 0, *s)
-                y += 1
-
-            s = [
-                self.PAL_ERROR_BASE,
-                "raised: ",
-                self.PAL_ERROR_MESSAGE,
-                result.error.__class__.__name__,
-            ]
+                    s += [
+                        self.PAL_ERROR_BASE,
+                        "File ",
+                        self.PAL_ERROR_PATHNAME,
+                        leading,
+                        self.PAL_ERROR_BASE,
+                        "/ ",
+                        self.PAL_ERROR_FILENAME,
+                        basename,
+                        self.PAL_ERROR_BASE,
+                        ":",
+                        self.PAL_ERROR_LINENO,
+                        str(lineno),
+                        self.PAL_ERROR_BASE,
+                        " in function ",
+                    ]
+                    s += [self.PAL_ERROR_MESSAGE, context]
             self.print(y, 0, *s)
             y += 1
 
-            error_message = str(result.error).strip()
-            if error_message != "":
-                self.print(y, 4, self.PAL_ERROR_MESSAGE, error_message)
+        s = [
+            self.PAL_ERROR_BASE,
+            "raised: ",
+            self.PAL_ERROR_MESSAGE,
+            result.error.__class__.__name__,
+        ]
+        self.print(y, 0, *s)
+        y += 1
 
-            if result.stdout is not None and result.stdout != "":
-                y += 1
-                y, _ = self.print(y, 0, self.PAL_NONE, "Stdout:")
-                y, _ = self.print(y, 0, self.PAL_STDOUT, result.stdout)
-                y += 1
+        error_message = str(result.error).strip()
+        if error_message != "":
+            self.print(y, 4, self.PAL_ERROR_MESSAGE, error_message)
 
-            if result.stderr is not None and result.stderr != "":
-                y += 1
-                y, _ = self.print(y, 0, self.PAL_NONE, "Stderr:")
-                y, _ = self.print(y, 0, self.PAL_STDOUT, result.stderr)
-                y += 1
+        if result.stdout is not None and result.stdout != "":
+            y += 1
+            y, _ = self.print(y, 0, self.PAL_NONE, "Stdout:")
+            y, _ = self.print(y, 0, self.PAL_STDOUT, result.stdout)
+            y += 1
 
-        return y
+        if result.stderr is not None and result.stderr != "":
+            y += 1
+            y, _ = self.print(y, 0, self.PAL_NONE, "Stderr:")
+            y, _ = self.print(y, 0, self.PAL_STDOUT, result.stderr)
+            y += 1
 
-    def runner_thread_fn(self, allow_to_run, match_string, exclude_string, capture):
-        log("enter runner_thread")
-        try:
-            log(
-                f"runner_thread_fn. allow_to_run={allow_to_run} match_string={match_string} exclude_string={exclude_string}"
-            )
-            super().run(
-                allow_to_run=allow_to_run,
-                match_string=match_string,
-                exclude_string=exclude_string,
-                capture=capture,
-            )
-        except BaseException as e:
-            log(f"runner_thread exception {type(e)} {e}")
-        finally:
-            log("exit runner_thread")
+    return y
 
-    def runner_thread_start(self):
-        if self.runner_thread_is_running():
-            raise Exception("Runner thread already running")
+def event_complete(self):
+    self.complete = True
+    self.dirty = True
 
-        self.warnings = []
-        self.n_success = 0
-        self.n_errors = 0
-        self.n_skips = 0
-        self.complete = False
-        self.request_stop = False
-        assert self.runner_thread is None
-        # Why daemonize? Because a daemon thread can not prevent the program from
-        # terminating. We do not want the testing thread to be able to prevent
-        # the tester application to terminating.
-        log(f"starting... {self.match_string} {self.exclude_string}")
-        self.runner_thread = threading.Thread(
-            target=self.runner_thread_fn,
-            daemon=True,
-            args=(
-                copy.copy(self.allow_to_run),
-                copy.copy(self.match_string),
-                copy.copy(self.exclude_string),
-                copy.copy(self.capture),
-            ),
-        )
-        self.runner_thread.name = "runner_thread"
-        self.runner_thread.start()
-        log(
-            f"self.runner_thread_start native_id={self.runner_thread.native_id} ident={self.runner_thread.ident}"
-        )
+def event_request_stop(self):
+    return self.request_stop
 
-    def runner_thread_is_running(self):
-        return self.runner_thread is not None and self.runner_thread.is_alive()
+def event_test_start(self, zest_result):
+    super().event_test_start(zest_result)
+    self.dirty = True
+    self.current_running_tests_by_pid[zest_result.pid] = " . ".join(
+        zest_result.call_stack
+    )
 
-    def render(self):
-        if not self.dirty:
-            return
-        self.dirty = False
-        self.scr.clear()
-        y = self.draw_title_bar()
-        y = self.draw_status(y)
-        y = self.draw_summary(y)
-        y = self.draw_warnings(y)
-        self.draw_fail_lines(y + 1)
-        y = self.draw_result_details(y + 13)
-        self.scr.refresh()
+def event_test_stop(self, zest_result):
+    super().event_test_stop(zest_result)
+    self.dirty = True
+    self.current_running_tests_by_pid[zest_result.pid] = None
+    if zest_result.error is not None:
+        self.n_errors += 1
+    else:
+        self.n_success += 1
 
-    def num_key_to_int(self, key):
-        return ord(key) - ord("0")
+def runner_thread_is_running(self):
+    return self.runner_thread is not None and self.runner_thread.is_alive()
+
+def render(self):
+    if not self.dirty:
+        return
+    self.dirty = False
+    self.scr.clear()
+    y = self.draw_title_bar()
+    y = self.draw_status(y)
+    y = self.draw_summary(y)
+    y = self.draw_warnings(y)
+    self.draw_fail_lines(y + 1)
+    y = self.draw_result_details(y + 13)
+    self.scr.refresh()
+
+def num_key_to_int(self, key):
+    return ord(key) - ord("0")
+
+def s(self, *strs):
+    self.warnings += ["".join([str(s) for s in strs if not s.startswith("\u001b")])]
+
+def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+    self.show_result_full_name = None
+    self.request_run = None
+    self.request_stop = False
+    self.scr = None
+    self.runner_thread = None
+    self.current_running_tests_by_pid = None
+    self.n_success = None
+    self.n_errors = None
+    self.n_skips = None
+    self.complete = None
+    self.key = None
+    self.num_keys = [str(i) for i in range(1, 10)]
+    self.run_state = None
+    self.watch_file = None
+    self.watch_timestamp = None
+    self.result_by_shortcut_number = None
+    self.verbose = 0
+    self.capture = False
+    self.warnings = []
+
+def run(self):
+    log("enter ZestConsoleUI")
+    threading.current_thread().name = "zest_ui_thread"
+    curses.wrapper(self._run)
+    log("exit ZestConsoleUI")
+    return self
+
+def _run(self, scr):
+    with run_lock:
+        self.results = {}
+    self.scr = scr
+    self.runner_thread = None
+    self.dirty = True
+    self.current_running_tests_by_pid = {}
+    self.n_success = 0
+    self.n_errors = 0
+    self.n_skips = 0
+    self.complete = False
+    self.key = None
+    self.show_result_full_name = None
+    self.run_state = self.STOPPED
+    self.watch_file = None
+    self.watch_timestamp = None
+
+    self.request_run = None
+    self.request_watch = None
+    self.request_stop = False
+    self.request_end = False
 
     def update_run_state(self):
         """
@@ -634,6 +622,7 @@ class ZestConsoleUI(ZestRunner):
             Check for exit cases
             Clear state
             Set new state
+
         """
 
         def new_state(state):
@@ -706,138 +695,84 @@ class ZestConsoleUI(ZestRunner):
 
         return True  # True means keep running
 
-    def s(self, *strs):
-        self.warnings += ["".join([str(s) for s in strs if not s.startswith("\u001b")])]
+    curses.use_default_colors()
+    for i, p in enumerate(self.pal):
+        if i > 0:
+            curses.init_pair(i, self.pal[i][0], self.pal[i][1])
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.show_result_full_name = None
-        self.request_run = None
-        self.request_stop = False
-        self.scr = None
-        self.runner_thread = None
-        self.current_running_tests_by_pid = None
-        self.n_success = None
-        self.n_errors = None
-        self.n_skips = None
-        self.complete = None
-        self.key = None
-        self.num_keys = [str(i) for i in range(1, 10)]
-        self.run_state = None
-        self.watch_file = None
-        self.watch_timestamp = None
-        self.result_by_shortcut_number = None
-        self.verbose = 0
-        self.capture = False
-        self.warnings = []
+    while True:
+        try:
+            if not self.update_run_state():
+                break
 
-    def run(self):
-        log("enter ZestConsoleUI")
-        threading.current_thread().name = "zest_ui_thread"
-        curses.wrapper(self._run)
-        log("exit ZestConsoleUI")
-        return self
+            self.render()
+            if kbhit():
+                key = self.scr.getkey()
+                log(f"key = {key}")
 
-    def _run(self, scr):
-        with run_lock:
-            self.results = {}
-        self.scr = scr
-        self.runner_thread = None
-        self.dirty = True
-        self.current_running_tests_by_pid = {}
-        self.n_success = 0
-        self.n_errors = 0
-        self.n_skips = 0
-        self.complete = False
-        self.key = None
-        self.show_result_full_name = None
-        self.run_state = self.STOPPED
-        self.watch_file = None
-        self.watch_timestamp = None
+                if key in self.num_keys:
+                    show_details_i = self.num_key_to_int(key)
+                    if 1 <= show_details_i < self.n_errors + 1:
+                        with run_lock:
+                            if self.result_by_shortcut_number is not None:
+                                result = self.result_by_shortcut_number.get(
+                                    show_details_i
+                                )
+                                if result is not None:
+                                    if (
+                                        self.show_result_full_name
+                                        == result.full_name
+                                    ):
+                                        # Already showing, hide it
+                                        self.show_result_full_name = None
+                                    else:
+                                        self.show_result_full_name = (
+                                            result.full_name
+                                        )
+                                    self.dirty = True
 
-        self.request_run = None
-        self.request_watch = None
-        self.request_stop = False
-        self.request_end = False
+                if key == "q":
+                    self.request_end = True
 
-        curses.use_default_colors()
-        for i, p in enumerate(self.pal):
-            if i > 0:
-                curses.init_pair(i, self.pal[i][0], self.pal[i][1])
+                if key == "a":
+                    self.request_run = "__all__"
+                    self.dirty = True
 
-        while True:
-            try:
-                if not self.update_run_state():
-                    break
+                if key == "f":
+                    self.request_run = "__failed__"
+                    self.dirty = True
 
-                self.render()
-                if kbhit():
-                    key = self.scr.getkey()
-                    log(f"key = {key}")
+                if key == "r":
+                    self.request_run = self.show_result_full_name
+                    self.dirty = True
 
-                    if key in self.num_keys:
-                        show_details_i = self.num_key_to_int(key)
-                        if 1 <= show_details_i < self.n_errors + 1:
-                            with run_lock:
-                                if self.result_by_shortcut_number is not None:
-                                    result = self.result_by_shortcut_number.get(
-                                        show_details_i
-                                    )
-                                    if result is not None:
-                                        if (
-                                            self.show_result_full_name
-                                            == result.full_name
-                                        ):
-                                            # Already showing, hide it
-                                            self.show_result_full_name = None
-                                        else:
-                                            self.show_result_full_name = (
-                                                result.full_name
-                                            )
-                                        self.dirty = True
+                if key == "c":
+                    self.capture = not self.capture
+                    self.dirty = True
 
-                    if key == "q":
-                        self.request_end = True
-
-                    if key == "a":
-                        self.request_run = "__all__"
+                if key == "w":
+                    if self.show_result_full_name is not None:
+                        self.request_watch = self.show_result_full_name
                         self.dirty = True
 
-                    if key == "f":
-                        self.request_run = "__failed__"
-                        self.dirty = True
+                if key == "m":
+                    curses.echo()
+                    scr.move(1, 10)
+                    scr.clrtoeol()
+                    s = scr.getstr(1, 10, 15).decode("ascii")
+                    curses.noecho()
+                    log(f"s={s}")
+                    self.match_string = s
+                    self.dirty = True
 
-                    if key == "r":
-                        self.request_run = self.show_result_full_name
-                        self.dirty = True
+                if key == "z":
+                    print("foo to stdout")
+                    print("foo to stderr", file=sys.stderr)
 
-                    if key == "c":
-                        self.capture = not self.capture
-                        self.dirty = True
+            time.sleep(0.05)
 
-                    if key == "w":
-                        if self.show_result_full_name is not None:
-                            self.request_watch = self.show_result_full_name
-                            self.dirty = True
+        except KeyboardInterrupt:
+            if self.request_end:
+                break
 
-                    if key == "m":
-                        curses.echo()
-                        scr.move(1, 10)
-                        scr.clrtoeol()
-                        s = scr.getstr(1, 10, 15).decode("ascii")
-                        curses.noecho()
-                        log(f"s={s}")
-                        self.match_string = s
-                        self.dirty = True
-
-                    if key == "z":
-                        print("foo to stdout")
-                        print("foo to stderr", file=sys.stderr)
-
-                time.sleep(0.05)
-
-            except KeyboardInterrupt:
-                if self.request_end:
-                    break
-
-                self.request_end = True
+            self.request_end = True

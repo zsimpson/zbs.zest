@@ -164,6 +164,9 @@ def _display_complete(root, call_log, call_errors):
         _s(red, bold, f"{n_errors} ERROR(s)\n")
 
 
+# Entrypoint
+# ---------------------------------------------------------------------------------
+
 def run_zests(
     root=None,
     include_dirs=None,
@@ -217,7 +220,6 @@ def run_zests(
     last_depth = 0
     curr_depth = 0
     results = {}
-    timings = []
 
     # zest runner must start in the root of the project
     # so that modules may be loaded appropriately.
@@ -302,6 +304,10 @@ def run_zests(
             test_stop_callback=event_test_stop,
             allow_to_run=allow_to_run,
         )
+
+    # Event functions are callbacks from zest
+    # ---------------------------------------------------------------------------------
+
 
     event_complete()
     retcode = 0 if len(zest._call_errors) == 0 and n_zest_missing_errors == 0 else 1
