@@ -9,8 +9,8 @@ import sys
 import dataclasses
 from importlib import util
 import json
+import zest_finder
 from zest import zest
-from zest import zest_finder
 
 
 def event_callback(zest_result):
@@ -18,7 +18,7 @@ def event_callback(zest_result):
 
 
 if __name__ == "__main__":
-    root_name, module_name, full_path = sys.argv[0:3]
+    root_name, module_name, full_path = sys.argv[1:4]
     root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
 
     zest.do(

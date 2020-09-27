@@ -1,3 +1,9 @@
+import json
+import os
+import re
+from pathlib import Path
+from zest import zest_finder
+from subprocess import Popen, DEVNULL
 
 class ZestRunnerErrors(Exception):
     def __init__(self, errors):
@@ -29,26 +35,26 @@ class ZestRunnerMultiThread:
             raise NotImplementedError
 
         n_done = 0
-        for i, (p, fin_out, fin_err) in enumerate(zip(self.procs, self.fin_outs, self.fin_errs)):
+        for i, (p, read_out) in enumerate(zip(self.procs, self.read_outs)):
             ret_code = p.poll()
 
-            lines = fin_out.readlines()
+            lines = read_out.readlines()
             for line in lines:
-                m = re.match(pat, line)
+                m = re.match(self.pat, line)
                 if m:
                     try:
                         payload = json.loads(m.group(1))
                         event_callback(payload)
                     except json.JSONDecodeError:
                         pass
-                else:
-                    line = ansi_escape.sub("", line)
-                    sys.stdout.write(f"{i} out: {line}")
+                # else:
+                #     line = self.ansi_escape.sub("", line)
+                #     sys.stdout.write(f"{i} out: {line}")
 
             if ret_code is not None:
                 n_done += 1
 
-        if n_done == len(procs):
+        if n_done == len(self.procs):
             return False
 
         return True
@@ -74,6 +80,7 @@ class ZestRunnerMultiThread:
         allow_to_run="__all__",
         match_string=None,
         exclude_string=None,
+        bypass_skip=None,
         **kwargs,
     ):
         root_zests, allow_to_run, errors = zest_finder.find_zests(
@@ -97,11 +104,11 @@ class ZestRunnerMultiThread:
             writ_err = open(err_path, "w")
             self.writ_outs += [writ_out]
             self.writ_errs += [writ_err]
-            self.read_outs += [open(f"out_{i}", "r")]
-            self.read_errs += [open(f"err_{i}", "r")]
+            self.read_outs += [open(out_path, "r")]
+            self.read_errs += [open(err_path, "r")]
             self.procs += [
                 Popen(
-                    args=["python", "-u", "zest_shim.py", root_name, module_name, full_path],
+                    args=["python", "-u", "-m", "zest.zest_shim", root_name, module_name, full_path],
                     bufsize=0,
                     executable="python",
                     stdin=DEVNULL,  # DEVNULL here prevents pudb from taking over

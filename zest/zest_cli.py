@@ -1,8 +1,10 @@
+import time
 import os
 import sys
 import argparse
-from pathlib import Path
+import pathlib
 from zest import zest_runner_single_thread
+from zest.zest_runner_multi_thread import ZestRunnerMultiThread
 
 # from zest.zest_console_ui import ZestConsoleUI
 from . import __version__
@@ -80,7 +82,24 @@ def main():
         # runner = runner_klass(**kwargs).run()
         # sys.exit(runner.retcode)
     else:
-        retcode = zest_runner_single_thread.run_zests(**kwargs)
+        if kwargs.get("n_workers") > 1:
+            def callback(payload):
+                stack = payload['call_stack']
+                if payload["is_running"]:
+                    print(f"{'  ' * (len(stack) - 1)}{stack[-1]}")
+
+            zest_results_path = pathlib.Path(".zest_results")
+            zest_results_path.mkdir(parents=True, exist_ok=True)
+            runner = ZestRunnerMultiThread(zest_results_path, **kwargs)
+            request_stop = False
+            retcode = 0
+            while runner.poll(callback, request_stop):
+                time.sleep(0.1)
+                # if ...: request_stop = True
+
+        else:
+            retcode = zest_runner_single_thread.run_zests(**kwargs)
+
         sys.exit(retcode)
 
 
