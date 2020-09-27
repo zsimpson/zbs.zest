@@ -21,6 +21,7 @@ class RunnerProcess:
     read_out: io.TextIOBase
     read_err: io.TextIOBase
     proc: Popen
+    proc_i: int
 
 
 class ZestRunnerMultiThread:
@@ -57,8 +58,15 @@ class ZestRunnerMultiThread:
             stderr=writ_err,
         )
         self.procs[root_name] = RunnerProcess(
-            writ_out, writ_err, open(out_path, "r"), open(err_path, "r"), proc
+            writ_out,
+            writ_err,
+            open(out_path, "r"),
+            open(err_path, "r"),
+            proc,
+            self.n_run % self.n_workers,
         )
+
+        self.n_run += 1
 
         return True
 
@@ -91,7 +99,7 @@ class ZestRunnerMultiThread:
                 if m:
                     try:
                         payload = json.loads(m.group(1))
-                        payload["proc_i"] = i
+                        payload["proc_i"] = proc.proc_i
                         event_callback(payload)
                     except json.JSONDecodeError:
                         print(f"decode error {m.group(1)}")
@@ -148,6 +156,7 @@ class ZestRunnerMultiThread:
         self.n_workers = n_workers
         self.procs = {}
         self.queue = deque()
+        self.n_run = 0
 
         for (root_name, (module_name, package, full_path)) in root_zests.items():
             self.queue.append((root_name, module_name, package, full_path))

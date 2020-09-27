@@ -30,6 +30,7 @@ def kbhit():
         dr, dw, de = select.select([sys.stdin], [], [], 0)
         return dr != []
 
+
 scr = None
 
 # States
@@ -45,6 +46,17 @@ run_state_strs = [
     "Stopping (^C to force)",
     "Watching",
 ]
+
+
+log_fp = None
+
+
+def log(*args):
+    global log_fp
+    if log_fp is None:
+        log_fp = open("log.txt", "a")
+    log_fp.write("".join([str(i) + " " for i in args]) + "\n")
+    log_fp.flush()
 
 
 # Draw
@@ -468,7 +480,7 @@ def s(self, *strs):
     self.warnings += ["".join([str(s) for s in strs if not s.startswith("\u001b")])]
 
 
-def _run(_scr, **kwargs):
+def _run(_scr, n_workers=1, **kwargs):
     global scr
     scr = _scr
     request_run = None
@@ -508,6 +520,9 @@ def _run(_scr, **kwargs):
     def callback(payload):
         nonlocal dirty, current_running_tests_by_proc_i, n_errors, n_success
         dirty = True
+        log(
+            "is running", payload["is_running"], payload["full_name"], payload["proc_i"]
+        )
         if payload["is_running"]:
             current_running_tests_by_proc_i[payload["proc_i"]] = payload["full_name"]
         else:
@@ -544,15 +559,17 @@ def _run(_scr, **kwargs):
                 allow_to_run=allow_to_run,
                 match_string=None,
                 exclude_string=None,
-                n_workers=2,
+                n_workers=n_workers,
             )
 
-        nonlocal request_run, request_stop
+        nonlocal request_run, request_stop, runner
         if run_state == STOPPED:
             # Tests are done. The runner_thread should be stopped
             # Ways out:
             #    * request_end can terminate
             #    * request_run can start a new run
+            runner = None
+
             if request_end:
                 return False
 
@@ -657,7 +674,7 @@ def _run(_scr, **kwargs):
                     match_string = s
                     dirty = True
 
-            time.sleep(0.05)
+            time.sleep(0.01)
 
         except KeyboardInterrupt:
             if request_end:
