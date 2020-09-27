@@ -5,8 +5,7 @@ import argparse
 import pathlib
 from zest import zest_runner_single_thread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread
-
-# from zest.zest_console_ui import ZestConsoleUI
+from zest.zest_console_ui import run
 from . import __version__
 
 
@@ -77,10 +76,7 @@ def main():
         sys.exit(0)
 
     if kwargs.pop("ui", False):
-        raise NotImplementedError
-        # runner_klass = ZestConsoleUI
-        # runner = runner_klass(**kwargs).run()
-        # sys.exit(runner.retcode)
+        retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:
             def callback(payload):
@@ -99,7 +95,7 @@ def main():
         else:
             retcode = zest_runner_single_thread.run_zests(**kwargs)
 
-        sys.exit(retcode)
+    sys.exit(retcode)
 
 
 if __name__ == "__main__":
