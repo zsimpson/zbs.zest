@@ -117,11 +117,7 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
             if bypass_skip and bypass_skip in skips:
                 this_func_skipped = False
 
-        if (
-            n_test_funcs > 0
-            and parent_name is not None
-            and not this_func_skipped
-        ):
+        if n_test_funcs > 0 and parent_name is not None and not this_func_skipped:
             if found_zest_call_before_final_func_def:
                 error_message = "called zest() before all functions were defined."
                 errors += [(parent_name, path, lineno, error_message)]

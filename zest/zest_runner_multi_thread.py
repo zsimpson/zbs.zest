@@ -41,7 +41,15 @@ class ZestRunnerMultiThread:
         writ_out = open(out_path, "w")
         writ_err = open(err_path, "w")
         proc = Popen(
-            args=["python", "-u", "-m", "zest.zest_shim", root_name, module_name, full_path],
+            args=[
+                "python",
+                "-u",
+                "-m",
+                "zest.zest_shim",
+                root_name,
+                module_name,
+                full_path,
+            ],
             bufsize=0,
             executable="python",
             stdin=DEVNULL,  # DEVNULL here prevents pudb from taking over
@@ -125,7 +133,12 @@ class ZestRunnerMultiThread:
         **kwargs,
     ):
         root_zests, allow_to_run, errors = zest_finder.find_zests(
-            root, include_dirs, allow_to_run.split(":"), match_string, exclude_string, bypass_skip
+            root,
+            include_dirs,
+            allow_to_run.split(":"),
+            match_string,
+            exclude_string,
+            bypass_skip,
         )
 
         if len(errors) > 0:

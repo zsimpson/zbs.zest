@@ -5,7 +5,7 @@ import argparse
 import pathlib
 from zest import zest_runner_single_thread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread
-from zest.zest_console_ui import run
+from zest import zest_console_ui
 from . import __version__
 
 
@@ -79,6 +79,7 @@ def main():
         retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:
+
             def callback(payload):
                 state = "START" if payload["is_running"] else "STOP "
                 print(f"{state} {payload['full_name']}")

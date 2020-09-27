@@ -167,6 +167,7 @@ def _display_complete(root, call_log, call_errors):
 # Entrypoint
 # ---------------------------------------------------------------------------------
 
+
 def run_zests(
     root=None,
     include_dirs=None,
@@ -227,22 +228,29 @@ def run_zests(
     assert root[0] == os.sep
 
     root_zests, allow_to_run, errors = zest_finder.find_zests(
-        root, include_dirs, allow_to_run.split(":"), match_string, exclude_string, bypass_skip
+        root,
+        include_dirs,
+        allow_to_run.split(":"),
+        match_string,
+        exclude_string,
+        bypass_skip,
     )
 
     for error in errors:
         parent_name, path, lineno, error_message = error
 
         _s(
-            red, "\nERROR: ",
+            red,
+            "\nERROR: ",
             reset,
             "Zest function ",
-            bold, red,
+            bold,
+            red,
             parent_name,
             reset,
             f" (@ {path}:{lineno}) ",
             f"{error_message}\n",
-            f"If you are using local functions that are not tests, prefix them with underscore.\n"
+            f"If you are using local functions that are not tests, prefix them with underscore.\n",
         )
 
     if len(errors) > 0:
@@ -307,7 +315,6 @@ def run_zests(
 
     # Event functions are callbacks from zest
     # ---------------------------------------------------------------------------------
-
 
     event_complete()
     retcode = 0 if len(zest._call_errors) == 0 and n_zest_missing_errors == 0 else 1

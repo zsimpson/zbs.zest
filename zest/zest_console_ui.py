@@ -9,8 +9,8 @@ import time
 import sys
 import os
 import curses
-import threading
-from zest.zest_runner import log, ZestRunner, run_lock
+import pathlib
+from zest.zest_runner_multi_thread import ZestRunnerMultiThread
 from . import __version__
 
 if os.name == "nt":
@@ -29,6 +29,8 @@ def kbhit():
     else:
         dr, dw, de = select.select([sys.stdin], [], [], 0)
         return dr != []
+
+scr = None
 
 # States
 # ----------------------------------------------------------------------------
@@ -122,7 +124,8 @@ pal = [
     (curses.COLOR_RED, -1, curses.A_BOLD),
 ]
 
-def print(y, x, *args):
+
+def _print(y, x, *args):
     def words_and_spaces(s):
         # Inspired by http://stackoverflow.com/a/8769863/262271
         return list(
@@ -159,16 +162,16 @@ def print(y, x, *args):
     _y += 1
     return _y, _x
 
+
 def draw_menu_fill_to_end_of_line(y, length):
     rows, cols = scr.getmaxyx()
     if cols - length > 0:
-        scr.addstr(
-            y, length, f"{' ':<{cols - length}}", curses.color_pair(PAL_MENU)
-        )
+        scr.addstr(y, length, f"{' ':<{cols - length}}", curses.color_pair(PAL_MENU))
+
 
 def draw_title_bar():
     y = 0
-    _, length = print(
+    _, length = _print(
         0,
         0,
         PAL_MENU_TITLE,
@@ -194,8 +197,9 @@ def draw_title_bar():
     y += 1
     return y
 
-def draw_status(y):
-    print(
+
+def draw_status(y, run_state, match_string, current_running_tests_by_proc_i):
+    _print(
         y,
         0,
         PAL_STATUS_KEY,
@@ -209,51 +213,40 @@ def draw_status(y):
     )
     y += 1
 
-    print(
-        y,
-        0,
-        PAL_STATUS_KEY,
-        "C",
-        PAL_NONE,
-        "apture : ",
-        PAL_STATUS,
-        str(capture),
+    # _print(
+    #     y, 0, PAL_STATUS_KEY, "C", PAL_NONE, "apture : ", PAL_STATUS, str(capture),
+    # )
+    # y += 1
+
+    proc_iz = sorted(current_running_tests_by_proc_i.keys())
+    _print(
+        y, 0, PAL_NONE, "Status  : ", PAL_STATUS, run_state_strs[run_state] + " ",
     )
     y += 1
 
-    pids = sorted(current_running_tests_by_pid.keys())
-    print(
-        y,
-        0,
-        PAL_NONE,
-        "Status  : ",
-        PAL_STATUS,
-        run_state_strs[run_state] + " ",
-    )
-    y += 1
-
-    if len(pids) > 0:
-        print(
-            y, 0, PAL_NONE, "Pids    : ",
+    if len(proc_iz) > 0:
+        _print(
+            y, 0, PAL_NONE, "Proc_i  : ",
         )
         y += 1
-        for pid in pids:
-            name_stack = (current_running_tests_by_pid[pid] or "").split(".")
-            print(
+        for proc_i in proc_iz:
+            name_stack = (current_running_tests_by_proc_i[proc_i] or "").split(".")
+            _print(
                 y,
                 0,
                 PAL_ERROR_LIB,
-                f"{pid:>5}) ",
+                f"{proc_i:>5}) ",
                 PAL_NAME_SELECTED,
                 name_stack[0],
                 PAL_NAME,
-                ".".join(name_stack[1:]),
+                "" if len(name_stack[1:]) == 0 else ("." + ".".join(name_stack[1:])),
             )
             y += 1
     return y
 
-def draw_summary(y):
-    print(
+
+def draw_summary(y, n_success, n_errors, n_skips):
+    _print(
         y,
         0,
         PAL_NONE,
@@ -288,15 +281,15 @@ def draw_summary(y):
     y += 1
     return y
 
-def draw_fail_lines(y):
+
+def draw_fail_lines(y, n_errors, results):
     result_by_shortcut_number = {}
     if n_errors > 0:
-        print(y, 0, PAL_NONE, f"Failed tests:")
+        _print(y, 0, PAL_NONE, f"Failed tests:")
         y += 1
 
         error_i = 0
-        with run_lock:
-            results = copy.copy(results)
+        results = copy.copy(results)
 
         for i, (name, result) in enumerate(results.items()):
             if result is not None and result.error is not None:
@@ -318,7 +311,7 @@ def draw_fail_lines(y):
                             show_result_full_name is not None
                             and show_result_full_name == name
                         )
-                        print(
+                        _print(
                             y,
                             0,
                             PAL_FAIL_KEY,
@@ -343,50 +336,38 @@ def draw_fail_lines(y):
                         y += 1
 
         if n_errors > 9:
-            print(y, 0, PAL_ERROR_BASE, f"+ {n_errors - 9} more")
+            _print(y, 0, PAL_ERROR_BASE, f"+ {n_errors - 9} more")
             y += 1
     return y
 
-def draw_warnings(y):
+
+def draw_warnings(y, warnings):
     for i, warn in enumerate(warnings):
-        print(
+        _print(
             y, 0, PAL_ERROR_BASE, f"WARNING {i}: {warn}",
         )
-        time.sleep(1)  # HACK
         y += 1
     return y
 
-def draw_result_details(y):
-    with run_lock:
-        result = results.get(show_result_full_name)
 
+def draw_result_details(y, result):
     if result is None:
         return y
 
     if run_state == WATCHING:
-        _, length = print(
-            y,
-            0,
-            PAL_MENU,
-            "Watching: ",
-            PAL_MENU_RUN_STATUS,
-            watch_file,
+        _, length = _print(
+            y, 0, PAL_MENU, "Watching: ", PAL_MENU_RUN_STATUS, watch_file,
         )
         draw_menu_fill_to_end_of_line(y, length)
         y += 1
     elif show_result_full_name is not None:
-        _, length = print(
-            y,
-            0,
-            PAL_MENU,
-            "Test result: ",
-            PAL_MENU_RUN_STATUS,
-            show_result_full_name,
+        _, length = _print(
+            y, 0, PAL_MENU, "Test result: ", PAL_MENU_RUN_STATUS, show_result_full_name,
         )
         draw_menu_fill_to_end_of_line(y, length)
         y += 1
 
-    _, length = print(
+    _, length = _print(
         y,
         0,
         PAL_MENU_KEY,
@@ -402,10 +383,10 @@ def draw_result_details(y):
     y += 1
 
     if result.is_running is True:
-        print(y, 0, PAL_NONE, "Runnning...")
+        _print(y, 0, PAL_NONE, "Runnning...")
         y += 1
     elif result.error is None:
-        print(y, 0, PAL_SUCCESS, "Passed!")
+        _print(y, 0, PAL_SUCCESS, "Passed!")
         y += 1
     else:
         formatted = result.error_formatted
@@ -444,7 +425,7 @@ def draw_result_details(y):
                         " in function ",
                     ]
                     s += [PAL_ERROR_MESSAGE, context]
-            print(y, 0, *s)
+            _print(y, 0, *s)
             y += 1
 
         s = [
@@ -453,99 +434,59 @@ def draw_result_details(y):
             PAL_ERROR_MESSAGE,
             result.error.__class__.__name__,
         ]
-        print(y, 0, *s)
+        _print(y, 0, *s)
         y += 1
 
         error_message = str(result.error).strip()
         if error_message != "":
-            print(y, 4, PAL_ERROR_MESSAGE, error_message)
+            _print(y, 4, PAL_ERROR_MESSAGE, error_message)
 
         if result.stdout is not None and result.stdout != "":
             y += 1
-            y, _ = print(y, 0, PAL_NONE, "Stdout:")
-            y, _ = print(y, 0, PAL_STDOUT, result.stdout)
+            y, _ = _print(y, 0, PAL_NONE, "Stdout:")
+            y, _ = _print(y, 0, PAL_STDOUT, result.stdout)
             y += 1
 
         if result.stderr is not None and result.stderr != "":
             y += 1
-            y, _ = print(y, 0, PAL_NONE, "Stderr:")
-            y, _ = print(y, 0, PAL_STDOUT, result.stderr)
+            y, _ = _print(y, 0, PAL_NONE, "Stderr:")
+            y, _ = _print(y, 0, PAL_STDOUT, result.stderr)
             y += 1
 
     return y
-
-'''
-def event_complete(self):
-    self.complete = True
-    self.dirty = True
-
-def event_request_stop(self):
-    return self.request_stop
-
-def event_test_start(self, zest_result):
-    super().event_test_start(zest_result)
-    self.dirty = True
-    self.current_running_tests_by_pid[zest_result.pid] = " . ".join(
-        zest_result.call_stack
-    )
-
-def event_test_stop(self, zest_result):
-    super().event_test_stop(zest_result)
-    self.dirty = True
-    self.current_running_tests_by_pid[zest_result.pid] = None
-    if zest_result.error is not None:
-        self.n_errors += 1
-    else:
-        self.n_success += 1
-'''
 
 
 def runner_thread_is_running(self):
     return self.runner_thread is not None and self.runner_thread.is_alive()
 
+
 def num_key_to_int(self, key):
     return ord(key) - ord("0")
+
 
 def s(self, *strs):
     self.warnings += ["".join([str(s) for s in strs if not s.startswith("\u001b")])]
 
 
-def _run(scr, **kwargs):
-    show_result_full_name = None
+def _run(_scr, **kwargs):
+    global scr
+    scr = _scr
     request_run = None
     request_stop = False
-    scr = None
-    runner_thread = None
-    current_running_tests_by_pid = None
-    n_success = None
-    n_errors = None
-    n_skips = None
-    complete = None
-    key = None
     num_keys = [str(i) for i in range(1, 10)]
     run_state = None
-    watch_file = None
-    watch_timestamp = None
     result_by_shortcut_number = None
-    verbose = 0
-    capture = False
-    warnings = []
-    scr = scr
-    runner_thread = None
     dirty = True
-    current_running_tests_by_pid = {}
+    current_running_tests_by_proc_i = {}
     n_success = 0
     n_errors = 0
     n_skips = 0
-    complete = False
-    key = None
     show_result_full_name = None
     run_state = STOPPED
-    watch_file = None
-    watch_timestamp = None
-
+    warnings = []
+    runner = None
+    match_string = None
     request_run = None
-    request_watch = None
     request_stop = False
     request_end = False
 
@@ -556,12 +497,26 @@ def _run(scr, **kwargs):
         dirty = False
         scr.clear()
         y = draw_title_bar()
-        y = draw_status(y)
-        y = draw_summary(y)
-        y = draw_warnings(y)
-        draw_fail_lines(y + 1)
-        y = draw_result_details(y + 13)
+        y = draw_status(y, run_state, match_string, current_running_tests_by_proc_i)
+        y = draw_summary(y, n_success, n_errors, n_skips)
+        y = draw_warnings(y, warnings)
+        results = {}
+        draw_fail_lines(y + 1, n_errors, results)
+        y = draw_result_details(y + 13, results.get(show_result_full_name))
         scr.refresh()
+
+    def callback(payload):
+        nonlocal dirty, current_running_tests_by_proc_i, n_errors, n_success
+        dirty = True
+        if payload["is_running"]:
+            current_running_tests_by_proc_i[payload["proc_i"]] = payload["full_name"]
+        else:
+            current_running_tests_by_proc_i[payload["proc_i"]] = ""
+
+        if payload["error"] is not None:
+            n_errors += 1
+        else:
+            n_success += 1
 
     def update_run_state():
         """
@@ -575,27 +530,34 @@ def _run(scr, **kwargs):
             run_state = state
             dirty = True
 
-        def join_runner_thread():
-            nonlocal runner_thread
-            runner_thread.join()
-            runner_thread = None
+        def start_run(allow_to_run):
+            nonlocal runner
+            zest_results_path = pathlib.Path(".zest_results")
+            zest_results_path.mkdir(parents=True, exist_ok=True)
+            assert runner is None
 
+            # TODO: Wire up correct options
+            runner = ZestRunnerMultiThread(
+                zest_results_path,
+                root="/Users/zack/git/zbs.zest",
+                include_dirs=".",
+                allow_to_run=allow_to_run,
+                match_string=None,
+                exclude_string=None,
+                n_workers=2,
+            )
+
+        nonlocal request_run, request_stop
         if run_state == STOPPED:
             # Tests are done. The runner_thread should be stopped
             # Ways out:
             #    * request_end can terminate
             #    * request_run can start a new run
-            assert runner_thread is None
-            assert pool is None
-
             if request_end:
                 return False
 
             if request_run is not None:
-                with run_lock:
-                    results = {}
-                allow_to_run = request_run
-                runner_thread_start()
+                start_run(request_run)
                 request_run = None
                 new_state(RUNNING)
 
@@ -605,8 +567,9 @@ def _run(scr, **kwargs):
             #    * request_end: Goto STOPPING
             #    * the "runner_thread" has terminated. Goto STOPPED
             #    * a new run is requested before the current run has terminated. Goto STOPPING
-            if not runner_thread_is_running():
-                join_runner_thread()
+
+            running = runner.poll(callback, request_stop)
+            if not running:
                 new_state(STOPPED)
 
             elif request_end:
@@ -622,9 +585,8 @@ def _run(scr, **kwargs):
             # Trying to stop.
             # Ways out:
             #   * The "runner_thread" has terminated. Goto STOPPED
-            request_stop = True
-            if not runner_thread_is_running():
-                join_runner_thread()
+            running = runner.poll(callback, True)
+            if not running:
                 new_state(STOPPED)
 
         # elif run_state == WATCHING:
@@ -656,23 +618,15 @@ def _run(scr, **kwargs):
                 if key in num_keys:
                     show_details_i = num_key_to_int(key)
                     if 1 <= show_details_i < n_errors + 1:
-                        with run_lock:
-                            if result_by_shortcut_number is not None:
-                                result = result_by_shortcut_number.get(
-                                    show_details_i
-                                )
-                                if result is not None:
-                                    if (
-                                        show_result_full_name
-                                        == result.full_name
-                                    ):
-                                        # Already showing, hide it
-                                        show_result_full_name = None
-                                    else:
-                                        show_result_full_name = (
-                                            result.full_name
-                                        )
-                                    dirty = True
+                        if result_by_shortcut_number is not None:
+                            result = result_by_shortcut_number.get(show_details_i)
+                            if result is not None:
+                                if show_result_full_name == result.full_name:
+                                    # Already showing, hide it
+                                    show_result_full_name = None
+                                else:
+                                    show_result_full_name = result.full_name
+                                dirty = True
 
                 if key == "q":
                     request_end = True
@@ -711,6 +665,6 @@ def _run(scr, **kwargs):
 
             request_end = True
 
+
 def run(**kwargs):
-    threading.current_thread().name = "zest_ui_thread"
     curses.wrapper(_run, **kwargs)
