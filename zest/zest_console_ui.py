@@ -19,19 +19,24 @@ else:
     import select
 
 
-def kbhit():
+scr = None
+
+
+def _kbhit():
     """
     Returns True if a keypress is waiting to be read in stdin, False otherwise.
     Base on: https://stackoverflow.com/a/55692274
     """
     if os.name == "nt":
-        return msvcrt.kbhit()
+        return msvcrt._kbhit()
     else:
         dr, dw, de = select.select([sys.stdin], [], [], 0)
         return dr != []
 
 
-scr = None
+def _num_key_to_int(key):
+    return ord(key) - ord("0")
+
 
 # States
 # ----------------------------------------------------------------------------
@@ -237,17 +242,17 @@ def draw_status(y, run_state, match_string, current_running_tests_by_proc_i):
     y += 1
 
     if len(proc_iz) > 0:
-        _print(
-            y, 0, PAL_NONE, "Proc_i  : ",
-        )
-        y += 1
+        # _print(
+        #     y, 0, PAL_NONE, "Proc_i  : ",
+        # )
+        # y += 1
         for proc_i in proc_iz:
             name_stack = (current_running_tests_by_proc_i[proc_i] or "").split(".")
             _print(
                 y,
                 0,
                 PAL_ERROR_LIB,
-                f"{proc_i:>5}) ",
+                f"{proc_i:>2}) ",
                 PAL_NAME_SELECTED,
                 name_stack[0],
                 PAL_NAME,
@@ -468,18 +473,6 @@ def draw_result_details(y, result):
     return y
 
 
-def runner_thread_is_running(self):
-    return self.runner_thread is not None and self.runner_thread.is_alive()
-
-
-def num_key_to_int(self, key):
-    return ord(key) - ord("0")
-
-
-def s(self, *strs):
-    self.warnings += ["".join([str(s) for s in strs if not s.startswith("\u001b")])]
-
-
 def _run(_scr, n_workers=1, **kwargs):
     global scr
     scr = _scr
@@ -546,10 +539,11 @@ def _run(_scr, n_workers=1, **kwargs):
             dirty = True
 
         def start_run(allow_to_run):
-            nonlocal runner
+            nonlocal runner, n_errors, n_success, n_skips
+            assert runner is None
+            n_errors, n_success, n_skips = 0, 0, 0
             zest_results_path = pathlib.Path(".zest_results")
             zest_results_path.mkdir(parents=True, exist_ok=True)
-            assert runner is None
 
             # TODO: Wire up correct options
             runner = ZestRunnerMultiThread(
@@ -629,11 +623,11 @@ def _run(_scr, n_workers=1, **kwargs):
                 break
 
             render()
-            if kbhit():
+            if _kbhit():
                 key = scr.getkey()
 
                 if key in num_keys:
-                    show_details_i = num_key_to_int(key)
+                    show_details_i = _num_key_to_int(key)
                     if 1 <= show_details_i < n_errors + 1:
                         if result_by_shortcut_number is not None:
                             result = result_by_shortcut_number.get(show_details_i)

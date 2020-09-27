@@ -14,7 +14,18 @@ from zest import zest
 
 
 def event_callback(zest_result):
-    print("@@@" + json.dumps(dataclasses.asdict(zest_result)) + "@@@")
+    try:
+        if zest_result.error is not None:
+            zest_result.error = str(type(zest_result.error))
+        print("@@@" + json.dumps(dataclasses.asdict(zest_result)) + "@@@")
+    except TypeError:
+        print(
+            "@@@"
+            + json.dumps(
+                dict(full_name=zest_result.full_name, error="Serialization error")
+            )
+            + "@@@"
+        )
 
 
 if __name__ == "__main__":

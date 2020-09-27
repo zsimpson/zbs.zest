@@ -2,6 +2,7 @@ import json
 import os
 import re
 import io
+import random
 from collections import deque
 from pathlib import Path
 from zest import zest_finder
@@ -34,6 +35,11 @@ class ZestRunnerMultiThread:
         except IndexError:
             return False
 
+        curr_proc_iz = {proc.proc_i for proc in self.procs.values()}
+        next_proc_i = random.choice(
+            list(set(list(range(self.n_workers))) - curr_proc_iz)
+        )
+
         root_name, module_name, package, full_path = next_zest
 
         out_path = os.path.join(self.output_folder, f"{root_name}.out")
@@ -63,7 +69,7 @@ class ZestRunnerMultiThread:
             open(out_path, "r"),
             open(err_path, "r"),
             proc,
-            self.n_run % self.n_workers,
+            next_proc_i,
         )
 
         self.n_run += 1
