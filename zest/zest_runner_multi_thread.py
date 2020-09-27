@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import io
 from collections import deque
 from pathlib import Path
 from zest import zest_finder
@@ -39,20 +40,17 @@ class ZestRunnerMultiThread:
 
         writ_out = open(out_path, "w")
         writ_err = open(err_path, "w")
-        self.writ_outs += [writ_out]
-        self.writ_errs += [writ_err]
-        self.read_outs += [open(out_path, "r")]
-        self.read_errs += [open(err_path, "r")]
-        self.procs += [
-            Popen(
-                args=["python", "-u", "-m", "zest.zest_shim", root_name, module_name, full_path],
-                bufsize=0,
-                executable="python",
-                stdin=DEVNULL,  # DEVNULL here prevents pudb from taking over
-                stdout=writ_out,
-                stderr=writ_err,
-            )
-        ]
+        proc = Popen(
+            args=["python", "-u", "-m", "zest.zest_shim", root_name, module_name, full_path],
+            bufsize=0,
+            executable="python",
+            stdin=DEVNULL,  # DEVNULL here prevents pudb from taking over
+            stdout=writ_out,
+            stderr=writ_err,
+        )
+        self.procs[root_name] = RunnerProcess(
+            writ_out, writ_err, open(out_path, "r"), open(err_path, "r"), proc
+        )
 
         return True
 
@@ -77,11 +75,10 @@ class ZestRunnerMultiThread:
             raise NotImplementedError
 
         done = []
-        for i, (p, read_out) in enumerate(zip(self.procs, self.read_outs)):
-            ret_code = p.poll()
+        for i, (root_name, proc) in enumerate(self.procs.items()):
+            ret_code = proc.proc.poll()
 
-            lines = read_out.readlines()
-            for line in lines:
+            for line in proc.read_out:
                 m = re.match(self.pat, line)
                 if m:
                     try:
@@ -89,34 +86,31 @@ class ZestRunnerMultiThread:
                         payload["proc_i"] = i
                         event_callback(payload)
                     except json.JSONDecodeError:
+                        print(f"decode error {m.group(1)}")
                         pass
                 # else:
                 #     line = self.ansi_escape.sub("", line)
                 #     sys.stdout.write(f"{i} out: {line}")
 
             if ret_code is not None:
-                done += [i]
+                done += [root_name]
 
-        for i in done:
-            del self.procs[i]
+        for root_name in done:
+            p = self.procs[root_name]
+            p.read_out.close()
+            p.read_err.close()
+            p.writ_out.close()
+            p.writ_err.close()
+            del self.procs[root_name]
 
-        if len(self.queue) == 0:
+        while len(self.procs) < self.n_workers:
+            if not self._start_next():
+                break
+
+        if len(self.queue) == 0 and len(self.procs) == 0:
             return False
 
         return True
-
-    def close(self):
-        def close_list(fd_list):
-            for fd in fd_list:
-                close(fd)
-
-        close_list(self.read_outs)
-        close_list(self.read_errs)
-        close_list(self.writ_outs)
-        close_list(self.writ_errs)
-
-        for proc in self.procs:
-            proc.wait()
 
     def __init__(
         self,
@@ -139,16 +133,11 @@ class ZestRunnerMultiThread:
 
         self.output_folder = output_folder
         self.n_workers = n_workers
-        self.writ_outs = []
-        self.writ_errs = []
-        self.read_outs = []
-        self.read_errs = []
-        self.procs = []
+        self.procs = {}
         self.queue = deque()
 
         for (root_name, (module_name, package, full_path)) in root_zests.items():
             self.queue.append((root_name, module_name, package, full_path))
 
-        import pudb; pudb.set_trace()
         for i in range(self.n_workers):
             self._start_next()

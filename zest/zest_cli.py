@@ -84,9 +84,8 @@ def main():
     else:
         if kwargs.get("n_workers") > 1:
             def callback(payload):
-                stack = payload['call_stack']
-                if payload["is_running"]:
-                    print(f"{'  ' * (len(stack) - 1)}{stack[-1]} {payload['proc_i']}")
+                state = "START" if payload["is_running"] else "STOP "
+                print(f"{state} {payload['full_name']}")
 
             zest_results_path = pathlib.Path(".zest_results")
             zest_results_path.mkdir(parents=True, exist_ok=True)
