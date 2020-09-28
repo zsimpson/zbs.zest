@@ -34,7 +34,7 @@ def zest_basics():
             test_count += 1
 
         def test3():
-            assert False
+            assert True
 
         zest()
 

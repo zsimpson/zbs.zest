@@ -25,7 +25,7 @@ def _s(*strs):
     return sys.stdout.write("".join(strs) + reset)
 
 
-def _traceback_match_filename(root, line):
+def traceback_match_filename(root, line):
     m = _tb_pat.match(line)
     if m:
         file = m.group(1)
@@ -123,7 +123,7 @@ def _display_error(root, error, error_formatted, stack):
 
     is_libs = False
     for line in lines[1:-1]:
-        split_line = _traceback_match_filename(root, line)
+        split_line = traceback_match_filename(root, line)
         if split_line is None:
             _s(gray if is_libs else "", line, "\n")
         else:

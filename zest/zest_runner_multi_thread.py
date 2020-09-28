@@ -25,10 +25,23 @@ class RunnerProcess:
     proc_i: int
 
 
-class ZestRunnerMultiThread:
-    pat = re.compile(r"\@\@\@(.+)\@\@\@")
-    ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
+pat = re.compile(r"\@\@\@(.+)\@\@\@")
+ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
 
+
+def read_lines(fd, include_stdio):
+    for line in fd:
+        m = re.match(pat, line)
+        if m:
+            try:
+                yield json.loads(m.group(1))
+            except json.JSONDecodeError:
+                yield dict(error="decode error")
+        elif include_stdio:
+            yield line
+
+
+class ZestRunnerMultiThread:
     def _start_next(self):
         try:
             next_zest = self.queue.popleft()
@@ -94,25 +107,16 @@ class ZestRunnerMultiThread:
         """
 
         if request_stop:
-            raise NotImplementedError
+            for proc in self.procs.values():
+                proc.terminate()
 
         done = []
         for i, (root_name, proc) in enumerate(self.procs.items()):
             ret_code = proc.proc.poll()
 
-            for line in proc.read_out:
-                m = re.match(self.pat, line)
-                if m:
-                    try:
-                        payload = json.loads(m.group(1))
-                        payload["proc_i"] = proc.proc_i
-                        event_callback(payload)
-                    except json.JSONDecodeError:
-                        print(f"decode error {m.group(1)}")
-                        pass
-                # else:
-                #     line = self.ansi_escape.sub("", line)
-                #     sys.stdout.write(f"{i} out: {line}")
+            for payload in read_lines(proc.read_out, include_stdio=False):
+                payload["proc_i"] = proc.proc_i
+                event_callback(payload)
 
             if ret_code is not None:
                 done += [root_name]

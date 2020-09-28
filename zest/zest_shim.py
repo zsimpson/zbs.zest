@@ -13,19 +13,23 @@ import zest_finder
 from zest import zest
 
 
-def event_callback(zest_result):
+def emit(dict_, full_name, stream):
     try:
-        if zest_result.error is not None:
-            zest_result.error = str(type(zest_result.error))
-        print("@@@" + json.dumps(dataclasses.asdict(zest_result)) + "@@@")
+        print("@@@" + json.dumps(dict_) + "@@@", file=stream)
     except TypeError:
-        print(
-            "@@@"
-            + json.dumps(
-                dict(full_name=zest_result.full_name, error="Serialization error")
-            )
-            + "@@@"
-        )
+        dict_ = dict(full_name=full_name, error="Serialization error")
+        print("@@@" + json.dumps(dict_) + "@@@", file=stream)
+
+
+def emit_both_streams(dict_, full_name):
+    emit(dict_, full_name, sys.stdout)
+    emit(dict_, full_name, sys.stderr)
+
+
+def event_callback(zest_result):
+    if zest_result.error is not None:
+        zest_result.error = repr(zest_result.error)
+    emit_both_streams(dataclasses.asdict(zest_result), zest_result.full_name)
 
 
 if __name__ == "__main__":

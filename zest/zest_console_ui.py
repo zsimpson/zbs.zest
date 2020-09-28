@@ -9,8 +9,10 @@ import time
 import sys
 import os
 import curses
-import pathlib
-from zest.zest_runner_multi_thread import ZestRunnerMultiThread
+from pathlib import Path
+from collections import defaultdict
+from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_lines
+from zest.zest_runner_single_thread import traceback_match_filename
 from . import __version__
 
 if os.name == "nt":
@@ -299,58 +301,57 @@ def draw_summary(y, n_success, n_errors, n_skips):
     return y
 
 
-def draw_fail_lines(y, n_errors, results):
-    result_by_shortcut_number = {}
+def draw_fail_lines(y, errors, root, show_result_full_name):
+    n_errors = len(errors)
     if n_errors > 0:
         _print(y, 0, PAL_NONE, f"Failed tests:")
         y += 1
 
         error_i = 0
-        results = copy.copy(results)
 
-        for i, (name, result) in enumerate(results.items()):
-            if result is not None and result.error is not None:
-                error_i += 1
-                if error_i < 10:
-                    result_by_shortcut_number[error_i] = result
-                    formatted = result.error_formatted
-                    lines = []
-                    for line in formatted:
-                        lines += [sub_line for sub_line in line.strip().split("\n")]
-                    last_filename_line = ""
-                    if len(lines) >= 3:
-                        last_filename_line = lines[-3]
-                    split_line = _traceback_match_filename(last_filename_line)
-                    if split_line:
-                        leading, basename, lineno, context, is_libs = split_line
+        for i, (name, error) in enumerate(errors.items()):
+            error_i += 1
+            if error_i >= 10:
+                break
 
-                        selected = (
-                            show_result_full_name is not None
-                            and show_result_full_name == name
-                        )
-                        _print(
-                            y,
-                            0,
-                            PAL_FAIL_KEY,
-                            str(error_i),
-                            PAL_NONE,
-                            " ",
-                            PAL_NAME_SELECTED if selected else PAL_NAME,
-                            name,
-                            PAL_ERROR_BASE,
-                            " raised: ",
-                            PAL_ERROR_MESSAGE,
-                            result.error.__class__.__name__,
-                            PAL_ERROR_BASE,
-                            " ",
-                            PAL_ERROR_PATHNAME,
-                            basename,
-                            PAL_ERROR_BASE,
-                            ":",
-                            PAL_ERROR_PATHNAME,
-                            str(lineno),
-                        )
-                        y += 1
+            formatted = error["error_formatted"]
+            lines = []
+            for line in formatted:
+                lines += [sub_line for sub_line in line.strip().split("\n")]
+            last_filename_line = ""
+            if len(lines) >= 3:
+                last_filename_line = lines[-3]
+            split_line = traceback_match_filename(root, last_filename_line)
+            if split_line:
+                leading, basename, lineno, context, is_libs = split_line
+
+                selected = (
+                    show_result_full_name is not None
+                    and show_result_full_name == name
+                )
+                _print(
+                    y,
+                    0,
+                    PAL_FAIL_KEY,
+                    str(error_i),
+                    PAL_NONE,
+                    " ",
+                    PAL_NAME_SELECTED if selected else PAL_NAME,
+                    name,
+                    PAL_ERROR_BASE,
+                    " raised: ",
+                    PAL_ERROR_MESSAGE,
+                    error["error"],
+                    PAL_ERROR_BASE,
+                    " ",
+                    PAL_ERROR_PATHNAME,
+                    basename,
+                    PAL_ERROR_BASE,
+                    ":",
+                    PAL_ERROR_PATHNAME,
+                    str(lineno),
+                )
+                y += 1
 
         if n_errors > 9:
             _print(y, 0, PAL_ERROR_BASE, f"+ {n_errors - 9} more")
@@ -473,11 +474,37 @@ def draw_result_details(y, result):
     return y
 
 
+def load_results(zest_results_path):
+    results = {}
+    errors = {}
+    stdouts = defaultdict(list)
+    stderrs = defaultdict(list)
+    for res_path in os.listdir(zest_results_path):
+        res_path = zest_results_path / res_path
+        is_out = Path(res_path).suffix == ".out"
+        with open(res_path) as fd:
+            full_name = None
+            for payload in read_lines(fd, include_stdio=True):
+                if isinstance(payload, dict):
+                    is_running = payload["is_running"]
+                    if is_running is True:
+                        full_name = payload["full_name"]
+                    elif is_running is False:
+                        results[payload["full_name"]] = payload
+                        if payload["error"] is not None:
+                            errors[payload["full_name"]] = payload
+                elif isinstance(payload, str):
+                    if is_out:
+                        stdouts[full_name] += [payload]
+                    else:
+                        stderrs[full_name] += [payload]
+
+    return results, errors, stdouts, stderrs
+
+
 def _run(_scr, n_workers=1, **kwargs):
     global scr
     scr = _scr
-    request_run = None
-    request_stop = False
     num_keys = [str(i) for i in range(1, 10)]
     run_state = None
     result_by_shortcut_number = None
@@ -494,6 +521,9 @@ def _run(_scr, n_workers=1, **kwargs):
     request_run = None
     request_stop = False
     request_end = False
+    zest_results_path = Path(".zest_results")
+    root = "/Users/zack/git/zbs.zest"  # TODO: Fix
+    results, errors, stdouts, stderrs = None, None, None, None
 
     def render():
         nonlocal dirty
@@ -505,8 +535,7 @@ def _run(_scr, n_workers=1, **kwargs):
         y = draw_status(y, run_state, match_string, current_running_tests_by_proc_i)
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
-        results = {}
-        draw_fail_lines(y + 1, n_errors, results)
+        draw_fail_lines(y + 1, errors, root, show_result_full_name)
         y = draw_result_details(y + 13, results.get(show_result_full_name))
         scr.refresh()
 
@@ -542,13 +571,12 @@ def _run(_scr, n_workers=1, **kwargs):
             nonlocal runner, n_errors, n_success, n_skips
             assert runner is None
             n_errors, n_success, n_skips = 0, 0, 0
-            zest_results_path = pathlib.Path(".zest_results")
             zest_results_path.mkdir(parents=True, exist_ok=True)
 
             # TODO: Wire up correct options
             runner = ZestRunnerMultiThread(
                 zest_results_path,
-                root="/Users/zack/git/zbs.zest",
+                root=root,
                 include_dirs=".",
                 allow_to_run=allow_to_run,
                 match_string=None,
@@ -557,13 +585,12 @@ def _run(_scr, n_workers=1, **kwargs):
             )
 
         nonlocal request_run, request_stop, runner
+        nonlocal results, errors, stdouts, stderrs
         if run_state == STOPPED:
             # Tests are done. The runner_thread should be stopped
             # Ways out:
             #    * request_end can terminate
             #    * request_run can start a new run
-            runner = None
-
             if request_end:
                 return False
 
@@ -580,25 +607,18 @@ def _run(_scr, n_workers=1, **kwargs):
             #    * a new run is requested before the current run has terminated. Goto STOPPING
 
             running = runner.poll(callback, request_stop)
-            if not running:
-                new_state(STOPPED)
-
-            elif request_end:
-                request_stop = True
-                new_state(STOPPING)
-
-            elif request_run is not None:
-                # Request of a new run, need to stop the previous one first
-                request_stop = True
+            if not running or request_end or request_run is not None:
                 new_state(STOPPING)
 
         elif run_state == STOPPING:
             # Trying to stop.
             # Ways out:
-            #   * The "runner_thread" has terminated. Goto STOPPED
+            #   * The runner has terminated. Goto STOPPED
             running = runner.poll(callback, True)
             if not running:
+                runner = None
                 new_state(STOPPED)
+                results, errors, stdouts, stderrs = load_results(zest_results_path)
 
         # elif run_state == WATCHING:
         #     if watch_timestamp != os.path.getmtime(watch_file):
@@ -616,6 +636,8 @@ def _run(_scr, n_workers=1, **kwargs):
     for i, p in enumerate(pal):
         if i > 0:
             curses.init_pair(i, pal[i][0], pal[i][1])
+
+    results, errors, stdouts, stderrs = load_results(zest_results_path)
 
     while True:
         try:
