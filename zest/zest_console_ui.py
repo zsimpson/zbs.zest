@@ -8,6 +8,7 @@ import copy
 import time
 import sys
 import os
+import re
 import curses
 from pathlib import Path
 from collections import defaultdict
@@ -22,6 +23,7 @@ else:
 
 
 scr = None
+ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
 
 
 def _kbhit():
@@ -161,23 +163,31 @@ def _print(y, x, *args):
             mode = pal[arg][2] | curses.color_pair(arg)
         else:
             arg = str(arg)
-            len_arg = len(arg)
-            if _x + len_arg <= width:
-                scr.addstr(_y, _x, arg, mode)
-                _x += len_arg
-            else:
-                # Word-wrap
-                for word in words_and_spaces(arg):
-                    if len(word) + _x <= width:
-                        scr.addstr(_y, _x, word, mode)
-                    else:
-                        _y += 1
-                        _x = x
-                        if y >= height - 1:
-                            # Can't go down another line
-                            break
-                        scr.addstr(_y, _x, word, mode)
-                    _x += len(word)
+            lines = arg.split("\n")
+            for line_i, line in enumerate(lines):
+                line = ansi_escape.sub("", line)
+                if _y >= height:
+                    break
+                len_line = len(line)
+                if _x + len_line <= width:
+                    scr.addstr(_y, _x, line, mode)
+                    _x += len_line
+                else:
+                    # Word-wrap
+                    for word in words_and_spaces(line):
+                        if len(word) + _x <= width:
+                            scr.addstr(_y, _x, word, mode)
+                        else:
+                            _y += 1
+                            _x = x
+                            if y >= height - 1:
+                                # Can't go down another line
+                                break
+                            scr.addstr(_y, _x, word, mode)
+                        _x += len(word)
+                if line_i > 0:
+                    _x = x
+                    _y += 1
     _y += 1
     return _y, _x
 
@@ -307,14 +317,13 @@ def draw_fail_lines(y, errors, root, show_result_full_name):
         _print(y, 0, PAL_NONE, f"Failed tests:")
         y += 1
 
-        error_i = 0
-
-        for i, (name, error) in enumerate(errors.items()):
-            error_i += 1
-            if error_i >= 10:
+        for i, error in enumerate(errors):
+            if i >= 10:
                 break
 
+            name = error["full_name"]
             formatted = error["error_formatted"]
+
             lines = []
             for line in formatted:
                 lines += [sub_line for sub_line in line.strip().split("\n")]
@@ -326,14 +335,13 @@ def draw_fail_lines(y, errors, root, show_result_full_name):
                 leading, basename, lineno, context, is_libs = split_line
 
                 selected = (
-                    show_result_full_name is not None
-                    and show_result_full_name == name
+                    show_result_full_name is not None and show_result_full_name == name
                 )
                 _print(
                     y,
                     0,
                     PAL_FAIL_KEY,
-                    str(error_i),
+                    str(i + 1),
                     PAL_NONE,
                     " ",
                     PAL_NAME_SELECTED if selected else PAL_NAME,
@@ -368,22 +376,22 @@ def draw_warnings(y, warnings):
     return y
 
 
-def draw_result_details(y, result):
+def draw_result_details(y, root, result, stdout, stderr):
     if result is None:
         return y
 
-    if run_state == WATCHING:
-        _, length = _print(
-            y, 0, PAL_MENU, "Watching: ", PAL_MENU_RUN_STATUS, watch_file,
-        )
-        draw_menu_fill_to_end_of_line(y, length)
-        y += 1
-    elif show_result_full_name is not None:
-        _, length = _print(
-            y, 0, PAL_MENU, "Test result: ", PAL_MENU_RUN_STATUS, show_result_full_name,
-        )
-        draw_menu_fill_to_end_of_line(y, length)
-        y += 1
+    # if run_state == WATCHING:
+    #     _, length = _print(
+    #         y, 0, PAL_MENU, "Watching: ", PAL_MENU_RUN_STATUS, watch_file,
+    #     )
+    #     draw_menu_fill_to_end_of_line(y, length)
+    #     y += 1
+
+    _, length = _print(
+        y, 0, PAL_MENU, "Test result: ", PAL_MENU_RUN_STATUS, result["full_name"],
+    )
+    draw_menu_fill_to_end_of_line(y, length)
+    y += 1
 
     _, length = _print(
         y,
@@ -400,14 +408,14 @@ def draw_result_details(y, result):
     draw_menu_fill_to_end_of_line(y, length)
     y += 1
 
-    if result.is_running is True:
+    if result["is_running"] is True:
         _print(y, 0, PAL_NONE, "Runnning...")
         y += 1
-    elif result.error is None:
+    elif result["error"] is None:
         _print(y, 0, PAL_SUCCESS, "Passed!")
         y += 1
     else:
-        formatted = result.error_formatted
+        formatted = result["error_formatted"]
         lines = []
         for line in formatted:
             lines += [sub_line for sub_line in line.strip().split("\n")]
@@ -415,7 +423,7 @@ def draw_result_details(y, result):
         is_libs = False
         for line in lines[1:-1]:
             s = []
-            split_line = _traceback_match_filename(line)
+            split_line = traceback_match_filename(root, line)
             if split_line is None:
                 s += [PAL_ERROR_LIB if is_libs else PAL_ERROR_BASE, line]
             else:
@@ -450,25 +458,25 @@ def draw_result_details(y, result):
             PAL_ERROR_BASE,
             "raised: ",
             PAL_ERROR_MESSAGE,
-            result.error.__class__.__name__,
+            result["error"],
         ]
         _print(y, 0, *s)
         y += 1
 
-        error_message = str(result.error).strip()
+        error_message = str(result["error"]).strip()
         if error_message != "":
             _print(y, 4, PAL_ERROR_MESSAGE, error_message)
 
-        if result.stdout is not None and result.stdout != "":
+        if stdout is not None and stdout != "":
             y += 1
             y, _ = _print(y, 0, PAL_NONE, "Stdout:")
-            y, _ = _print(y, 0, PAL_STDOUT, result.stdout)
+            y, _ = _print(y, 0, PAL_STDOUT, "".join(stdout))
             y += 1
 
-        if result.stderr is not None and result.stderr != "":
+        if stderr is not None and stderr != "":
             y += 1
             y, _ = _print(y, 0, PAL_NONE, "Stderr:")
-            y, _ = _print(y, 0, PAL_STDOUT, result.stderr)
+            y, _ = _print(y, 0, PAL_STDOUT, "".join(stderr))
             y += 1
 
     return y
@@ -476,7 +484,7 @@ def draw_result_details(y, result):
 
 def load_results(zest_results_path):
     results = {}
-    errors = {}
+    errors = []
     stdouts = defaultdict(list)
     stderrs = defaultdict(list)
     for res_path in os.listdir(zest_results_path):
@@ -489,10 +497,11 @@ def load_results(zest_results_path):
                     is_running = payload["is_running"]
                     if is_running is True:
                         full_name = payload["full_name"]
-                    elif is_running is False:
+                    elif is_running is False and is_out:
+                        # checking is_out to prevent storing errors twice (stdout and stderr)
                         results[payload["full_name"]] = payload
                         if payload["error"] is not None:
-                            errors[payload["full_name"]] = payload
+                            errors += [payload]
                 elif isinstance(payload, str):
                     if is_out:
                         stdouts[full_name] += [payload]
@@ -502,12 +511,11 @@ def load_results(zest_results_path):
     return results, errors, stdouts, stderrs
 
 
-def _run(_scr, n_workers=1, **kwargs):
+def _run(_scr, root=".", include_dirs=None, allow_to_run=None, match_string=None, exclude_string=None, n_workers=1, **kwargs):
     global scr
     scr = _scr
     num_keys = [str(i) for i in range(1, 10)]
     run_state = None
-    result_by_shortcut_number = None
     dirty = True
     current_running_tests_by_proc_i = {}
     n_success = 0
@@ -522,8 +530,8 @@ def _run(_scr, n_workers=1, **kwargs):
     request_stop = False
     request_end = False
     zest_results_path = Path(".zest_results")
-    root = "/Users/zack/git/zbs.zest"  # TODO: Fix
     results, errors, stdouts, stderrs = None, None, None, None
+    allow_to_run_list = [] if allow_to_run is None else allow_to_run.split(":")
 
     def render():
         nonlocal dirty
@@ -536,7 +544,13 @@ def _run(_scr, n_workers=1, **kwargs):
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
         draw_fail_lines(y + 1, errors, root, show_result_full_name)
-        y = draw_result_details(y + 13, results.get(show_result_full_name))
+        y = draw_result_details(
+            y + 13,
+            root,
+            results.get(show_result_full_name),
+            stdouts.get(show_result_full_name),
+            stderrs.get(show_result_full_name),
+        )
         scr.refresh()
 
     def callback(payload):
@@ -573,16 +587,16 @@ def _run(_scr, n_workers=1, **kwargs):
             n_errors, n_success, n_skips = 0, 0, 0
             zest_results_path.mkdir(parents=True, exist_ok=True)
 
-            # TODO: Wire up correct options
-            runner = ZestRunnerMultiThread(
-                zest_results_path,
-                root=root,
-                include_dirs=".",
-                allow_to_run=allow_to_run,
-                match_string=None,
-                exclude_string=None,
-                n_workers=n_workers,
-            )
+            if allow_to_run in allow_to_run_list or len(allow_to_run_list) == 0:
+                runner = ZestRunnerMultiThread(
+                    zest_results_path,
+                    root=root,
+                    include_dirs=include_dirs,
+                    allow_to_run=allow_to_run,
+                    match_string=match_string,
+                    exclude_string=exclude_string,
+                    n_workers=n_workers,
+                )
 
         nonlocal request_run, request_stop, runner
         nonlocal results, errors, stdouts, stderrs
@@ -649,17 +663,17 @@ def _run(_scr, n_workers=1, **kwargs):
                 key = scr.getkey()
 
                 if key in num_keys:
-                    show_details_i = _num_key_to_int(key)
-                    if 1 <= show_details_i < n_errors + 1:
-                        if result_by_shortcut_number is not None:
-                            result = result_by_shortcut_number.get(show_details_i)
-                            if result is not None:
-                                if show_result_full_name == result.full_name:
-                                    # Already showing, hide it
-                                    show_result_full_name = None
-                                else:
-                                    show_result_full_name = result.full_name
-                                dirty = True
+                    error_i = (
+                        _num_key_to_int(key) - 1
+                    )  # Because they press '1' but mean index '0'
+                    if 0 <= error_i < len(errors):
+                        error = errors[error_i]
+                        if show_result_full_name == error["full_name"]:
+                            # Already showing, hide it
+                            show_result_full_name = None
+                        else:
+                            show_result_full_name = error["full_name"]
+                        dirty = True
 
                 if key == "q":
                     request_end = True

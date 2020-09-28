@@ -27,9 +27,13 @@ def emit_both_streams(dict_, full_name):
 
 
 def event_callback(zest_result):
-    if zest_result.error is not None:
-        zest_result.error = repr(zest_result.error)
-    emit_both_streams(dataclasses.asdict(zest_result), zest_result.full_name)
+    dict_ = dict(
+        full_name=zest_result.full_name,
+        error=repr(zest_result.error) if zest_result.error is not None else None,
+        error_formatted=zest_result.error_formatted,
+        is_running=zest_result.is_running,
+    )
+    emit_both_streams(dict_, zest_result.full_name)
 
 
 if __name__ == "__main__":

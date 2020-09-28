@@ -33,9 +33,6 @@ def zest_basics():
             nonlocal test_count
             test_count += 1
 
-        def test3():
-            assert True
-
         zest()
 
         assert test_count == 2 and before_count == 2 and after_count == 2

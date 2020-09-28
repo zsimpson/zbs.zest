@@ -26,7 +26,6 @@ class RunnerProcess:
 
 
 pat = re.compile(r"\@\@\@(.+)\@\@\@")
-ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
 
 
 def read_lines(fd, include_stdio):
@@ -108,7 +107,7 @@ class ZestRunnerMultiThread:
 
         if request_stop:
             for proc in self.procs.values():
-                proc.terminate()
+                proc.proc.terminate()
 
         done = []
         for i, (root_name, proc) in enumerate(self.procs.items()):
