@@ -1,3 +1,7 @@
+"""
+Single-threaded runner with abbreviated and verbose display options
+"""
+
 import sys
 import os
 import re

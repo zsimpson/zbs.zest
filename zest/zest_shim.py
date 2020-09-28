@@ -1,7 +1,7 @@
 """
-This shim is called as a subprocesss from zest_runner
+This shim is called as a subprocesss from zest_runner_multi_thread
 and its job is to load a single root zest and run it while
-writing status in to the same log file.
+writing status messages into the stdio streams.
 """
 
 

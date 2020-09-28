@@ -1,3 +1,13 @@
+"""
+Multi-threaded runner runs each root zest in its own subprocess via
+the zest_shim interface. Each root zest has its stdio redirected into
+.out and .err files inside of which are also status message inserted
+by the shim.
+
+While running the poll() routine can be used to pluck out the status
+messages live.
+"""
+
 import json
 import os
 import re

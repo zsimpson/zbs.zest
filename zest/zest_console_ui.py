@@ -1,7 +1,6 @@
 """
-Controls console based UI.
+Console UI.
 """
-
 
 import itertools
 import copy
@@ -511,7 +510,16 @@ def load_results(zest_results_path):
     return results, errors, stdouts, stderrs
 
 
-def _run(_scr, root=".", include_dirs=None, allow_to_run=None, match_string=None, exclude_string=None, n_workers=1, **kwargs):
+def _run(
+    _scr,
+    root=".",
+    include_dirs=None,
+    allow_to_run=None,
+    match_string=None,
+    exclude_string=None,
+    n_workers=1,
+    **kwargs,
+):
     global scr
     scr = _scr
     num_keys = [str(i) for i in range(1, 10)]

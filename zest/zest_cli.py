@@ -1,3 +1,7 @@
+"""
+CLI entrypoint for UI, single-threaded and multi-threaded runners.
+"""
+
 import time
 import os
 import sys
