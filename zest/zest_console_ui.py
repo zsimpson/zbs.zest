@@ -523,7 +523,6 @@ def _run(
     run_state = STOPPED
     warnings = []
     runner = None
-    match_string = None
     request_run = None
     request_stop = False
     request_end = False
@@ -556,22 +555,14 @@ def _run(
     def callback(payload):
         nonlocal dirty, current_running_tests_by_proc_i, n_errors, n_success
         dirty = True
-        log(
-            "callback",
-            payload.get("is_running"),
-            payload.get("full_name"),
-            payload.get("proc_i"),
-            payload.get("is_starting")
-        )
-        if payload.get("is_starting"):
-            current_running_tests_by_proc_i[payload["proc_i"]] = f"STARTING: {payload['full_name']}"
-        else:
-            if payload["is_running"]:
-                current_running_tests_by_proc_i[payload["proc_i"]] = payload["full_name"]
-            else:
-                current_running_tests_by_proc_i[payload["proc_i"]] = ""
-
-            if payload["error"] is not None:
+        log("callback", payload.get("state"), payload.get("full_name"),)
+        state = payload.get("state")
+        full_name = payload.get("full_name")
+        proc_i = payload.get("proc_i")
+        if proc_i is not None:
+            current_running_tests_by_proc_i[proc_i] = f"{state}: {full_name}"
+        if state == "stopped":
+            if payload.get("error") is not None:
                 n_errors += 1
             else:
                 n_success += 1
@@ -722,4 +713,5 @@ def _run(
 
 
 def run(**kwargs):
+    # HACK
     curses.wrapper(_run, **kwargs)

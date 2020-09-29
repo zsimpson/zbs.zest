@@ -21,7 +21,7 @@ def _walk_include_dirs(root, include_dirs):
         include_dirs: String
             Colon-delimited list of paths to search relative to root
     """
-    for folder in include_dirs.split(":"):
+    for folder in (include_dirs or "").split(":"):
         for curr, dirs, _ in os.walk(os.path.abspath(os.path.join(root, folder))):
             # os.walk allows modifying the dirs. In this case, skip hidden
             dirs[:] = [d for d in dirs if d[0] != "."]

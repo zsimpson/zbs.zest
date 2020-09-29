@@ -85,7 +85,7 @@ def main():
         if kwargs.get("n_workers") > 1:
 
             def callback(payload):
-                state = "START" if payload["is_running"] else "STOP "
+                state = payload["state"]
                 print(f"{state} {payload['full_name']}")
 
             zest_results_path = pathlib.Path(".zest_results")

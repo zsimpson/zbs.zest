@@ -28,8 +28,11 @@ import os
 import re
 import io
 import random
+import sys
+import signal
 from collections import deque
 from pathlib import Path
+from zest import zest
 from zest import zest_finder
 from zest.zest import log
 from subprocess import Popen, DEVNULL
@@ -44,11 +47,9 @@ class ZestRunnerErrors(Exception):
 @dataclass
 class RunnerProcess:
     root_name: str
-    writ_out: io.TextIOBase
-    writ_err: io.TextIOBase
     read_out: io.TextIOBase
     read_err: io.TextIOBase
-    proc: Popen
+    child_pid: int
     proc_i: int
 
 
@@ -57,7 +58,6 @@ pat = re.compile(r"\@\@\@(.+)\@\@\@")
 
 def read_lines(fd, include_stdio):
     for line in fd:
-        log(f"{line}")
         m = re.match(pat, line)
         if m:
             try:
@@ -85,38 +85,97 @@ class ZestRunnerMultiThread:
         out_path = os.path.join(self.output_folder, f"{root_name}.out")
         err_path = os.path.join(self.output_folder, f"{root_name}.err")
 
+        log(f"start {root_name} {module_name} {full_path}")
+
         writ_out = open(out_path, "w")
         writ_err = open(err_path, "w")
-        log(f"start {root_name} {module_name} {full_path}")
-        proc = Popen(
-            args=[
-                "python",
-                "-u",
-                "-m",
-                "zest.zest_shim",
+
+        root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
+
+        child_pid = os.fork()
+        if child_pid == 0:
+            # In the child process
+
+            #sys.stdin.close()
+            #os.close(sys.stdin.fileno())
+            #sys.stdin = open(os.open(os.devnull, os.O_RDONLY), closefd=False)
+            null_fd = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(null_fd, 0)
+
+            w1 = os.fdopen(writ_out.fileno(), "w")
+            w2 = os.fdopen(writ_err.fileno(), "w")
+            sys.stdout = w1
+            sys.stderr = w2
+
+            try:
+
+                print("OUTPUT TO STDOUT")
+
+                # def emit(dict_, full_name, stream):
+                #     try:
+                #         print("@@@" + json.dumps(dict_) + "@@@", file=stream)
+                #     except TypeError:
+                #         dict_ = dict(full_name=full_name, error="Serialization error")
+                #         print("@@@" + json.dumps(dict_) + "@@@", file=stream)
+                #
+                # def event_callback(zest_result):
+                #     dict_ = dict(
+                #         full_name=zest_result.full_name,
+                #         error=repr(zest_result.error) if zest_result.error is not None else None,
+                #         error_formatted=zest_result.error_formatted,
+                #         is_running=zest_result.is_running,
+                #     )
+                #     emit(dict_, zest_result.full_name, sys.stdout)
+                #     emit(dict_, zest_result.full_name, sys.stderr)
+                #
+                # zest.do(
+                #     root_zest_func,
+                #     test_start_callback=event_callback,
+                #     test_stop_callback=event_callback,
+                #     allow_to_run=None,
+                # )
+
+            finally:
+                w1.close()
+                w2.close()
+                # writ_out.close()
+                # writ_err.close()
+                # sys.stdin.close()
+
+            sys.exit(0)
+
+        else:
+            writ_out.close()
+            writ_err.close()
+
+            # proc = Popen(
+            #     args=[
+            #         "python",
+            #         "-u",
+            #         "-m",
+            #         "zest.zest_shim",
+            #         root_name,
+            #         module_name,
+            #         full_path,
+            #     ],
+            #     bufsize=0,
+            #     executable="python",
+            #     stdin=DEVNULL,  # DEVNULL here prevents pudb from taking over
+            #     stdout=writ_out,
+            #     stderr=writ_err,
+            # )
+
+            self.procs[root_name] = RunnerProcess(
                 root_name,
-                module_name,
-                full_path,
-            ],
-            bufsize=0,
-            executable="python",
-            stdin=DEVNULL,  # DEVNULL here prevents pudb from taking over
-            stdout=writ_out,
-            stderr=writ_err,
-        )
-        self.procs[root_name] = RunnerProcess(
-            root_name,
-            writ_out,
-            writ_err,
-            open(out_path, "r"),
-            open(err_path, "r"),
-            proc,
-            next_proc_i,
-        )
+                open(out_path, "r"),
+                open(err_path, "r"),
+                child_pid,
+                next_proc_i,
+            )
 
-        self.n_run += 1
+            self.n_run += 1
 
-        return root_name
+            return root_name
 
     def poll(self, event_callback, request_stop):
         """
@@ -136,25 +195,27 @@ class ZestRunnerMultiThread:
         """
         if request_stop:
             for proc in self.procs.values():
-                proc.proc.terminate()
+                log(f"KILL {proc.child_pid}")
+                os.kill(proc.child_pid, signal.SIGKILL)
 
         done = []
         for i, (root_name, proc) in enumerate(self.procs.items()):
-            ret_code = proc.proc.poll()
+            _, exit_status = os.waitpid(proc.child_pid, os.WNOHANG)
 
             for payload in read_lines(proc.read_out, include_stdio=False):
                 payload["proc_i"] = proc.proc_i
+                payload["state"] = "started" if payload["is_running"] else "stopped"
+                log(f"STATE {payload['state']}")
                 event_callback(payload)
 
-            if ret_code is not None:
+            if exit_status & 0xFF == 0:
+                log(f"DONE {root_name}")
                 done += [root_name]
 
         for root_name in done:
             p = self.procs[root_name]
             p.read_out.close()
             p.read_err.close()
-            p.writ_out.close()
-            p.writ_err.close()
             del self.procs[root_name]
 
         while len(self.procs) < self.n_workers:
@@ -164,7 +225,7 @@ class ZestRunnerMultiThread:
                 break
 
             payload = dict(
-                is_starting=True,
+                state="starting",
                 full_name=full_name,
                 proc_i=self.procs[full_name].proc_i,
             )

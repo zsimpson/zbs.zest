@@ -217,8 +217,6 @@ def run_zests(
     bypass_skip:
         Used for debugging. Ignore.
     """
-    include_dirs = (include_dirs or "").split(":")
-
     zest.reset()
     zest._disable_shuffle = disable_shuffle
     n_zest_missing_errors = 0
