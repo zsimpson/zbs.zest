@@ -11,6 +11,7 @@ import re
 import curses
 from pathlib import Path
 from collections import defaultdict
+from zest.zest import log
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_lines
 from zest.zest_runner_single_thread import traceback_match_filename
 from . import __version__
@@ -54,17 +55,6 @@ run_state_strs = [
     "Stopping (^C to force)",
     "Watching",
 ]
-
-
-log_fp = None
-
-
-def log(*args):
-    global log_fp
-    if log_fp is None:
-        log_fp = open("log.txt", "a")
-    log_fp.write("".join([str(i) + " " for i in args]) + "\n")
-    log_fp.flush()
 
 
 # Draw
@@ -541,6 +531,8 @@ def _run(
     results, errors, stdouts, stderrs = None, None, None, None
     allow_to_run_list = [] if allow_to_run is None else allow_to_run.split(":")
 
+    log(f"CWD={os.getcwd()}")
+
     def render():
         nonlocal dirty
         if not dirty:
@@ -565,17 +557,24 @@ def _run(
         nonlocal dirty, current_running_tests_by_proc_i, n_errors, n_success
         dirty = True
         log(
-            "is running", payload["is_running"], payload["full_name"], payload["proc_i"]
+            "callback",
+            payload.get("is_running"),
+            payload.get("full_name"),
+            payload.get("proc_i"),
+            payload.get("is_starting")
         )
-        if payload["is_running"]:
-            current_running_tests_by_proc_i[payload["proc_i"]] = payload["full_name"]
+        if payload.get("is_starting"):
+            current_running_tests_by_proc_i[payload["proc_i"]] = f"STARTING: {payload['full_name']}"
         else:
-            current_running_tests_by_proc_i[payload["proc_i"]] = ""
+            if payload["is_running"]:
+                current_running_tests_by_proc_i[payload["proc_i"]] = payload["full_name"]
+            else:
+                current_running_tests_by_proc_i[payload["proc_i"]] = ""
 
-        if payload["error"] is not None:
-            n_errors += 1
-        else:
-            n_success += 1
+            if payload["error"] is not None:
+                n_errors += 1
+            else:
+                n_success += 1
 
     def update_run_state():
         """
@@ -593,9 +592,9 @@ def _run(
             nonlocal runner, n_errors, n_success, n_skips
             assert runner is None
             n_errors, n_success, n_skips = 0, 0, 0
-            zest_results_path.mkdir(parents=True, exist_ok=True)
 
             if allow_to_run in allow_to_run_list or len(allow_to_run_list) == 0:
+                log("start multi from ui")
                 runner = ZestRunnerMultiThread(
                     zest_results_path,
                     root=root,
@@ -659,6 +658,7 @@ def _run(
         if i > 0:
             curses.init_pair(i, pal[i][0], pal[i][1])
 
+    zest_results_path.mkdir(parents=True, exist_ok=True)
     results, errors, stdouts, stderrs = load_results(zest_results_path)
 
     while True:

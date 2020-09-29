@@ -7,15 +7,23 @@ import ast
 import pkgutil
 import sys
 from importlib import import_module, util
+from zest.zest import log
 
 
-def _walk_inlcude_dirs(root, include_dirs):
+def _walk_include_dirs(root, include_dirs):
     """
     Generator to walk from root though all included_dirs
     finding any folder that is called "/zests/"
+
+    Arguments:
+        root: String
+            Root folder
+        include_dirs: String
+            Colon-delimited list of paths to search relative to root
     """
-    for folder in include_dirs:
-        for curr, dirs, files in os.walk(os.path.abspath(os.path.join(root, folder))):
+    for folder in include_dirs.split(":"):
+        for curr, dirs, _ in os.walk(os.path.abspath(os.path.join(root, folder))):
+            # os.walk allows modifying the dirs. In this case, skip hidden
             dirs[:] = [d for d in dirs if d[0] != "."]
             if curr.endswith("/zests"):
                 yield curr
@@ -151,8 +159,8 @@ def find_zests(
     Arguments:
         root:
             Root path
-        include_dirs:
-            Folders to search
+        include_dirs: String
+            Colon-delimited folders to search
         allow_to_run:
             If not None: a list of full test names (dot-delimited) that will be included.
             Plus two specials: "__all__" and "__failed__"
@@ -188,9 +196,11 @@ def find_zests(
         {}
     )  # A dict of entrypoints (root zests) -> (module_name, package, path)
     errors_to_show = []
-    for curr in _walk_inlcude_dirs(root, include_dirs):
+
+    for curr in _walk_include_dirs(root, include_dirs):
         for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
             path = os.path.join(curr, module_name + ".py")
+            log(f"search path {path}")
             with open(path) as file:
                 source = file.read()
 

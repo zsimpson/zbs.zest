@@ -16,6 +16,22 @@ from contextlib import contextmanager
 from random import shuffle
 
 
+log_fp = None
+log_last_time = None
+
+
+def log(*args):
+    global log_fp, log_last_time
+    if log_fp is None:
+        log_fp = open("log.txt", "a")
+    delta = 0
+    if log_last_time is not None:
+        delta = time.time() - log_last_time
+    log_last_time = time.time()
+    log_fp.write(f"{delta:3.1f} " + "".join([str(i) + " " for i in args]) + "\n")
+    log_fp.flush()
+
+
 def get_class_or_module_that_defined_method(meth):
     # From https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3/25959545#25959545
     if inspect.ismethod(meth):

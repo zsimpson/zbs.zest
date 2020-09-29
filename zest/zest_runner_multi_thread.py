@@ -6,6 +6,21 @@ by the shim.
 
 While running the poll() routine can be used to pluck out the status
 messages live.
+
+TODO:
+This still has a major problem.
+The load times are killing the performance.
+Each root test runs python from the CLI.
+That causes python to go through the whole complex import tree.
+To avoid this I need python's loading context to be in the same process
+and to have each test run as a fork from that process AFTER
+the module is loaded so that all zests share the same import contexts.
+
+So the fork has to happen just before the zest.do and after the load_module
+And i have to redirect the stdio handles of the fork to the correct files.
+So I think that means shim gets pulled into this file
+and I can assign to sys.stdout = open it for write inside the child.
+
 """
 
 import json
@@ -16,6 +31,7 @@ import random
 from collections import deque
 from pathlib import Path
 from zest import zest_finder
+from zest.zest import log
 from subprocess import Popen, DEVNULL
 from dataclasses import dataclass
 
@@ -27,6 +43,7 @@ class ZestRunnerErrors(Exception):
 
 @dataclass
 class RunnerProcess:
+    root_name: str
     writ_out: io.TextIOBase
     writ_err: io.TextIOBase
     read_out: io.TextIOBase
@@ -40,6 +57,7 @@ pat = re.compile(r"\@\@\@(.+)\@\@\@")
 
 def read_lines(fd, include_stdio):
     for line in fd:
+        log(f"{line}")
         m = re.match(pat, line)
         if m:
             try:
@@ -55,7 +73,7 @@ class ZestRunnerMultiThread:
         try:
             next_zest = self.queue.popleft()
         except IndexError:
-            return False
+            return None
 
         curr_proc_iz = {proc.proc_i for proc in self.procs.values()}
         next_proc_i = random.choice(
@@ -69,6 +87,7 @@ class ZestRunnerMultiThread:
 
         writ_out = open(out_path, "w")
         writ_err = open(err_path, "w")
+        log(f"start {root_name} {module_name} {full_path}")
         proc = Popen(
             args=[
                 "python",
@@ -86,6 +105,7 @@ class ZestRunnerMultiThread:
             stderr=writ_err,
         )
         self.procs[root_name] = RunnerProcess(
+            root_name,
             writ_out,
             writ_err,
             open(out_path, "r"),
@@ -96,7 +116,7 @@ class ZestRunnerMultiThread:
 
         self.n_run += 1
 
-        return True
+        return root_name
 
     def poll(self, event_callback, request_stop):
         """
@@ -114,7 +134,6 @@ class ZestRunnerMultiThread:
                 time.sleep(0.1)
                 if ...: request_stop = True
         """
-
         if request_stop:
             for proc in self.procs.values():
                 proc.proc.terminate()
@@ -139,8 +158,17 @@ class ZestRunnerMultiThread:
             del self.procs[root_name]
 
         while len(self.procs) < self.n_workers:
-            if not self._start_next():
+            full_name = self._start_next()
+            if full_name is None:
+                # All done
                 break
+
+            payload = dict(
+                is_starting=True,
+                full_name=full_name,
+                proc_i=self.procs[full_name].proc_i,
+            )
+            event_callback(payload)
 
         if len(self.queue) == 0 and len(self.procs) == 0:
             return False
@@ -180,5 +208,5 @@ class ZestRunnerMultiThread:
         for (root_name, (module_name, package, full_path)) in root_zests.items():
             self.queue.append((root_name, module_name, package, full_path))
 
-        for i in range(self.n_workers):
+        for _ in range(self.n_workers):
             self._start_next()

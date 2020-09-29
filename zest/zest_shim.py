@@ -9,7 +9,7 @@ import sys
 import dataclasses
 from importlib import util
 import json
-import zest_finder
+from zest import zest_finder
 from zest import zest
 
 
