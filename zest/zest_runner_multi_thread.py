@@ -22,7 +22,7 @@ So I think that means shim gets pulled into this file
 and I can assign to sys.stdout = open it for write inside the child.
 
 """
-
+import time
 import json
 import os
 import re
@@ -58,6 +58,7 @@ pat = re.compile(r"\@\@\@(.+)\@\@\@")
 
 def read_lines(fd, include_stdio):
     for line in fd:
+        log(f"line={line}")
         m = re.match(pat, line)
         if m:
             try:
@@ -87,83 +88,59 @@ class ZestRunnerMultiThread:
 
         log(f"start {root_name} {module_name} {full_path}")
 
-        writ_out = open(out_path, "w")
-        writ_err = open(err_path, "w")
+        writ_out = open(out_path, "w", buffering=1)
+        writ_err = open(err_path, "w", buffering=1)
 
         root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
 
-        child_pid = os.fork()
+        child_pid, child_fd = os.forkpty()
+        # If I use os.fork instead of forkpty then the child_pid captures stdio
+        # even when I close it in the child_pid block.
+        # But I'm not sure when to close the child_fd. I tried it in the parent
+        # and the child. Parent it generates an exception and child it seems to
+        # do nothing (based on lsof -a -p $PID listings before and after.)
+
         if child_pid == 0:
             # In the child process
-
-            #sys.stdin.close()
-            #os.close(sys.stdin.fileno())
-            #sys.stdin = open(os.open(os.devnull, os.O_RDONLY), closefd=False)
-            null_fd = os.open(os.devnull, os.O_RDONLY)
-            os.dup2(null_fd, 0)
-
-            w1 = os.fdopen(writ_out.fileno(), "w")
-            w2 = os.fdopen(writ_err.fileno(), "w")
+            w1 = os.fdopen(writ_out.fileno(), "w", buffering=1)
+            w2 = os.fdopen(writ_err.fileno(), "w", buffering=1)
             sys.stdout = w1
             sys.stderr = w2
 
             try:
+                def emit(dict_, full_name, stream):
+                    try:
+                        print("@@@" + json.dumps(dict_) + "@@@", file=stream, flush=True)
+                    except TypeError:
+                        dict_ = dict(full_name=full_name, error="Serialization error")
+                        print("@@@" + json.dumps(dict_) + "@@@", file=stream, flush=True)
 
-                print("OUTPUT TO STDOUT")
+                def event_callback(zest_result):
+                    dict_ = dict(
+                        full_name=zest_result.full_name,
+                        error=repr(zest_result.error) if zest_result.error is not None else None,
+                        error_formatted=zest_result.error_formatted,
+                        is_running=zest_result.is_running,
+                    )
+                    emit(dict_, zest_result.full_name, sys.stdout)
+                    emit(dict_, zest_result.full_name, sys.stderr)
 
-                # def emit(dict_, full_name, stream):
-                #     try:
-                #         print("@@@" + json.dumps(dict_) + "@@@", file=stream)
-                #     except TypeError:
-                #         dict_ = dict(full_name=full_name, error="Serialization error")
-                #         print("@@@" + json.dumps(dict_) + "@@@", file=stream)
-                #
-                # def event_callback(zest_result):
-                #     dict_ = dict(
-                #         full_name=zest_result.full_name,
-                #         error=repr(zest_result.error) if zest_result.error is not None else None,
-                #         error_formatted=zest_result.error_formatted,
-                #         is_running=zest_result.is_running,
-                #     )
-                #     emit(dict_, zest_result.full_name, sys.stdout)
-                #     emit(dict_, zest_result.full_name, sys.stderr)
-                #
-                # zest.do(
-                #     root_zest_func,
-                #     test_start_callback=event_callback,
-                #     test_stop_callback=event_callback,
-                #     allow_to_run=None,
-                # )
+                zest.do(
+                    root_zest_func,
+                    test_start_callback=event_callback,
+                    test_stop_callback=event_callback,
+                    allow_to_run=None,
+                )
 
             finally:
                 w1.close()
                 w2.close()
-                # writ_out.close()
-                # writ_err.close()
-                # sys.stdin.close()
 
             sys.exit(0)
 
         else:
             writ_out.close()
             writ_err.close()
-
-            # proc = Popen(
-            #     args=[
-            #         "python",
-            #         "-u",
-            #         "-m",
-            #         "zest.zest_shim",
-            #         root_name,
-            #         module_name,
-            #         full_path,
-            #     ],
-            #     bufsize=0,
-            #     executable="python",
-            #     stdin=DEVNULL,  # DEVNULL here prevents pudb from taking over
-            #     stdout=writ_out,
-            #     stderr=writ_err,
-            # )
 
             self.procs[root_name] = RunnerProcess(
                 root_name,
@@ -202,15 +179,26 @@ class ZestRunnerMultiThread:
         for i, (root_name, proc) in enumerate(self.procs.items()):
             _, exit_status = os.waitpid(proc.child_pid, os.WNOHANG)
 
+            if exit_status & 0xFF == 0:
+                # Processes can be marked as dead before the buffers are flushed
+                # so if I kill off the readers too soon I will miss the
+                # last writes to the files. So I have to add exitted processes
+                # into a separate list that is garbage collected after giving
+                # the processes some time to settle.
+                # It would be better if there was no buffering! But try as I might
+                # I can not seem to get buffering turned off well enough to
+                # stop this race.
+                log(f"DONE {root_name} exit_status={exit_status}")
+                done += [root_name]
+
             for payload in read_lines(proc.read_out, include_stdio=False):
                 payload["proc_i"] = proc.proc_i
                 payload["state"] = "started" if payload["is_running"] else "stopped"
-                log(f"STATE {payload['state']}")
                 event_callback(payload)
 
-            if exit_status & 0xFF == 0:
-                log(f"DONE {root_name}")
-                done += [root_name]
+        # HERE: I need to do some kind of clean up
+        # for cleanup in self.cleanup:
+        #     if
 
         for root_name in done:
             p = self.procs[root_name]
@@ -265,6 +253,7 @@ class ZestRunnerMultiThread:
         self.procs = {}
         self.queue = deque()
         self.n_run = 0
+        self.clean_up = []
 
         for (root_name, (module_name, package, full_path)) in root_zests.items():
             self.queue.append((root_name, module_name, package, full_path))
