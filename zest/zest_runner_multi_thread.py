@@ -51,6 +51,8 @@ class RunnerProcess:
     read_err: io.TextIOBase
     child_pid: int
     proc_i: int
+    exit_time: float = None
+    exit_code: int = None
 
 
 pat = re.compile(r"\@\@\@(.+)\@\@\@")
@@ -76,10 +78,13 @@ class ZestRunnerMultiThread:
         except IndexError:
             return None
 
-        curr_proc_iz = {proc.proc_i for proc in self.procs.values()}
-        next_proc_i = random.choice(
-            list(set(list(range(self.n_workers))) - curr_proc_iz)
-        )
+        curr_proc_iz = { proc.proc_i for proc in self.procs }
+        if len(curr_proc_iz):
+            next_proc_i = 0
+        else:
+            next_proc_i = random.choice(
+                list(set(list(range(self.n_workers))) - curr_proc_iz)
+            )
 
         root_name, module_name, package, full_path = next_zest
 
@@ -142,19 +147,25 @@ class ZestRunnerMultiThread:
             writ_out.close()
             writ_err.close()
 
-            self.procs[root_name] = RunnerProcess(
+            proc = RunnerProcess(
                 root_name,
                 open(out_path, "r"),
                 open(err_path, "r"),
                 child_pid,
                 next_proc_i,
             )
-
+            self.procs += [proc]
             self.n_run += 1
+            return proc
 
-            return root_name
+    def n_live_procs(self):
+        return len([
+            proc
+            for proc in self.procs
+            if proc.exit_code is None
+        ])
 
-    def poll(self, event_callback, request_stop):
+    def poll(self, request_stop):
         """
         Check the status of all running threads
         Returns:
@@ -165,59 +176,62 @@ class ZestRunnerMultiThread:
             def callback(event_payload):
                 ...
 
-            runner = ZestRunnerMultiThread(...)
-            while runner.poll(callback, request_stop):
+            runner = ZestRunnerMultiThread(callback=callback, ...)
+            while runner.poll(request_stop):
                 time.sleep(0.1)
                 if ...: request_stop = True
         """
-        if request_stop:
-            for proc in self.procs.values():
-                log(f"KILL {proc.child_pid}")
-                os.kill(proc.child_pid, signal.SIGKILL)
 
-        done = []
-        for i, (root_name, proc) in enumerate(self.procs.items()):
-            _, exit_status = os.waitpid(proc.child_pid, os.WNOHANG)
-
-            if exit_status & 0xFF == 0:
-                # Processes can be marked as dead before the buffers are flushed
-                # so if I kill off the readers too soon I will miss the
-                # last writes to the files. So I have to add exitted processes
-                # into a separate list that is garbage collected after giving
-                # the processes some time to settle.
-                # It would be better if there was no buffering! But try as I might
-                # I can not seem to get buffering turned off well enough to
-                # stop this race.
-                log(f"DONE {root_name} exit_status={exit_status}")
-                done += [root_name]
-
+        def read(proc):
             for payload in read_lines(proc.read_out, include_stdio=False):
                 payload["proc_i"] = proc.proc_i
                 payload["state"] = "started" if payload["is_running"] else "stopped"
-                event_callback(payload)
+                self.callback(payload)
 
-        # HERE: I need to do some kind of clean up
-        # for cleanup in self.cleanup:
-        #     if
+        if request_stop:
+            for proc in self.procs:
+                log(f"KILL {proc.child_pid}")
+                os.kill(proc.child_pid, signal.SIGKILL)
 
-        for root_name in done:
-            p = self.procs[root_name]
-            p.read_out.close()
-            p.read_err.close()
-            del self.procs[root_name]
+        for proc in self.procs:
+            if proc.exit_code is None:
+                _, exit_code = os.waitpid(proc.child_pid, os.WNOHANG)
+                if exit_code & 0xFF == 0:
+                    # Processes can be marked as dead before the buffers are flushed
+                    # so if I kill off the readers too soon I will miss the
+                    # last writes to the files so I mark them as exited and
+                    # continue to read from them for 1 second.
+                    # It would be better if there was no buffering! But try as I might
+                    # I can not seem to get buffering turned off well enough to
+                    # stop this race.
+                    log(f"DONE {proc.root_name} exit_status={exit_code}")
+                    proc.exit_time = time.time()
+                    proc.exit_code = exit_code
 
-        while len(self.procs) < self.n_workers:
-            full_name = self._start_next()
-            if full_name is None:
+            read(proc)
+
+        keep_running_procs = []
+        for proc in self.procs:
+            if time.time() - proc.exit_time < 3.0:
+                proc.read_out.close()
+                proc.read_err.close()
+            else:
+                keep_running_procs += [proc]
+
+        self.procs = keep_running_procs
+
+        while self.n_live_procs() < self.n_workers:
+            proc = self._start_next()
+            if proc is None:
                 # All done
                 break
 
             payload = dict(
                 state="starting",
-                full_name=full_name,
-                proc_i=self.procs[full_name].proc_i,
+                full_name=proc.root_name,
+                proc_i=proc.proc_i,
             )
-            event_callback(payload)
+            self.callback(payload)
 
         if len(self.queue) == 0 and len(self.procs) == 0:
             return False
@@ -227,6 +241,7 @@ class ZestRunnerMultiThread:
     def __init__(
         self,
         output_folder,
+        callback,
         root=None,
         include_dirs=None,
         allow_to_run="__all__",
@@ -236,6 +251,8 @@ class ZestRunnerMultiThread:
         n_workers=1,
         **kwargs,
     ):
+        self.callback = callback
+
         root_zests, allow_to_run, errors = zest_finder.find_zests(
             root,
             include_dirs,
@@ -250,10 +267,10 @@ class ZestRunnerMultiThread:
 
         self.output_folder = output_folder
         self.n_workers = n_workers
-        self.procs = {}
         self.queue = deque()
         self.n_run = 0
-        self.clean_up = []
+        self.procs = []
+        self.exitted = []
 
         for (root_name, (module_name, package, full_path)) in root_zests.items():
             self.queue.append((root_name, module_name, package, full_path))

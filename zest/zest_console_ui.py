@@ -558,9 +558,8 @@ def _run(
         log("callback", payload.get("state"), payload.get("full_name"),)
         state = payload.get("state")
         full_name = payload.get("full_name")
-        proc_i = payload.get("proc_i")
-        if proc_i is not None:
-            current_running_tests_by_proc_i[proc_i] = f"{state}: {full_name}"
+        proc_i = payload.get("proc_i", 0)
+        current_running_tests_by_proc_i[proc_i] = f"{state}: {full_name}"
         if state == "stopped":
             if payload.get("error") is not None:
                 n_errors += 1
@@ -588,6 +587,7 @@ def _run(
                 log("start multi from ui")
                 runner = ZestRunnerMultiThread(
                     zest_results_path,
+                    callback=callback,
                     root=root,
                     include_dirs=include_dirs,
                     allow_to_run=allow_to_run,
@@ -618,7 +618,7 @@ def _run(
             #    * the "runner_thread" has terminated. Goto STOPPED
             #    * a new run is requested before the current run has terminated. Goto STOPPING
 
-            running = runner.poll(callback, request_stop)
+            running = runner.poll(request_stop)
             if not running or request_end or request_run is not None:
                 new_state(STOPPING)
 
@@ -626,7 +626,7 @@ def _run(
             # Trying to stop.
             # Ways out:
             #   * The runner has terminated. Goto STOPPED
-            running = runner.poll(callback, True)
+            running = runner.poll(True)
             if not running:
                 runner = None
                 new_state(STOPPED)
