@@ -555,7 +555,7 @@ def _run(
     def callback(payload):
         nonlocal dirty, current_running_tests_by_proc_i, n_errors, n_success
         dirty = True
-        log("callback", payload.get("state"), payload.get("full_name"),)
+        # log("callback", payload.get("state"), payload.get("full_name"),)
         state = payload.get("state")
         full_name = payload.get("full_name")
         proc_i = payload.get("proc_i", 0)
@@ -584,7 +584,6 @@ def _run(
             n_errors, n_success, n_skips = 0, 0, 0
 
             if allow_to_run in allow_to_run_list or len(allow_to_run_list) == 0:
-                log("start multi from ui")
                 runner = ZestRunnerMultiThread(
                     zest_results_path,
                     callback=callback,

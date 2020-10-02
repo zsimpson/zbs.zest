@@ -578,7 +578,8 @@ class zest:
                     _after = callers_special_local_funcs.get("_after")
                     if _after:
                         _after()
-
+                except Exception as e:
+                    log(f"ZEST EXCEPTION 1 {e}")
                 finally:
                     zest._call_stack.pop()
 
