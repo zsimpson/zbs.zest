@@ -9,6 +9,7 @@ import inspect
 import types
 import traceback
 import io
+import re
 from contextlib import redirect_stdout, redirect_stderr
 from dataclasses import dataclass
 from functools import wraps
@@ -30,6 +31,10 @@ def log(*args):
     log_last_time = time.time()
     log_fp.write(f"{delta:3.1f} " + "".join([str(i) + " " for i in args]) + "\n")
     log_fp.flush()
+
+ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
+def strip_ansi(line):
+    return ansi_escape.sub("", line)
 
 
 def get_class_or_module_that_defined_method(meth):
@@ -63,6 +68,12 @@ class TrappedException(Exception):
     """
 
     pass
+
+
+class SkipException(Exception):
+    def __init__(self, full_name, reason):
+        self.full_name = full_name
+        self.reason = reason
 
 
 class MockFunction:
@@ -232,6 +243,7 @@ class zest:
     _allow_to_run = None
     _disable_shuffle = False
     _capture_stdio = False
+    _bypass_skip = []
 
     @staticmethod
     def reset():
@@ -252,7 +264,11 @@ class zest:
         def decorator(fn):
             @wraps(fn)
             def wrapper(*args, **kwargs):
-                return fn(*args, **kwargs)
+                full_name = '.'.join(zest._call_stack)
+                if full_name not in zest._bypass_skip:
+                    raise SkipException(full_name, reason)
+                else:
+                    fn(*args, **kwargs)
 
             setattr(wrapper, "skip", True)
             setattr(wrapper, "skip_reason", reason)
@@ -529,7 +545,7 @@ class zest:
                                 None,
                                 None,
                                 None,
-                                getattr(func, "skip_reason", None),
+                                None,
                                 None,
                                 None,
                                 func.__code__.co_filename,
@@ -540,13 +556,21 @@ class zest:
 
                     error = None
                     error_formatted = None
+                    skip_reason = None
                     start_time = time.time()
                     try:
-                        if not hasattr(func, "skip"):
-                            zest._mock_stack += [[]]
+                        zest._mock_stack += [[]]
+                        log(f"zest._call_log={zest._call_log}")
+
+                        try:
+                            log(f"func={func}")
                             func()
-                            zest._clear_stack_mocks()
-                            zest._mock_stack.pop()
+                            log(f"called={zest._call_log}")
+                        except SkipException as e:
+                            skip_reason = e.reason
+                            log(f"skipreaons={skip_reason}")
+                        zest._clear_stack_mocks()
+                        zest._mock_stack.pop()
                     except Exception as e:
                         error = e
                         error_formatted = traceback.format_exception(
@@ -566,7 +590,7 @@ class zest:
                                     error,
                                     error_formatted,
                                     stop_time - start_time,
-                                    getattr(func, "skip_reason", None),
+                                    skip_reason,
                                     so.getvalue() if so is not None else None,
                                     se.getvalue() if se is not None else None,
                                     func.__code__.co_filename,

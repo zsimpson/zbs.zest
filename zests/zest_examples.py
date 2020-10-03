@@ -4,8 +4,10 @@ It also serves as an example of how to build a zest.
 """
 
 import re
+import os
 from contextlib import contextmanager
 from zest import zest, TrappedException
+from zest.zest import log, strip_ansi
 import pretend_unit_under_test
 from zest.version import __version__
 import subprocess
@@ -325,13 +327,27 @@ def zest_noisy_zests():
     zest()
 
 
+@zest.skip(reason="fails")
+def zest_failing_zest():
+    assert False
+    log("IT ASSERTS?")
+
+    def it_asserts():
+        assert False
+
+    zest()
+
+
 def _call_zest(*args):
+    log("WTF5")
     # Run zest_runner in a sub-processes so that we don't end up with
     # recursion problems since these tests themselves is running under ZestRunner
     try:
+        log("WTF6")
         to_run = "python -m zest.zest_cli " + " --add_markers " + " ".join(args)
-        # print(f"TO RUN: {to_run}")
+        log(f"WTF7 {to_run}")
         output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
+        log(f"WTF8 {output}")
         ret_code = 0
     except subprocess.CalledProcessError as e:
         ret_code = e.returncode
@@ -389,6 +405,18 @@ def zest_runner_single_thread():
         found_tests = _get_run_tests(output)
         assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
 
+    def it_skips():
+        ret_code, output = _call_zest(
+            "--verbose=2", "zest_bad_zest_1"
+        )
+        assert "+zest_bad_zest_1: SKIPPED" in strip_ansi(output)
+
+    def it_skips_bypass():
+        ret_code, output = _call_zest(
+            "--verbose=2", "zest_bad_zest_1", "--bypass_skip=bad_zest_1"
+        )
+        assert "+zest_bad_zest_1: SKIPPED" not in strip_ansi(output)
+
     def it_warns_if_no_trailing_zest():
         ret_code, output = _call_zest(
             "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
@@ -406,3 +434,58 @@ def zest_runner_single_thread():
         assert ret_code != 0
 
     zest()
+
+
+def _call_multi_zest(*args):
+    log("WTF4")
+    return _call_zest(*(args + ("--n_workers=2",)))
+
+
+'''
+def zest_runner_multi_thread():
+    log("WTF1")
+    def _get_run_tests(output):
+        found_tests = []
+        for line in output.split("\n"):
+            m = re.search(r"^[^\+]*[\+]([a-z0-9_]+)", line)
+            if m:
+                skipped = re.search(r"skipped", line, re.IGNORECASE)
+                if not skipped:
+                    found_tests += [m.group(1)]
+        return found_tests
+
+    def it_returns_version():
+        ret_code, output = _call_multi_zest("--version")
+        assert ret_code == 0 and output.strip() == __version__
+
+    def it_skips():
+        log("WTF3")
+        ret_code, output = _call_multi_zest()
+        log(f"OUTPUT {output}")
+        assert "noisy_zests" not in output
+        assert ret_code == 0 and output.strip() == __version__
+
+    def it_runs_parent_tests():
+        ret_code, output = _call_multi_zest("--verbose=2", "level_two")
+        found_tests = _get_run_tests(output)
+        assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
+
+    def it_warns_if_no_trailing_zest():
+        ret_code, output = _call_multi_zest(
+            "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
+        )
+        assert "did not terminate with a call to zest" in output
+        assert "zest_examples.py:" in output
+        assert ret_code != 0
+
+    def it_warns_if_zest_not_final():
+        ret_code, output = _call_multi_zest(
+            "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
+        )
+        assert "before all functions were defined" in output
+        assert "zest_examples.py:" in output
+        assert ret_code != 0
+
+    log("WTF2")
+    zest()
+'''

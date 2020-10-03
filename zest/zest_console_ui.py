@@ -11,7 +11,7 @@ import re
 import curses
 from pathlib import Path
 from collections import defaultdict
-from zest.zest import log
+from zest.zest import log, strip_ansi
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_lines
 from zest.zest_runner_single_thread import traceback_match_filename
 from . import __version__
@@ -154,7 +154,7 @@ def _print(y, x, *args):
             arg = str(arg)
             lines = arg.split("\n")
             for line_i, line in enumerate(lines):
-                line = ansi_escape.sub("", line)
+                line = strip_ansi(line)
                 if _y >= height:
                     break
                 len_line = len(line)

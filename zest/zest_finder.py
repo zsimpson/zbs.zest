@@ -71,24 +71,24 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
 
             _skips = []
 
-            def add_to_skips(reason):
+            def add_to_skips(full_name):
                 nonlocal _skips
-                if bypass_skip is None or bypass_skip == "" or reason in bypass_skip:
-                    _skips += [reason]
+                if bypass_skip is None or bypass_skip == "" or full_name in bypass_skip:
+                    _skips += [full_name]
 
             if part.decorator_list:
                 for dec in part.decorator_list:
                     if isinstance(dec, ast.Call):
                         if isinstance(dec.func, ast.Attribute):
                             if dec.func.attr == "skip":
-                                if len(dec.args) > 0 and isinstance(
-                                    dec.args[0], ast.Str
-                                ):
-                                    add_to_skips(dec.args[0].s)
-                                elif len(dec.keywords) > 0 and isinstance(
-                                    dec.keywords[0].value, ast.Str
-                                ):
-                                    add_to_skips(dec.keywords[0].value.s)
+                                add_to_skips(full_name)
+                                # if len(dec.args) > 0 and isinstance(
+                                #     dec.args[0], ast.Str
+                                # ):
+                                # elif len(dec.keywords) > 0 and isinstance(
+                                #     dec.keywords[0].value, ast.Str
+                                # ):
+                                #     add_to_skips(full_name, dec.keywords[0].value.s)
 
             if full_name is not None:
                 n_test_funcs += 1
@@ -114,7 +114,7 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                     if part.value.func.id == "zest":
                         found_zest_call = True
 
-    # Show error message if this function did not end with a zest() call
+    # Accumulate error message if this function did not end with a zest() call
     # unless this function is skipped
     if func_name is not None:
         this_func_skipped = False
@@ -200,7 +200,6 @@ def find_zests(
     for curr in _walk_include_dirs(root, include_dirs):
         for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
             path = os.path.join(curr, module_name + ".py")
-            log(f"search path {path}")
             with open(path) as file:
                 source = file.read()
 

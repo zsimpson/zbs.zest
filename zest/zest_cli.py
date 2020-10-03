@@ -8,7 +8,8 @@ import sys
 import argparse
 import pathlib
 from zest import zest_runner_single_thread
-from zest.zest_runner_multi_thread import ZestRunnerMultiThread
+from zest.zest_runner_multi_thread import ZestRunnerMultiThread, ZestRunnerErrors
+from zest.zest_display import display_errors, display_complete
 from zest import zest_console_ui
 from . import __version__
 
@@ -84,18 +85,32 @@ def main():
     else:
         if kwargs.get("n_workers") > 1:
 
+            call_log = []
+            call_errors = []
+
             def callback(payload):
+                nonlocal call_log, call_errors
                 state = payload["state"]
-                print(f"{state} {payload['full_name']}")
+                if state == "stopped":
+                    print(f".")
+                    call_log += [payload["full_name"]]
+                    call_errors += [(payload["error"], payload["error_formatted"], payload["full_name"].split("."))]
 
             zest_results_path = pathlib.Path(".zest_results")
             zest_results_path.mkdir(parents=True, exist_ok=True)
-            runner = ZestRunnerMultiThread(zest_results_path, **kwargs)
-            request_stop = False
-            retcode = 0
-            while runner.poll(callback, request_stop):
-                time.sleep(0.1)
-                # if ...: request_stop = True
+            try:
+                runner = ZestRunnerMultiThread(zest_results_path, callback, **kwargs)
+                request_stop = False
+                retcode = 0
+                while runner.poll(request_stop):
+                    time.sleep(0.1)
+                    # if ...: request_stop = True
+
+                import pudb; pudb.set_trace()
+                display_complete("", call_log, call_errors)
+            except ZestRunnerErrors as e:
+                display_errors(e.errors)
+                retcode = 1
 
         else:
             retcode = zest_runner_single_thread.run_zests(**kwargs)

@@ -6,166 +6,49 @@ import sys
 import os
 import re
 from zest import zest
+from zest.zest import log
 from zest import zest_finder
-
-
-_tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
-
-# Display
-# -----------------------------------------------------------------------------------
-
-blue = "\u001b[34m"
-yellow = "\u001b[33m"
-red = "\u001b[31m"
-green = "\u001b[32m"
-gray = "\u001b[30;1m"
-cyan = "\u001b[36m"
-magenta = "\u001b[35m"
-bold = "\u001b[1m"
-reset = "\u001b[0m"
-
-
-def _s(*strs):
-    return sys.stdout.write("".join(strs) + reset)
-
-
-def traceback_match_filename(root, line):
-    m = _tb_pat.match(line)
-    if m:
-        file = m.group(1)
-        lineno = m.group(2)
-        context = m.group(3)
-        file = os.path.relpath(os.path.realpath(file))
-
-        is_libs = True
-        real_path = os.path.realpath(file)
-        if real_path.startswith(root) and os.path.exists(real_path):
-            is_libs = False
-
-        if "/site-packages/" in file:
-            # Treat these long but commonly occurring path differently
-            file = re.sub(r".*/site-packages/", ".../", file)
-        leading, basename = os.path.split(file)
-        leading = f"{'./' if len(leading) > 0 and leading[0] != '.' else ''}{leading}"
-        return leading, basename, lineno, context, is_libs
-    return None
-
-
-def _error_header(edge, edge_style, label):
-    return (
-        edge_style
-        + (edge * 5)
-        + " "
-        + label
-        + " "
-        + reset
-        + edge_style
-        + (edge * (tty_size()[1] - 7 - len(label)))
-    )
-
-
-_tty_size_cache = None
-
-
-def tty_size():
-    global _tty_size_cache
-    if _tty_size_cache is None:
-        rows, cols = os.popen("stty size", "r").read().split()
-        _tty_size_cache = (int(rows), int(cols))
-    return _tty_size_cache
+from zest.zest_display import *
 
 
 # Display functions output messages
 # ---------------------------------------------------------------------------------
 
-
 def _display_start(name, last_depth, curr_depth, add_markers):
     if last_depth < curr_depth:
-        _s("\n")
+        s("\n")
     marker = "+" if add_markers else ""
-    _s("  " * curr_depth, yellow, marker + name, reset, ": ")
+    s("  " * curr_depth, yellow, marker + name, reset, ": ")
     # Note, no \n on this line because it will be added on the display_stop call
 
 
 def _display_stop(error, elapsed, skip, last_depth, curr_depth):
     if curr_depth < last_depth:
-        _s(f"{'  ' * curr_depth}")
+        s(f"{'  ' * curr_depth}")
     if isinstance(error, str) and error.startswith("skipped"):
-        _s(bold, yellow, error)
+        s(bold, yellow, error)
     elif skip is not None:
-        _s(bold, yellow, "SKIPPED (reason: ", skip, ")")
+        s(bold, yellow, "SKIPPED (reason: ", skip, ")")
     elif error:
-        _s(bold, red, "ERROR", gray, f" (in {int(1000.0 * elapsed)} ms)")
+        s(bold, red, "ERROR", gray, f" (in {int(1000.0 * elapsed)} ms)")
     else:
-        _s(green, "SUCCESS", gray, f" (in {int(1000.0 * elapsed)} ms)")
-    _s("\n")
+        s(green, "SUCCESS", gray, f" (in {int(1000.0 * elapsed)} ms)")
+    s("\n")
 
 
 def _display_abbreviated(error, skip):
     """Overload this to change output behavior"""
     if error:
-        _s(bold, red, "F")
+        s(bold, red, "F")
     elif skip:
-        _s(yellow, "s")
+        s(yellow, "s")
     else:
-        _s(green, ".")
+        s(green, ".")
 
 
 def _display_warnings(call_warnings):
     for warn in call_warnings:
-        _s(yellow, warn, "\n")
-
-
-def _display_error(root, error, error_formatted, stack):
-    leaf_test_name = stack[-1]
-    formatted_test_name = " . ".join(stack[0:-1]) + bold + " . " + leaf_test_name
-
-    _s("\n", _error_header("=", red, formatted_test_name), "\n")
-    lines = []
-    for line in error_formatted:
-        lines += [sub_line for sub_line in line.strip().split("\n")]
-
-    is_libs = False
-    for line in lines[1:-1]:
-        split_line = traceback_match_filename(root, line)
-        if split_line is None:
-            _s(gray if is_libs else "", line, "\n")
-        else:
-            leading, basename, lineno, context, is_libs = split_line
-            if is_libs:
-                _s(gray, "File ", leading, "/", basename)
-                _s(gray, ":", lineno)
-                _s(gray, " in function ")
-                _s(gray, context, "\n")
-            else:
-                _s("File ", yellow, leading, "/", yellow, bold, basename)
-                _s(":", yellow, lineno)
-                _s(" in function ")
-                if leaf_test_name == context:
-                    _s(red, bold, context, "\n")
-                else:
-                    _s(magenta, bold, context, "\n")
-
-    _s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
-    error_message = str(error).strip()
-    if error_message != "":
-        _s(red, error_message, "\n")
-    _s()
-
-
-def _display_complete(root, call_log, call_errors):
-    n_errors = len(call_errors)
-
-    if n_errors > 0:
-        _s("\n")
-        for error, error_formatted, stack in call_errors:
-            _display_error(root, error, error_formatted, stack)
-
-    _s(f"\nRan {len(call_log)} tests. ")
-    if n_errors == 0:
-        _s(green, "SUCCESS\n")
-    else:
-        _s(red, bold, f"{n_errors} ERROR(s)\n")
+        s(yellow, warn, "\n")
 
 
 # Entrypoint
@@ -219,6 +102,7 @@ def run_zests(
     """
     zest.reset()
     zest._disable_shuffle = disable_shuffle
+    zest._bypass_skip = bypass_skip.split(":")
     n_zest_missing_errors = 0
     last_depth = 0
     curr_depth = 0
@@ -238,24 +122,8 @@ def run_zests(
         bypass_skip,
     )
 
-    for error in errors:
-        parent_name, path, lineno, error_message = error
-
-        _s(
-            red,
-            "\nERROR: ",
-            reset,
-            "Zest function ",
-            bold,
-            red,
-            parent_name,
-            reset,
-            f" (@ {path}:{lineno}) ",
-            f"{error_message}\n",
-            f"If you are using local functions that are not tests, prefix them with underscore.\n",
-        )
-
     if len(errors) > 0:
+        display_errors(errors)
         return 1
 
     # Event functions are callbacks from zest
@@ -288,10 +156,10 @@ def run_zests(
 
     def event_complete():
         if verbose > 0:
-            _display_complete(root, zest._call_log, zest._call_errors)
+            display_complete(root, zest._call_log, zest._call_errors)
 
         if verbose > 1:
-            _s("Slowest 5%\n")
+            s("Slowest 5%\n")
             n_timings = len(results)
             timings = [
                 (full_name, result.elapsed) for full_name, result in results.items()
@@ -300,7 +168,7 @@ def run_zests(
             ninety_percentile = 95 * n_timings // 100
             for i in range(n_timings - 1, ninety_percentile, -1):
                 name = timings[i]
-                _s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
+                s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
         if verbose > 0:
             _display_warnings(zest._call_warnings)

@@ -252,7 +252,9 @@ class ZestRunnerMultiThread:
         **kwargs,
     ):
         self.callback = callback
+        log(f"BYPASS={bypass_skip}")
 
+        zest._bypass_skip = bypass_skip.split(":")
         root_zests, allow_to_run, errors = zest_finder.find_zests(
             root,
             include_dirs,
@@ -270,7 +272,6 @@ class ZestRunnerMultiThread:
         self.queue = deque()
         self.n_run = 0
         self.procs = []
-        self.exitted = []
 
         for (root_name, (module_name, package, full_path)) in root_zests.items():
             self.queue.append((root_name, module_name, package, full_path))
