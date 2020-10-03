@@ -702,7 +702,7 @@ def _run(
                     match_string = s
                     dirty = True
 
-            #time.sleep(0.01)
+            # time.sleep(0.01)
 
         except KeyboardInterrupt:
             if request_end:

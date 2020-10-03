@@ -94,7 +94,13 @@ def main():
                 if state == "stopped":
                     print(f".")
                     call_log += [payload["full_name"]]
-                    call_errors += [(payload["error"], payload["error_formatted"], payload["full_name"].split("."))]
+                    call_errors += [
+                        (
+                            payload["error"],
+                            payload["error_formatted"],
+                            payload["full_name"].split("."),
+                        )
+                    ]
 
             zest_results_path = pathlib.Path(".zest_results")
             zest_results_path.mkdir(parents=True, exist_ok=True)
@@ -106,7 +112,9 @@ def main():
                     time.sleep(0.1)
                     # if ...: request_stop = True
 
-                import pudb; pudb.set_trace()
+                import pudb
+
+                pudb.set_trace()
                 display_complete("", call_log, call_errors)
             except ZestRunnerErrors as e:
                 display_errors(e.errors)

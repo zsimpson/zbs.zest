@@ -14,6 +14,7 @@ from zest.zest_display import *
 # Display functions output messages
 # ---------------------------------------------------------------------------------
 
+
 def _display_start(name, last_depth, curr_depth, add_markers):
     if last_depth < curr_depth:
         s("\n")

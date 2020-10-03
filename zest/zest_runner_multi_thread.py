@@ -83,7 +83,7 @@ class ZestRunnerMultiThread:
         except IndexError:
             return None
 
-        curr_proc_iz = { proc.proc_i for proc in self.procs }
+        curr_proc_iz = {proc.proc_i for proc in self.procs}
         if len(curr_proc_iz):
             next_proc_i = 0
         else:
@@ -95,7 +95,7 @@ class ZestRunnerMultiThread:
         root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
 
         r, w = os.pipe()
-        r, w = os.fdopen(r, 'rb', 0), os.fdopen(w, 'wb', 0)
+        r, w = os.fdopen(r, "rb", 0), os.fdopen(w, "wb", 0)
 
         child_pid, child_fd = os.forkpty()
         # If I use os.fork instead of forkpty then the child_pid captures stdio
@@ -108,12 +108,7 @@ class ZestRunnerMultiThread:
             # Parent
             w.close()
 
-            proc = RunnerProcess(
-                root_name,
-                r,
-                child_pid,
-                next_proc_i,
-            )
+            proc = RunnerProcess(root_name, r, child_pid, next_proc_i,)
             self.procs += [proc]
             self.n_run += 1
             return proc
@@ -131,17 +126,21 @@ class ZestRunnerMultiThread:
 
                     def emit(dict_, full_name, stream):
                         try:
-                            #print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
+                            # print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
                             stream.write(("@@@" + json.dumps(dict_) + "@@@\n").encode())
                             stream.flush()
                         except TypeError:
-                            dict_ = dict(full_name=full_name, error="Serialization error")
-                            #print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
+                            dict_ = dict(
+                                full_name=full_name, error="Serialization error"
+                            )
+                            # print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
 
                     def event_callback(zest_result):
                         dict_ = dict(
                             full_name=zest_result.full_name,
-                            error=repr(zest_result.error) if zest_result.error is not None else None,
+                            error=repr(zest_result.error)
+                            if zest_result.error is not None
+                            else None,
                             error_formatted=zest_result.error_formatted,
                             is_running=zest_result.is_running,
                         )
@@ -165,11 +164,7 @@ class ZestRunnerMultiThread:
             sys.exit(0)
 
     def n_live_procs(self):
-        return len([
-            proc
-            for proc in self.procs
-            if proc.exit_code is None
-        ])
+        return len([proc for proc in self.procs if proc.exit_code is None])
 
     def poll(self, request_stop):
         """
@@ -227,9 +222,7 @@ class ZestRunnerMultiThread:
                 break
 
             payload = dict(
-                state="starting",
-                full_name=proc.root_name,
-                proc_i=proc.proc_i,
+                state="starting", full_name=proc.root_name, proc_i=proc.proc_i,
             )
             self.callback(payload)
 
@@ -278,7 +271,6 @@ class ZestRunnerMultiThread:
 
         for _ in range(self.n_workers):
             self._start_next()
-
 
 
 '''

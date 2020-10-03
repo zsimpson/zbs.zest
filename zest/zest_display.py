@@ -16,7 +16,9 @@ reset = "\u001b[0m"
 def s(*strs):
     return sys.stdout.write("".join(strs) + reset)
 
+
 _tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
+
 
 def traceback_match_filename(root, line):
     m = _tb_pat.match(line)
@@ -81,6 +83,7 @@ def display_errors(errors):
             f"{error_message}\n",
             f"If you are using local functions that are not tests, prefix them with underscore.\n",
         )
+
 
 def _display_error(root, error, error_formatted, stack):
     leaf_test_name = stack[-1]

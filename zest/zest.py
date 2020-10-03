@@ -32,7 +32,10 @@ def log(*args):
     log_fp.write(f"{delta:3.1f} " + "".join([str(i) + " " for i in args]) + "\n")
     log_fp.flush()
 
+
 ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
+
+
 def strip_ansi(line):
     return ansi_escape.sub("", line)
 
@@ -264,7 +267,7 @@ class zest:
         def decorator(fn):
             @wraps(fn)
             def wrapper(*args, **kwargs):
-                full_name = '.'.join(zest._call_stack)
+                full_name = ".".join(zest._call_stack)
                 if full_name not in zest._bypass_skip:
                     raise SkipException(full_name, reason)
                 else:

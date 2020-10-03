@@ -406,9 +406,7 @@ def zest_runner_single_thread():
         assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
 
     def it_skips():
-        ret_code, output = _call_zest(
-            "--verbose=2", "zest_bad_zest_1"
-        )
+        ret_code, output = _call_zest("--verbose=2", "zest_bad_zest_1")
         assert "+zest_bad_zest_1: SKIPPED" in strip_ansi(output)
 
     def it_skips_bypass():
@@ -441,7 +439,7 @@ def _call_multi_zest(*args):
     return _call_zest(*(args + ("--n_workers=2",)))
 
 
-'''
+"""
 def zest_runner_multi_thread():
     log("WTF1")
     def _get_run_tests(output):
@@ -488,4 +486,4 @@ def zest_runner_multi_thread():
 
     log("WTF2")
     zest()
-'''
+"""
