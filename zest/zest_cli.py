@@ -85,6 +85,8 @@ def main():
     else:
         if kwargs.get("n_workers") > 1:
 
+            # TODO: Functionalize this over to multi_thrasd.py
+
             call_log = []
             call_errors = []
 
@@ -108,13 +110,16 @@ def main():
                 runner = ZestRunnerMultiThread(zest_results_path, callback, **kwargs)
                 request_stop = False
                 retcode = 0
-                while runner.poll(request_stop):
-                    time.sleep(0.1)
-                    # if ...: request_stop = True
+                while True:
+                    try:
+                        # if ...: request_stop = True
+                        if not runner.poll(request_stop):
+                            break
+                        time.sleep(0.1)
+                    except KeyboardInterrupt:
+                        request_stop = True
+                        retcode = 1
 
-                import pudb
-
-                pudb.set_trace()
                 display_complete("", call_log, call_errors)
             except ZestRunnerErrors as e:
                 display_errors(e.errors)

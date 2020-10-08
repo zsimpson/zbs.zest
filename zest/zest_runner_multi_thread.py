@@ -64,7 +64,8 @@ def read_lines(fd, include_stdio):
         if not line:
             break
 
-        line = line.decode()
+        if not isinstance(line, str):
+            line = line.decode()
 
         m = re.match(pat, line)
         if m:
@@ -91,9 +92,22 @@ class ZestRunnerMultiThread:
                 list(set(list(range(self.n_workers))) - curr_proc_iz)
             )
 
+        # load_module must be in the parent process so that any
+        # modules / sub-modules that are loaded in the following
+        # line will be cached between zest roots. If we were to
+        # defer the load_module to the child pid then it would be
+        # very slow as it re-imported common modules over and over again
         root_name, module_name, package, full_path = next_zest
         root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
 
+        # CREATE pipe for the child to send messages to the parent
+        # and open those as standard file handles.
+        # These handles will be inherited into the child processes.
+        # and the child will close the read and the parent will close the write.
+        # The zeros are buffer size.
+        # Note that you can only have unbuffered (0) on binary files!
+        # This is annoying because it means that the file handles that
+        # are used to emit event messages now must go through encode/decode
         r, w = os.pipe()
         r, w = os.fdopen(r, "rb", 0), os.fdopen(w, "wb", 0)
 
@@ -117,6 +131,7 @@ class ZestRunnerMultiThread:
             # Child
             r.close()
 
+            # REDIRECT stdio to files in the output folder
             out_path = os.path.join(self.output_folder, f"{root_name}.out")
             err_path = os.path.join(self.output_folder, f"{root_name}.err")
             so = open(out_path, "w")
@@ -126,8 +141,10 @@ class ZestRunnerMultiThread:
 
                     def emit(dict_, full_name, stream):
                         try:
+                            msg = ("@@@" + json.dumps(dict_) + "@@@\n").encode()
+                            log(msg)
                             # print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
-                            stream.write(("@@@" + json.dumps(dict_) + "@@@\n").encode())
+                            stream.write(msg)
                             stream.flush()
                         except TypeError:
                             dict_ = dict(
@@ -136,6 +153,28 @@ class ZestRunnerMultiThread:
                             # print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
 
                     def event_callback(zest_result):
+                        """
+                        This callback occurs anytime a sub-zest starts or stops.
+                        Therefore if we want to track what STDIO came from
+                        what sub-zest then we need the messages about these
+                        start and stop event embedded in the same stream
+                        as the stdio.
+
+                        We write the event messages into three streams:
+                            1. stdout. which is redirected to out_path
+                            2. stderr. which is redirected to err_path
+                            3. w. which is a pipe that notifies the parent
+
+                        The only reason that we echo the events into the
+                        stdout and stderr are so that we can parse results
+                        that were previously executed and are being reloaded.
+                        If that feature isn't useful then all of the @@@escaping@@@
+                        could be eliminated and we would not need to emit into
+                        the .out and .err files.
+                        """
+
+                        if zest_result.error:
+                            log(f"EVENT CALLBACK ERROR '{repr(zest_result.error)}'")
                         dict_ = dict(
                             full_name=zest_result.full_name,
                             error=repr(zest_result.error)
@@ -170,7 +209,7 @@ class ZestRunnerMultiThread:
         """
         Check the status of all running threads
         Returns:
-            True if there's most to do
+            True if there's more to do
             False if everything is done
 
         Usage:
@@ -206,10 +245,13 @@ class ZestRunnerMultiThread:
                 log(f"DONE {proc.root_name} exit_status={exit_code}")
                 proc.exit_time = time.time()
                 proc.exit_code = exit_code
-                try:
-                    os.waitpid(proc.child_pid, 0)
-                except ChildProcessError:
-                    pass
+                # # Reap to prevent zombies
+                # try:
+                #     log("REAP")
+                #     os.waitpid(proc.child_pid, 0)
+                #     log("DONE REAP")
+                # except ChildProcessError:
+                #     pass
             else:
                 keep_running_procs += [proc]
 
@@ -245,9 +287,8 @@ class ZestRunnerMultiThread:
         **kwargs,
     ):
         self.callback = callback
-        log(f"BYPASS={bypass_skip}")
 
-        zest._bypass_skip = bypass_skip.split(":")
+        zest._bypass_skip = (bypass_skip or "").split(":")
         root_zests, allow_to_run, errors = zest_finder.find_zests(
             root,
             include_dirs,

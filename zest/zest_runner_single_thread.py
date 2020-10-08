@@ -123,6 +123,7 @@ def run_zests(
         bypass_skip,
     )
 
+    # TODO: Follow same ZestRunnerErrors pattern established in multi...
     if len(errors) > 0:
         display_errors(errors)
         return 1

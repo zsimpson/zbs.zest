@@ -630,6 +630,7 @@ def _run(
                 runner = None
                 new_state(STOPPED)
                 results, errors, stdouts, stderrs = load_results(zest_results_path)
+                log(f"ERRORS {errors}")
 
         # elif run_state == WATCHING:
         #     if watch_timestamp != os.path.getmtime(watch_file):
@@ -705,12 +706,12 @@ def _run(
             # time.sleep(0.01)
 
         except KeyboardInterrupt:
+            # First press ^C asks for a graceful shutdown of child processes
+            # Second ^C just aborts out of the parent process.
             if request_end:
                 break
-
             request_end = True
 
 
 def run(**kwargs):
-    # HACK
     curses.wrapper(_run, **kwargs)

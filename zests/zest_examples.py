@@ -52,13 +52,13 @@ def zest_basics():
 
             zest()
 
-    # def it_fails_1():
-    #     import sys
-    #     print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
-    #     print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
-    #     raise AssertionError
-    #     pass
-    #
+    def it_fails_1():
+        import sys
+        print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
+        print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
+        raise AssertionError
+        pass
+
     # def it_fails_2():
     #     import time
     #     time.sleep(1)
