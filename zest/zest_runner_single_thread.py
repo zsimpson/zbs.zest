@@ -103,7 +103,7 @@ def run_zests(
     """
     zest.reset()
     zest._disable_shuffle = disable_shuffle
-    zest._bypass_skip = bypass_skip.split(":")
+    zest._bypass_skip = bypass_skip.split(":") if bypass_skip is not None else []
     n_zest_missing_errors = 0
     last_depth = 0
     curr_depth = 0

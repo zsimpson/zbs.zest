@@ -33,6 +33,7 @@ import signal
 from collections import deque
 from pathlib import Path
 from zest import zest
+from zest.zest import ZestResult
 from zest import zest_finder
 from zest.zest import log
 from subprocess import Popen, DEVNULL
@@ -55,10 +56,7 @@ class RunnerProcess:
     exit_code: int = None
 
 
-pat = re.compile(r"\@\@\@(.+)\@\@\@")
-
-
-def read_lines(fd, include_stdio):
+def read_lines(fd):
     while True:
         line = fd.readline()
         if not line:
@@ -67,14 +65,7 @@ def read_lines(fd, include_stdio):
         if not isinstance(line, str):
             line = line.decode()
 
-        m = re.match(pat, line)
-        if m:
-            try:
-                yield json.loads(m.group(1))
-            except json.JSONDecodeError:
-                yield dict(error="decode error")
-        elif include_stdio:
-            yield line
+        yield ZestResult.loads(line)
 
 
 class ZestRunnerMultiThread:
@@ -131,76 +122,63 @@ class ZestRunnerMultiThread:
             # Child
             r.close()
 
-            # REDIRECT stdio to files in the output folder
-            out_path = os.path.join(self.output_folder, f"{root_name}.out")
-            err_path = os.path.join(self.output_folder, f"{root_name}.err")
-            so = open(out_path, "w")
-            se = open(err_path, "w")
-            with redirect_stdout(so):
-                with redirect_stderr(se):
-
-                    def emit(dict_, full_name, stream):
-                        try:
-                            msg = ("@@@" + json.dumps(dict_) + "@@@\n").encode()
-                            log(msg)
-                            # print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
+            event_stream = open(f"{self.output_folder}/{root_name}.evt", "wb", buffering=0)
+            try:
+                def emit_zest_result(zest_result, streams):
+                    assert isinstance(zest_result, ZestResult)
+                    try:
+                        msg = (zest_result.dumps() + "\n").encode()
+                        for stream in streams:
                             stream.write(msg)
                             stream.flush()
-                        except TypeError:
-                            dict_ = dict(
-                                full_name=full_name, error="Serialization error"
-                            )
-                            # print(("@@@" + json.dumps(dict_) + "@@@").encode(), file=stream, flush=True)
+                    except TypeError:
+                        log(f"Serialization error on {zest_result}")
 
-                    def event_callback(zest_result):
-                        """
-                        This callback occurs anytime a sub-zest starts or stops.
-                        Therefore if we want to track what STDIO came from
-                        what sub-zest then we need the messages about these
-                        start and stop event embedded in the same stream
-                        as the stdio.
+                def event_callback(zest_result):
+                    """
+                    This callback occurs anytime a sub-zest starts or stops.
+                    """
 
-                        We write the event messages into three streams:
-                            1. stdout. which is redirected to out_path
-                            2. stderr. which is redirected to err_path
-                            3. w. which is a pipe that notifies the parent
+                    if zest_result.error:
+                        log(f"EVENT CALLBACK ERROR '{repr(zest_result.error)}'")
 
-                        The only reason that we echo the events into the
-                        stdout and stderr are so that we can parse results
-                        that were previously executed and are being reloaded.
-                        If that feature isn't useful then all of the @@@escaping@@@
-                        could be eliminated and we would not need to emit into
-                        the .out and .err files.
-                        """
+                    # TODO: Write out the stdout and stderr returned in zest_result
+                    # dict_ = dict(
+                    #     full_name=zest_result.full_name,
+                    #     error=repr(zest_result.error)
+                    #     if zest_result.error is not None
+                    #     else None,
+                    #     error_formatted=zest_result.error_formatted,
+                    #     is_running=zest_result.is_running,
+                    #     skip=zest_result.skip,
+                    # )
+                    emit_zest_result(zest_result, (w, event_stream))
 
-                        if zest_result.error:
-                            log(f"EVENT CALLBACK ERROR '{repr(zest_result.error)}'")
-                        dict_ = dict(
-                            full_name=zest_result.full_name,
-                            error=repr(zest_result.error)
-                            if zest_result.error is not None
-                            else None,
-                            error_formatted=zest_result.error_formatted,
-                            is_running=zest_result.is_running,
-                        )
-                        emit(dict_, zest_result.full_name, sys.stdout)
-                        emit(dict_, zest_result.full_name, sys.stderr)
-                        emit(dict_, zest_result.full_name, w)
-                        sys.stdout.flush()
-                        sys.stderr.flush()
-                        w.flush()
-
-                    zest.do(
-                        root_zest_func,
-                        test_start_callback=event_callback,
-                        test_stop_callback=event_callback,
-                        allow_to_run=None,
+                zest.do(
+                    root_zest_func,
+                    test_start_callback=event_callback,
+                    test_stop_callback=event_callback,
+                    allow_to_run=None,
+                )
+                """
+                [
+                    (
+                        NotImplementedError(),
+                        [
+                            'Traceback (most recent call last):\n', '  File "/erisyon/internal/overloads/zest/zest.py", line 570, in _run\n    func()\n', '  File "/erisyon/internal/internal/common/zests/zest_jri.py", line 19, in it_constructs_from_url\n    raise NotImplementedError\n', 'NotImplementedError\n'
+                        ],
+                        ['zest_construct_jri', 'it_constructs_from_url']
                     )
+                ]
+                """
 
-            w.close()
-            so.close()
-            se.close()
-            sys.exit(0)
+                # emit_zest_result(zest._call_log, (w, event_stream))
+                # emit(zest._call_errors, (w, event_stream))
+            finally:
+                event_stream.close()
+
+        w.close()
+        sys.exit(0)
 
     def n_live_procs(self):
         return len([proc for proc in self.procs if proc.exit_code is None])
@@ -223,14 +201,13 @@ class ZestRunnerMultiThread:
         """
 
         def read(proc):
-            for payload in read_lines(proc.read_pipe, include_stdio=False):
-                payload["proc_i"] = proc.proc_i
-                payload["state"] = "started" if payload["is_running"] else "stopped"
-                self.callback(payload)
+            for zest_result in read_lines(proc.read_pipe):
+                assert isinstance(zest_result, ZestResult)
+                zest_result.worker_i = proc.proc_i
+                self.callback(zest_result)
 
         if request_stop:
             for proc in self.procs:
-                log(f"KILL {proc.child_pid}")
                 if proc.exit_code is not None:
                     try:
                         os.kill(proc.child_pid, signal.SIGKILL)
@@ -242,14 +219,11 @@ class ZestRunnerMultiThread:
             _, exit_code = os.waitpid(proc.child_pid, os.WNOHANG)
             read(proc)
             if exit_code & 0xFF == 0:
-                log(f"DONE {proc.root_name} exit_status={exit_code}")
                 proc.exit_time = time.time()
                 proc.exit_code = exit_code
                 # # Reap to prevent zombies
                 # try:
-                #     log("REAP")
                 #     os.waitpid(proc.child_pid, 0)
-                #     log("DONE REAP")
                 # except ChildProcessError:
                 #     pass
             else:
@@ -263,10 +237,10 @@ class ZestRunnerMultiThread:
                 # All done
                 break
 
-            payload = dict(
-                state="starting", full_name=proc.root_name, proc_i=proc.proc_i,
-            )
-            self.callback(payload)
+            # payload = dict(
+            #     state="starting root", full_name=proc.root_name, proc_i=proc.proc_i, skip=None,
+            # )
+            # self.callback(payload)
 
         if len(self.queue) == 0 and self.n_live_procs() == 0:
             return False

@@ -10,8 +10,9 @@ import types
 import traceback
 import io
 import re
+import json
 from contextlib import redirect_stdout, redirect_stderr
-from dataclasses import dataclass
+import dataclasses
 from functools import wraps
 from contextlib import contextmanager
 from random import shuffle
@@ -197,7 +198,14 @@ class MockFunction:
         return kws == self.normalized_calls()[0]
 
 
-@dataclass
+class JSONDataClassEncoder(json.JSONEncoder):
+    def default(self, o):
+        if dataclasses.is_dataclass(o):
+            return dataclasses.asdict(o)
+        return super().default(o)
+
+
+@dataclasses.dataclass
 class ZestResult:
     call_stack: list
     full_name: str
@@ -211,6 +219,14 @@ class ZestResult:
     source: str = None
     pid: int = None
     is_running: bool = False
+    worker_i: int = 0
+
+    def dumps(self):
+        return json.dumps(self, cls=JSONDataClassEncoder)
+
+    @classmethod
+    def loads(cls, s):
+        return ZestResult(**json.loads(s))
 
 
 class zest:
@@ -563,12 +579,12 @@ class zest:
                     start_time = time.time()
                     try:
                         zest._mock_stack += [[]]
-                        log(f"zest._call_log={zest._call_log}")
+                        # log(f"zest._call_log={zest._call_log}")
 
                         try:
-                            log(f"func={func}")
+                            # log(f"func={func}")
                             func()
-                            log(f"called={zest._call_log}")
+                            # log(f"called={zest._call_log}")
                         except SkipException as e:
                             skip_reason = e.reason
                             log(f"skipreaons={skip_reason}")
