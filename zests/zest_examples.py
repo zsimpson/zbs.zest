@@ -339,15 +339,11 @@ def zest_failing_zest():
 
 
 def _call_zest(*args):
-    log("WTF5")
     # Run zest_runner in a sub-processes so that we don't end up with
     # recursion problems since these tests themselves is running under ZestRunner
     try:
-        log("WTF6")
         to_run = "python -m zest.zest_cli " + " --add_markers " + " ".join(args)
-        log(f"WTF7 {to_run}")
         output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
-        log(f"WTF8 {output}")
         ret_code = 0
     except subprocess.CalledProcessError as e:
         ret_code = e.returncode
@@ -435,13 +431,11 @@ def zest_runner_single_thread():
 
 
 def _call_multi_zest(*args):
-    log("WTF4")
     return _call_zest(*(args + ("--n_workers=2",)))
 
 
 """
 def zest_runner_multi_thread():
-    log("WTF1")
     def _get_run_tests(output):
         found_tests = []
         for line in output.split("\n"):
@@ -457,7 +451,6 @@ def zest_runner_multi_thread():
         assert ret_code == 0 and output.strip() == __version__
 
     def it_skips():
-        log("WTF3")
         ret_code, output = _call_multi_zest()
         log(f"OUTPUT {output}")
         assert "noisy_zests" not in output
@@ -484,6 +477,5 @@ def zest_runner_multi_thread():
         assert "zest_examples.py:" in output
         assert ret_code != 0
 
-    log("WTF2")
     zest()
 """

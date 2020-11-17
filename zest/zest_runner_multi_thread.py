@@ -30,6 +30,9 @@ import io
 import random
 import sys
 import signal
+import multiprocessing
+from multiprocessing import Queue
+from queue import Empty
 from collections import deque
 from pathlib import Path
 from zest import zest
@@ -68,6 +71,177 @@ def read_lines(fd):
         yield ZestResult.loads(line)
 
 
+def _do_work_order(root_name, module_name, package, full_path, output_folder):
+    event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
+
+    # It may be very slow to have the load_module here in the child
+    # processes as it means that each child will have to load_module
+    # and get no benefit from caching of modules. It might be better
+    # to move this in to the parent process
+    root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
+
+    try:
+        def emit_zest_result(zest_result, stream):
+            assert isinstance(zest_result, ZestResult)
+            try:
+                msg = (zest_result.dumps() + "\n").encode()
+                stream.write(msg)
+                stream.flush()
+            except TypeError:
+                log(f"Serialization error on {zest_result}")
+
+
+        def event_callback(zest_result):
+            """
+            This callback occurs anytime a sub-zest starts or stops.
+            """
+            if zest_result.error:
+                log(f"EVENT CALLBACK ERROR '{repr(zest_result.error)}'")
+
+            # TODO: Write out the stdout and stderr returned in zest_result
+            # dict_ = dict(
+            #     full_name=zest_result.full_name,
+            #     error=repr(zest_result.error)
+            #     if zest_result.error is not None
+            #     else None,
+            #     error_formatted=zest_result.error_formatted,
+            #     is_running=zest_result.is_running,
+            #     skip=zest_result.skip,
+            # )
+            emit_zest_result(zest_result, event_stream)
+            _do_work_order.queue.put(zest_result)
+
+        zest.do(
+            root_zest_func,
+            test_start_callback=event_callback,
+            test_stop_callback=event_callback,
+            allow_to_run=None,
+        )
+
+        # emit_zest_result(zest._call_log, (w, event_stream))
+        # emit(zest._call_errors, (w, event_stream))
+    except Exception as e:
+        _do_work_order.queue.put(e)
+
+    finally:
+        event_stream.close()
+
+
+def _do_worker_init(queue):
+    _do_work_order.queue = queue
+
+
+class ZestRunnerMultiThread:
+    def n_live_procs(self):
+        return len([proc for proc in self.procs if proc.exit_code is None])
+
+    def poll(self, request_stop):
+        """
+        Check the status of all running threads
+        Returns:
+            True if there's more to do
+            False if everything is done
+
+        Usage:
+            def callback(event_payload):
+                ...
+
+            runner = ZestRunnerMultiThread(callback=callback, ...)
+            while runner.poll(request_stop):
+                time.sleep(0.1)
+                if ...: request_stop = True
+        """
+
+        # TODO:
+        # if request_stop:
+        #     for proc in self.procs:
+        #         if proc.exit_code is not None:
+        #             try:
+        #                 os.kill(proc.child_pid, signal.SIGKILL)
+        #             except ProcessLookupError:
+        #                 log(f"KILL failed {proc.child_pid}")
+
+        try:
+            zest_result = self.queue.get_nowait()
+            assert isinstance(zest_result, ZestResult)
+            zest_result.worker_i = 1#proc.proc_i
+            self.callback(zest_result)
+        except Empty:
+            pass
+
+        time.sleep(0.1)
+
+        if all([r.ready() for r in self.results]) and self.queue.empty():
+            self.pool.join()
+            return False
+
+        return True
+
+    def __init__(
+        self,
+        output_folder,
+        callback,
+        root=None,
+        include_dirs=None,
+        allow_to_run="__all__",
+        match_string=None,
+        exclude_string=None,
+        bypass_skip=None,
+        n_workers=1,
+        **kwargs,
+    ):
+        self.callback = callback
+
+        zest._bypass_skip = (bypass_skip or "").split(":")
+        root_zests, allow_to_run, errors = zest_finder.find_zests(
+            root,
+            include_dirs,
+            allow_to_run.split(":"),
+            match_string,
+            exclude_string,
+            bypass_skip,
+        )
+
+        if len(errors) > 0:
+            raise ZestRunnerErrors(errors)
+
+        self.output_folder = output_folder
+        self.n_workers = n_workers
+        self.n_run = 0
+        self.procs = []
+
+        work_orders = [
+            (root_name, module_name, package, full_path, output_folder)
+            for (root_name, (module_name, package, full_path)) in root_zests.items()
+        ]
+
+        self.queue = Queue()
+        self.results = []
+
+        # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
+        with multiprocessing.Pool(self.n_workers, _do_worker_init, [self.queue]) as self.pool:
+            self.results += [self.pool.starmap_async(_do_work_order, work_orders)]
+            self.pool.close()
+
+            # while True:
+            #     try:
+            #         msg = self.queue.get_nowait()
+            #         log(f"MULTI 8 - msg", msg)
+            #     except Empty:
+            #         pass
+            #
+            #     time.sleep(0.1)
+            #
+            #     if all([r.ready() for r in self.results]) and self.queue.empty():
+            #         log(f"MULTI 7 - done")
+            #         break
+
+            self.pool.join()
+
+        log(f"MULTI 9 - exit __init__")
+
+
+'''
 class ZestRunnerMultiThread:
     def _start_next(self):
         try:
@@ -280,215 +454,6 @@ class ZestRunnerMultiThread:
         self.queue = deque()
         self.n_run = 0
         self.procs = []
-
-        for (root_name, (module_name, package, full_path)) in root_zests.items():
-            self.queue.append((root_name, module_name, package, full_path))
-
-        for _ in range(self.n_workers):
-            self._start_next()
-
-
-'''
-class ZestRunnerMultiThread:
-    def _start_next(self):
-        try:
-            next_zest = self.queue.popleft()
-        except IndexError:
-            return None
-
-        curr_proc_iz = { proc.proc_i for proc in self.procs }
-        if len(curr_proc_iz):
-            next_proc_i = 0
-        else:
-            next_proc_i = random.choice(
-                list(set(list(range(self.n_workers))) - curr_proc_iz)
-            )
-
-        root_name, module_name, package, full_path = next_zest
-
-        out_path = os.path.join(self.output_folder, f"{root_name}.out")
-        err_path = os.path.join(self.output_folder, f"{root_name}.err")
-
-        log(f"start {root_name} {module_name} {full_path}")
-
-        writ_out = open(out_path, "w", buffering=1)
-        writ_err = open(err_path, "w", buffering=1)
-
-        root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
-
-        child_pid, child_fd = os.forkpty()
-        # If I use os.fork instead of forkpty then the child_pid captures stdio
-        # even when I close it in the child_pid block.
-        # But I'm not sure when to close the child_fd. I tried it in the parent
-        # and the child. Parent it generates an exception and child it seems to
-        # do nothing (based on lsof -a -p $PID listings before and after.)
-
-        if child_pid == 0:
-            # In the child process
-            w1 = os.fdopen(writ_out.fileno(), "w", buffering=1)
-            w2 = os.fdopen(writ_err.fileno(), "w", buffering=1)
-            sys.stdout = w1
-            sys.stderr = w2
-
-            try:
-                def emit(dict_, full_name, stream):
-                    try:
-                        print("@@@" + json.dumps(dict_) + "@@@", file=stream, flush=True)
-                    except TypeError:
-                        dict_ = dict(full_name=full_name, error="Serialization error")
-                        print("@@@" + json.dumps(dict_) + "@@@", file=stream, flush=True)
-
-                def event_callback(zest_result):
-                    dict_ = dict(
-                        full_name=zest_result.full_name,
-                        error=repr(zest_result.error) if zest_result.error is not None else None,
-                        error_formatted=zest_result.error_formatted,
-                        is_running=zest_result.is_running,
-                    )
-                    emit(dict_, zest_result.full_name, sys.stdout)
-                    emit(dict_, zest_result.full_name, sys.stderr)
-
-                zest.do(
-                    root_zest_func,
-                    test_start_callback=event_callback,
-                    test_stop_callback=event_callback,
-                    allow_to_run=None,
-                )
-
-            finally:
-                w1.close()
-                w2.close()
-
-            sys.exit(0)
-
-        else:
-            writ_out.close()
-            writ_err.close()
-
-            proc = RunnerProcess(
-                root_name,
-                open(out_path, "r"),
-                open(err_path, "r"),
-                child_pid,
-                next_proc_i,
-            )
-            self.procs += [proc]
-            self.n_run += 1
-            return proc
-
-    def n_live_procs(self):
-        return len([
-            proc
-            for proc in self.procs
-            if proc.exit_code is None
-        ])
-
-    def poll(self, request_stop):
-        """
-        Check the status of all running threads
-        Returns:
-            True if there's most to do
-            False if everything is done
-
-        Usage:
-            def callback(event_payload):
-                ...
-
-            runner = ZestRunnerMultiThread(callback=callback, ...)
-            while runner.poll(request_stop):
-                time.sleep(0.1)
-                if ...: request_stop = True
-        """
-
-        def read(proc):
-            for payload in read_lines(proc.read_out, include_stdio=False):
-                payload["proc_i"] = proc.proc_i
-                payload["state"] = "started" if payload["is_running"] else "stopped"
-                self.callback(payload)
-
-        if request_stop:
-            for proc in self.procs:
-                log(f"KILL {proc.child_pid}")
-                os.kill(proc.child_pid, signal.SIGKILL)
-
-        for proc in self.procs:
-            if proc.exit_code is None:
-                _, exit_code = os.waitpid(proc.child_pid, os.WNOHANG)
-                if exit_code & 0xFF == 0:
-                    # Processes can be marked as dead before the buffers are flushed
-                    # so if I kill off the readers too soon I will miss the
-                    # last writes to the files so I mark them as exited and
-                    # continue to read from them for 1 second.
-                    # It would be better if there was no buffering! But try as I might
-                    # I can not seem to get buffering turned off well enough to
-                    # stop this race.
-                    log(f"DONE {proc.root_name} exit_status={exit_code}")
-                    proc.exit_time = time.time()
-                    proc.exit_code = exit_code
-
-            read(proc)
-
-        keep_running_procs = []
-        for proc in self.procs:
-            if time.time() - proc.exit_time < 3.0:
-                proc.read_out.close()
-                proc.read_err.close()
-            else:
-                keep_running_procs += [proc]
-
-        self.procs = keep_running_procs
-
-        while self.n_live_procs() < self.n_workers:
-            proc = self._start_next()
-            if proc is None:
-                # All done
-                break
-
-            payload = dict(
-                state="starting",
-                full_name=proc.root_name,
-                proc_i=proc.proc_i,
-            )
-            self.callback(payload)
-
-        if len(self.queue) == 0 and len(self.procs) == 0:
-            return False
-
-        return True
-
-    def __init__(
-        self,
-        output_folder,
-        callback,
-        root=None,
-        include_dirs=None,
-        allow_to_run="__all__",
-        match_string=None,
-        exclude_string=None,
-        bypass_skip=None,
-        n_workers=1,
-        **kwargs,
-    ):
-        self.callback = callback
-
-        root_zests, allow_to_run, errors = zest_finder.find_zests(
-            root,
-            include_dirs,
-            allow_to_run.split(":"),
-            match_string,
-            exclude_string,
-            bypass_skip,
-        )
-
-        if len(errors) > 0:
-            raise ZestRunnerErrors(errors)
-
-        self.output_folder = output_folder
-        self.n_workers = n_workers
-        self.queue = deque()
-        self.n_run = 0
-        self.procs = []
-        self.exitted = []
 
         for (root_name, (module_name, package, full_path)) in root_zests.items():
             self.queue.append((root_name, module_name, package, full_path))

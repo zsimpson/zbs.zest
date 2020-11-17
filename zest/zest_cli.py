@@ -90,17 +90,16 @@ def main():
             call_log = []
             call_errors = []
 
-            def callback(payload):
+            def callback(zest_result):
                 nonlocal call_log, call_errors
-                state = payload["state"]
-                if state == "stopped":
+                if not zest_result.is_running:
                     print(f".")
-                    call_log += [payload["full_name"]]
+                    call_log += [zest_result.full_name]
                     call_errors += [
                         (
-                            payload["error"],
-                            payload["error_formatted"],
-                            payload["full_name"].split("."),
+                            zest_result.error,
+                            zest_result.error_formatted,
+                            zest_result.full_name.split("."),
                         )
                     ]
 
