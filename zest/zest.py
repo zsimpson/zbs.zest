@@ -251,6 +251,7 @@ class zest:
     zest(some_test)
     """
 
+    # TODO: COnvert these to just use a list of zest_results
     _call_log = []
     _call_stack = []
     _call_errors = []
@@ -632,6 +633,7 @@ class zest:
                         if mock_tuple[4]:  # if reset_before_each is set
                             mock_tuple[3].reset()  # Tell the mock to reset
 
+                log(f"CAPTUIRE STDOUT IS {zest._capture_stdio}")
                 if zest._capture_stdio:
                     so = io.StringIO()
                     se = io.StringIO()

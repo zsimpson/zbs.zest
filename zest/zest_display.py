@@ -91,7 +91,7 @@ def _display_error(root, error, error_formatted, stack):
 
     s("\n", error_header("=", red, formatted_test_name), "\n")
     lines = []
-    for line in error_formatted:
+    for line in (error_formatted or [""]):
         lines += [sub_line for sub_line in line.strip().split("\n")]
 
     is_libs = False
@@ -135,3 +135,86 @@ def display_complete(root, call_log, call_errors):
         s(green, "SUCCESS\n")
     else:
         s(red, bold, f"{n_errors} ERROR(s)\n")
+
+
+def colorful_exception(
+    error=None, formatted=None, write_to_stderr=True, show_raised=True, compact=False, gray_libs=True
+):
+    accum = ""
+
+    def s(*strs):
+        nonlocal accum
+        accum += "".join(strs) + reset
+
+    tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
+
+    def _traceback_match_filename(line):
+        is_libs = False
+        m = tb_pat.match(line)
+        if m:
+            file = m.group(1)
+            lineno = m.group(2)
+            context = m.group(3)
+            real_path = os.path.realpath(file)
+            relative_path = os.path.relpath(real_path)
+
+            root = os.environ.get("ERISYON_ROOT")
+            if root is not None:
+                is_libs = True
+                if real_path.startswith(root):
+                    relative_path = re.sub(r".*/" + root, "./", real_path)
+                    is_libs = False
+
+            # Treat these long but commonly occurring path differently
+            if "/site-packages/" in relative_path:
+                relative_path = re.sub(r".*/site-packages/", ".../", relative_path)
+            if "/dist-packages/" in relative_path:
+                relative_path = re.sub(r".*/dist-packages/", ".../", relative_path)
+
+            leading, basename = os.path.split(relative_path)
+            # if leading and len(leading) > 0:
+            #     leading = f"{'./' if leading[0] != '.' else ''}{leading}"
+            return leading, basename, lineno, context, is_libs
+        return None
+
+    if not compact:
+        s("\n")
+
+    if formatted is None:
+        formatted = traceback.format_exception(
+            etype=type(error), value=error, tb=error.__traceback__
+        )
+    lines = []
+    for line in formatted:
+        lines += [sub_line for sub_line in line.strip().split("\n")]
+
+    is_libs = False
+    for line in lines[1:-1]:
+        split_line = _traceback_match_filename(line)
+        if split_line is None:
+            s(gray if is_libs else "", line, "\n")
+        else:
+            leading, basename, lineno, context, is_libs = split_line
+            if not gray_libs:
+                is_libs = False
+            if is_libs:
+                s(gray, "File ", leading, "/", basename)
+                s(gray, ":", lineno)
+                s(gray, " in function ")
+                s(gray, context, "\n")
+            else:
+                s("File ", yellow, leading, "/", yellow, bold, basename)
+                s(":", yellow, bold, lineno)
+                s(" in function ")
+                s(magenta, bold, context, "\n")
+
+    if show_raised:
+        s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
+        error_message = str(error).strip()
+        if error_message != "":
+            s(red, error_message, "\n")
+
+    if write_to_stderr:
+        sys.stderr.write(accum)
+
+    return accum

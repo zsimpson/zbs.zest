@@ -3,6 +3,7 @@ This is a (self-referential) test that tests zest itself.
 It also serves as an example of how to build a zest.
 """
 
+import time
 import re
 import os
 from contextlib import contextmanager
@@ -52,12 +53,19 @@ def zest_basics():
 
             zest()
 
-    def it_fails_1():
-        import sys
-        print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
-        print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
-        raise AssertionError
-        pass
+    def it_is_slow():
+        for i in range(3, 0, -1):
+            print(f"SLOW {i}")
+            time.sleep(1)
+        raise NotImplementedError
+
+
+    # def it_fails_1():
+    #     import sys
+    #     print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
+    #     print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
+    #     raise AssertionError
+    #     pass
 
     # def it_fails_2():
     #     import time

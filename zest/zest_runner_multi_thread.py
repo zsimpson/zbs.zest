@@ -31,6 +31,7 @@ import random
 import sys
 import signal
 import multiprocessing
+import traceback
 from multiprocessing import Queue
 from queue import Empty
 from collections import deque
@@ -49,16 +50,6 @@ class ZestRunnerErrors(Exception):
         self.errors = errors
 
 
-@dataclass
-class RunnerProcess:
-    root_name: str
-    read_pipe: io.TextIOBase
-    child_pid: int
-    proc_i: int
-    exit_time: float = None
-    exit_code: int = None
-
-
 def read_lines(fd):
     while True:
         line = fd.readline()
@@ -71,7 +62,7 @@ def read_lines(fd):
         yield ZestResult.loads(line)
 
 
-def _do_work_order(root_name, module_name, package, full_path, output_folder):
+def _do_work_order(root_name, module_name, package, full_path, output_folder, capture_stdio):
     event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
 
     # It may be very slow to have the load_module here in the child
@@ -111,6 +102,7 @@ def _do_work_order(root_name, module_name, package, full_path, output_folder):
             emit_zest_result(zest_result, event_stream)
             _do_work_order.queue.put(zest_result)
 
+        zest._capture_stdio = capture_stdio
         zest.do(
             root_zest_func,
             test_start_callback=event_callback,
@@ -121,6 +113,10 @@ def _do_work_order(root_name, module_name, package, full_path, output_folder):
         # emit_zest_result(zest._call_log, (w, event_stream))
         # emit(zest._call_errors, (w, event_stream))
     except Exception as e:
+        e._formatted = traceback.format_exception(
+            etype=type(e), value=e, tb=e.__traceback__
+        )
+        log(f"WTF {e._formatted}")
         _do_work_order.queue.put(e)
 
     finally:
@@ -152,24 +148,30 @@ class ZestRunnerMultiThread:
                 if ...: request_stop = True
         """
 
-        # TODO:
-        # if request_stop:
-        #     for proc in self.procs:
-        #         if proc.exit_code is not None:
-        #             try:
-        #                 os.kill(proc.child_pid, signal.SIGKILL)
-        #             except ProcessLookupError:
-        #                 log(f"KILL failed {proc.child_pid}")
+        if request_stop:
+            self.pool.terminate()
+            # for proc in self.procs:
+            #     if proc.exit_code is not None:
+            #         try:
+            #             os.kill(proc.child_pid, signal.SIGKILL)
+            #         except ProcessLookupError:
+            #             log(f"KILL failed {proc.child_pid}")
 
         try:
-            zest_result = self.queue.get_nowait()
-            assert isinstance(zest_result, ZestResult)
-            zest_result.worker_i = 1#proc.proc_i
-            self.callback(zest_result)
+            while True:
+                zest_result = self.queue.get_nowait()
+                log(f"zest_result {type(zest_result)}")
+                if isinstance(zest_result, Exception):
+                    raise zest_result
+                assert isinstance(zest_result, ZestResult)
+                worker_i = self.pid_to_worker_i.get(zest_result.pid)
+                if worker_i is None:
+                    self.pid_to_worker_i[zest_result.pid] = len(self.pid_to_worker_i)
+                zest_result.worker_i = self.pid_to_worker_i[zest_result.pid]
+                self.worker_status[zest_result.worker_i] = zest_result
+                self.callback(zest_result)
         except Empty:
             pass
-
-        time.sleep(0.1)
 
         if all([r.ready() for r in self.results]) and self.queue.empty():
             self.pool.join()
@@ -188,6 +190,7 @@ class ZestRunnerMultiThread:
         exclude_string=None,
         bypass_skip=None,
         n_workers=1,
+        capture_stdio=False,
         **kwargs,
     ):
         self.callback = callback
@@ -208,10 +211,12 @@ class ZestRunnerMultiThread:
         self.output_folder = output_folder
         self.n_workers = n_workers
         self.n_run = 0
-        self.procs = []
+        self.pid_to_worker_i = {}
+        self.worker_status = [None] * self.n_workers
+        self.capture_stdio = capture_stdio
 
         work_orders = [
-            (root_name, module_name, package, full_path, output_folder)
+            (root_name, module_name, package, full_path, output_folder, self.capture_stdio)
             for (root_name, (module_name, package, full_path)) in root_zests.items()
         ]
 

@@ -11,7 +11,8 @@ import re
 import curses
 from pathlib import Path
 from collections import defaultdict
-from zest.zest import log, strip_ansi
+from zest.zest import log, strip_ansi, zest
+from zest.zest_display import colorful_exception
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_lines
 from zest.zest_runner_single_thread import traceback_match_filename
 from . import __version__
@@ -481,7 +482,7 @@ def load_results(zest_results_path):
         is_out = Path(res_path).suffix == ".out"
         with open(res_path) as fd:
             full_name = None
-            for payload in read_lines(fd, include_stdio=True):
+            for payload in read_lines(fd):
                 if isinstance(payload, dict):
                     is_running = payload["is_running"]
                     if is_running is True:
@@ -552,16 +553,15 @@ def _run(
         )
         scr.refresh()
 
-    def callback(payload):
+    def callback(zest_result):
         nonlocal dirty, current_running_tests_by_proc_i, n_errors, n_success
         dirty = True
-        # log("callback", payload.get("state"), payload.get("full_name"),)
-        state = payload.get("state")
-        full_name = payload.get("full_name")
-        proc_i = payload.get("proc_i", 0)
-        current_running_tests_by_proc_i[proc_i] = f"{state}: {full_name}"
-        if state == "stopped":
-            if payload.get("error") is not None:
+        # TODO: Rename proc_i to worker_i
+        proc_i = zest_result.worker_i
+        state_messages = ["DONE", "RUNNING"]
+        current_running_tests_by_proc_i[proc_i] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
+        if not zest_result.is_running:
+            if zest_result.error is not None:
                 n_errors += 1
             else:
                 n_success += 1
@@ -593,6 +593,7 @@ def _run(
                     match_string=match_string,
                     exclude_string=exclude_string,
                     n_workers=n_workers,
+                    capture_stdio=True,
                 )
 
         nonlocal request_run, request_stop, runner
@@ -616,8 +617,8 @@ def _run(
             #    * request_end: Goto STOPPING
             #    * the "runner_thread" has terminated. Goto STOPPED
             #    * a new run is requested before the current run has terminated. Goto STOPPING
-
             running = runner.poll(request_stop)
+
             if not running or request_end or request_run is not None:
                 new_state(STOPPING)
 
@@ -714,4 +715,7 @@ def _run(
 
 
 def run(**kwargs):
-    curses.wrapper(_run, **kwargs)
+    try:
+        curses.wrapper(_run, **kwargs)
+    except Exception as e:
+        colorful_exception(e, e._formatted, gray_libs=False)
