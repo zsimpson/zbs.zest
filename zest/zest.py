@@ -200,6 +200,8 @@ class MockFunction:
 
 class JSONDataClassEncoder(json.JSONEncoder):
     def default(self, o):
+        if isinstance(o, BaseException):
+            return str(o)
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
@@ -588,7 +590,6 @@ class zest:
                             # log(f"called={zest._call_log}")
                         except SkipException as e:
                             skip_reason = e.reason
-                            log(f"skipreaons={skip_reason}")
                         zest._clear_stack_mocks()
                         zest._mock_stack.pop()
                     except Exception as e:
@@ -633,7 +634,6 @@ class zest:
                         if mock_tuple[4]:  # if reset_before_each is set
                             mock_tuple[3].reset()  # Tell the mock to reset
 
-                log(f"CAPTUIRE STDOUT IS {zest._capture_stdio}")
                 if zest._capture_stdio:
                     so = io.StringIO()
                     se = io.StringIO()

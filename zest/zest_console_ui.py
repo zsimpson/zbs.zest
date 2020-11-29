@@ -9,11 +9,12 @@ import sys
 import os
 import re
 import curses
+import json
 from pathlib import Path
 from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
 from zest.zest_display import colorful_exception
-from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_lines
+from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_zest_result_line
 from zest.zest_runner_single_thread import traceback_match_filename
 from . import __version__
 
@@ -473,32 +474,17 @@ def draw_result_details(y, root, result, stdout, stderr):
 
 
 def load_results(zest_results_path):
-    results = {}
-    errors = []
-    stdouts = defaultdict(list)
-    stderrs = defaultdict(list)
+    """
+    Returns: zest_results_by_full_name
+    """
+    zest_results_by_full_name = {}
     for res_path in os.listdir(zest_results_path):
         res_path = zest_results_path / res_path
-        is_out = Path(res_path).suffix == ".out"
         with open(res_path) as fd:
-            full_name = None
-            for payload in read_lines(fd):
-                if isinstance(payload, dict):
-                    is_running = payload["is_running"]
-                    if is_running is True:
-                        full_name = payload["full_name"]
-                    elif is_running is False and is_out:
-                        # checking is_out to prevent storing errors twice (stdout and stderr)
-                        results[payload["full_name"]] = payload
-                        if payload["error"] is not None:
-                            errors += [payload]
-                elif isinstance(payload, str):
-                    if is_out:
-                        stdouts[full_name] += [payload]
-                    else:
-                        stderrs[full_name] += [payload]
+            for zest_result in read_zest_result_line(fd):
+                zest_results_by_full_name[zest_result.full_name] = zest_result
 
-    return results, errors, stdouts, stderrs
+    return zest_results_by_full_name
 
 
 def _run(
@@ -528,7 +514,7 @@ def _run(
     request_stop = False
     request_end = False
     zest_results_path = Path(".zest_results")
-    results, errors, stdouts, stderrs = None, None, None, None
+    zest_results_by_full_name = None
     allow_to_run_list = [] if allow_to_run is None else allow_to_run.split(":")
 
     log(f"CWD={os.getcwd()}")
@@ -543,14 +529,13 @@ def _run(
         y = draw_status(y, run_state, match_string, current_running_tests_by_proc_i)
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
-        draw_fail_lines(y + 1, errors, root, show_result_full_name)
-        y = draw_result_details(
-            y + 13,
-            root,
-            results.get(show_result_full_name),
-            stdouts.get(show_result_full_name),
-            stderrs.get(show_result_full_name),
-        )
+        # TODO
+        # draw_fail_lines(y + 1, errors, root, show_result_full_name)
+        # y = draw_result_details(
+        #     y + 13,
+        #     root,
+        #     zest_results_by_full_name.get(show_result_full_name),
+        # )
         scr.refresh()
 
     def callback(zest_result):
@@ -597,7 +582,7 @@ def _run(
                 )
 
         nonlocal request_run, request_stop, runner
-        nonlocal results, errors, stdouts, stderrs
+        nonlocal zest_results_by_full_name
         if run_state == STOPPED:
             # Tests are done. The runner_thread should be stopped
             # Ways out:
@@ -630,8 +615,7 @@ def _run(
             if not running:
                 runner = None
                 new_state(STOPPED)
-                results, errors, stdouts, stderrs = load_results(zest_results_path)
-                log(f"ERRORS {errors}")
+                zest_results_by_full_name = load_results(zest_results_path)
 
         # elif run_state == WATCHING:
         #     if watch_timestamp != os.path.getmtime(watch_file):
@@ -651,7 +635,7 @@ def _run(
             curses.init_pair(i, pal[i][0], pal[i][1])
 
     zest_results_path.mkdir(parents=True, exist_ok=True)
-    results, errors, stdouts, stderrs = load_results(zest_results_path)
+    zest_results_by_full_name = load_results(zest_results_path)
 
     while True:
         try:

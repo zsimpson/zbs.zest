@@ -1,27 +1,3 @@
-"""
-Multi-threaded runner runs each root zest in its own subprocess via
-the zest_shim interface. Each root zest has its stdio redirected into
-.out and .err files inside of which are also status message inserted
-by the shim.
-
-While running the poll() routine can be used to pluck out the status
-messages live.
-
-TODO:
-This still has a major problem.
-The load times are killing the performance.
-Each root test runs python from the CLI.
-That causes python to go through the whole complex import tree.
-To avoid this I need python's loading context to be in the same process
-and to have each test run as a fork from that process AFTER
-the module is loaded so that all zests share the same import contexts.
-
-So the fork has to happen just before the zest.do and after the load_module
-And i have to redirect the stdio handles of the fork to the correct files.
-So I think that means shim gets pulled into this file
-and I can assign to sys.stdout = open it for write inside the child.
-
-"""
 import time
 import json
 import os
@@ -50,7 +26,7 @@ class ZestRunnerErrors(Exception):
         self.errors = errors
 
 
-def read_lines(fd):
+def read_zest_result_line(fd):
     while True:
         line = fd.readline()
         if not line:
@@ -86,19 +62,6 @@ def _do_work_order(root_name, module_name, package, full_path, output_folder, ca
             """
             This callback occurs anytime a sub-zest starts or stops.
             """
-            if zest_result.error:
-                log(f"EVENT CALLBACK ERROR '{repr(zest_result.error)}'")
-
-            # TODO: Write out the stdout and stderr returned in zest_result
-            # dict_ = dict(
-            #     full_name=zest_result.full_name,
-            #     error=repr(zest_result.error)
-            #     if zest_result.error is not None
-            #     else None,
-            #     error_formatted=zest_result.error_formatted,
-            #     is_running=zest_result.is_running,
-            #     skip=zest_result.skip,
-            # )
             emit_zest_result(zest_result, event_stream)
             _do_work_order.queue.put(zest_result)
 
@@ -109,9 +72,6 @@ def _do_work_order(root_name, module_name, package, full_path, output_folder, ca
             test_stop_callback=event_callback,
             allow_to_run=None,
         )
-
-        # emit_zest_result(zest._call_log, (w, event_stream))
-        # emit(zest._call_errors, (w, event_stream))
     except Exception as e:
         e._formatted = traceback.format_exception(
             etype=type(e), value=e, tb=e.__traceback__
@@ -160,7 +120,6 @@ class ZestRunnerMultiThread:
         try:
             while True:
                 zest_result = self.queue.get_nowait()
-                log(f"zest_result {type(zest_result)}")
                 if isinstance(zest_result, Exception):
                     raise zest_result
                 assert isinstance(zest_result, ZestResult)
@@ -242,8 +201,6 @@ class ZestRunnerMultiThread:
             #         break
 
             self.pool.join()
-
-        log(f"MULTI 9 - exit __init__")
 
 
 '''
