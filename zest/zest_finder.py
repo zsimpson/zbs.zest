@@ -189,12 +189,16 @@ def find_zests(
     if allow_to_run is None:
         allow_to_run = []
 
+    if root is None:
+        log(f"root none {include_dirs} {allow_to_run} {match_string}")
+        return {}, {}, []
+
     n_root_parts = len(root.split(os.sep))
 
     return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
-    root_zest_funcs = (
-        {}
-    )  # A dict of entrypoints (root zests) -> (module_name, package, path)
+
+    # root_zest_funcs is a dict of entrypoints (root zests) -> (module_name, package, path)
+    root_zest_funcs = {}
     errors_to_show = []
 
     for curr in _walk_include_dirs(root, include_dirs):

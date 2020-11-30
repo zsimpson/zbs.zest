@@ -11,6 +11,7 @@ from zest import zest_runner_single_thread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, ZestRunnerErrors
 from zest.zest_display import display_errors, display_complete
 from zest import zest_console_ui
+from zest.zest import log
 from . import __version__
 
 
@@ -84,69 +85,9 @@ def main():
         retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:
-
-            # TODO: Functionalize this over to multi_thrasd.py
-
-            call_log = []
-            call_errors = []
-
-            def callback(zest_result):
-                nonlocal call_log, call_errors
-                if not zest_result.is_running:
-                    call_log += [zest_result.full_name]
-                    if zest_result.error is not None:
-                        # TODO: Convert to using a simple list of results
-                        call_errors += [
-                            (
-                                zest_result.error,
-                                zest_result.error_formatted,
-                                zest_result.full_name.split("."),
-                            )
-                        ]
-
-            zest_results_path = pathlib.Path(".zest_results")
-            zest_results_path.mkdir(parents=True, exist_ok=True)
-            try:
-                runner = ZestRunnerMultiThread(zest_results_path, callback, **kwargs)
-                request_stop = False
-                retcode = 0
-                state_messages = ["DONE", "RUNNING"]
-                wrote_status = False
-                while True:
-                    try:
-                        n_workers = len(runner.worker_status)
-
-                        # if ...: request_stop = True
-                        if not runner.poll(request_stop):
-                            if wrote_status:
-                                for _ in range(n_workers):
-                                    sys.stdout.write("\033[K\n")  # Clear to EOL and new line
-                            break
-
-                        for i, worker in enumerate(runner.worker_status):
-                            wrote_status = True
-                            if worker is not None:
-                                sys.stdout.write(f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}")
-                            else:
-                                sys.stdout.write(f"{i:2d}: NOT STARTED")
-                            sys.stdout.write("\033[K\n")  # Clear to EOL and new line
-
-                        # GO UP to starting place
-                        sys.stdout.write(f"\033[{n_workers}A")
-
-                        time.sleep(0.05)
-                    except KeyboardInterrupt:
-                        request_stop = True
-                        retcode = 1
-
-                display_complete("", call_log, call_errors)
-
-            except ZestRunnerErrors as e:
-                display_errors(e.errors)
-                retcode = 1
-
+            retcode = ZestRunnerMultiThread(**kwargs)
         else:
-            retcode = zest_runner_single_thread.run_zests(**kwargs)
+            retcode = zest_runner_single_thread.run(**kwargs)
 
     sys.exit(retcode)
 

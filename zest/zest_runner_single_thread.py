@@ -56,7 +56,7 @@ def _display_warnings(call_warnings):
 # ---------------------------------------------------------------------------------
 
 
-def run_zests(
+def run(
     root=None,
     include_dirs=None,
     allow_to_run="__all__",
