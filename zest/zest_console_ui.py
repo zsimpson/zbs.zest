@@ -48,11 +48,13 @@ def _num_key_to_int(key):
 # ----------------------------------------------------------------------------
 
 STOPPED = 0
-RUNNING = 1
-STOPPING = 2
-WATCHING = 3
+LOADING = 1
+RUNNING = 2
+STOPPING = 3
+WATCHING = 4
 run_state_strs = [
     "Stopped",
+    "Loading",
     "Running",
     "Stopping (^C to force)",
     "Watching",
@@ -302,7 +304,12 @@ def draw_summary(y, n_success, n_errors, n_skips):
     return y
 
 
-def draw_fail_lines(y, errors, root, show_result_full_name):
+def _errors_from_results(zest_results_by_full_name):
+    return [res for res in zest_results_by_full_name.values() if res.error is not None]
+
+
+def draw_fail_lines(y, zest_results_by_full_name, root, show_result_full_name):
+    errors = _errors_from_results(zest_results_by_full_name)
     n_errors = len(errors)
     if n_errors > 0:
         _print(y, 0, PAL_NONE, f"Failed tests:")
@@ -312,8 +319,8 @@ def draw_fail_lines(y, errors, root, show_result_full_name):
             if i >= 10:
                 break
 
-            name = error["full_name"]
-            formatted = error["error_formatted"]
+            name = error.full_name
+            formatted = error.error_formatted
 
             lines = []
             for line in formatted:
@@ -340,7 +347,7 @@ def draw_fail_lines(y, errors, root, show_result_full_name):
                     PAL_ERROR_BASE,
                     " raised: ",
                     PAL_ERROR_MESSAGE,
-                    error["error"],
+                    error.error,
                     PAL_ERROR_BASE,
                     " ",
                     PAL_ERROR_PATHNAME,
@@ -367,8 +374,8 @@ def draw_warnings(y, warnings):
     return y
 
 
-def draw_result_details(y, root, result, stdout, stderr):
-    if result is None:
+def draw_result_details(y, root, zest_result):
+    if zest_result is None:
         return y
 
     # if run_state == WATCHING:
@@ -379,7 +386,7 @@ def draw_result_details(y, root, result, stdout, stderr):
     #     y += 1
 
     _, length = _print(
-        y, 0, PAL_MENU, "Test result: ", PAL_MENU_RUN_STATUS, result["full_name"],
+        y, 0, PAL_MENU, "Test result: ", PAL_MENU_RUN_STATUS, zest_result.full_name,
     )
     draw_menu_fill_to_end_of_line(y, length)
     y += 1
@@ -395,24 +402,37 @@ def draw_result_details(y, root, result, stdout, stderr):
         "w",
         PAL_MENU,
         "atch test file (auto-re-run)   ",
+        PAL_MENU_KEY,
+        "c",
+        PAL_MENU,
+        "lear this view   ",
     )
     draw_menu_fill_to_end_of_line(y, length)
     y += 1
 
-    if result["is_running"] is True:
+    if zest_result.is_running is True:
         _print(y, 0, PAL_NONE, "Runnning...")
         y += 1
-    elif result["error"] is None:
+    elif zest_result.error is None:
         _print(y, 0, PAL_SUCCESS, "Passed!")
         y += 1
     else:
-        formatted = result["error_formatted"]
+        formatted = zest_result.error_formatted
         lines = []
         for line in formatted:
             lines += [sub_line for sub_line in line.strip().split("\n")]
 
+        s = [
+            PAL_NONE,
+            "raised: ",
+            PAL_ERROR_MESSAGE,
+            zest_result.error,
+        ]
+        _print(y, 0, *s)
+        y += 1
+
         is_libs = False
-        for line in lines[1:-1]:
+        for line in lines[0:-1]:
             s = []
             split_line = traceback_match_filename(root, line)
             if split_line is None:
@@ -442,32 +462,24 @@ def draw_result_details(y, root, result, stdout, stderr):
                         " in function ",
                     ]
                     s += [PAL_ERROR_MESSAGE, context]
-            _print(y, 0, *s)
+            _print(y, 2, *s)
             y += 1
 
-        s = [
-            PAL_ERROR_BASE,
-            "raised: ",
-            PAL_ERROR_MESSAGE,
-            result["error"],
-        ]
-        _print(y, 0, *s)
-        y += 1
-
-        error_message = str(result["error"]).strip()
+        error_message = str(zest_result.error).strip()
         if error_message != "":
-            _print(y, 4, PAL_ERROR_MESSAGE, error_message)
+            _print(y, 2, PAL_ERROR_MESSAGE, error_message)
 
-        if stdout is not None and stdout != "":
+        y += 1
+        if zest_result.stdout is not None and zest_result.stdout != "":
             y += 1
             y, _ = _print(y, 0, PAL_NONE, "Stdout:")
-            y, _ = _print(y, 0, PAL_STDOUT, "".join(stdout))
+            y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.stdout))
             y += 1
 
-        if stderr is not None and stderr != "":
+        if zest_result.stderr is not None and zest_result.stderr != "":
             y += 1
             y, _ = _print(y, 0, PAL_NONE, "Stderr:")
-            y, _ = _print(y, 0, PAL_STDOUT, "".join(stderr))
+            y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.stderr))
             y += 1
 
     return y
@@ -517,8 +529,6 @@ def _run(
     zest_results_by_full_name = None
     allow_to_run_list = [] if allow_to_run is None else allow_to_run.split(":")
 
-    log(f"CWD={os.getcwd()}")
-
     def render():
         nonlocal dirty
         if not dirty:
@@ -529,13 +539,12 @@ def _run(
         y = draw_status(y, run_state, match_string, current_running_tests_by_proc_i)
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
-        # TODO
-        # draw_fail_lines(y + 1, errors, root, show_result_full_name)
-        # y = draw_result_details(
-        #     y + 13,
-        #     root,
-        #     zest_results_by_full_name.get(show_result_full_name),
-        # )
+        draw_fail_lines(y + 1, zest_results_by_full_name, root, show_result_full_name)
+        y = draw_result_details(
+            y + 13,
+            root,
+            zest_results_by_full_name.get(show_result_full_name),
+        )
         scr.refresh()
 
     def callback(zest_result):
@@ -564,11 +573,17 @@ def _run(
             dirty = True
 
         def start_run(allow_to_run):
-            nonlocal runner, n_errors, n_success, n_skips
+            nonlocal runner, n_errors, n_success, n_skips, dirty, run_state
             assert runner is None
+
+            # Loading can block a a while, so update render here before
+            run_state = LOADING
+            dirty = True
+            render()
+
             n_errors, n_success, n_skips = 0, 0, 0
 
-            if allow_to_run in allow_to_run_list or len(allow_to_run_list) == 0:
+            if allow_to_run in allow_to_run_list or "__all__" in allow_to_run_list:
                 runner = ZestRunnerMultiThread(
                     zest_results_path,
                     callback=callback,
@@ -580,6 +595,10 @@ def _run(
                     n_workers=n_workers,
                     capture_stdio=True,
                 )
+
+                run_state = RUNNING
+                dirty = True
+                render()
 
         nonlocal request_run, request_stop, runner
         nonlocal zest_results_by_full_name
@@ -647,17 +666,22 @@ def _run(
                 key = scr.getkey()
 
                 if key in num_keys:
+                    errors = _errors_from_results(zest_results_by_full_name)
                     error_i = (
                         _num_key_to_int(key) - 1
                     )  # Because they press '1' but mean index '0'
                     if 0 <= error_i < len(errors):
                         error = errors[error_i]
-                        if show_result_full_name == error["full_name"]:
+                        if show_result_full_name == error.full_name:
                             # Already showing, hide it
                             show_result_full_name = None
                         else:
-                            show_result_full_name = error["full_name"]
+                            show_result_full_name = error.full_name
                         dirty = True
+
+                if key == "c":
+                    show_result_full_name = None
+                    dirty = True
 
                 if key == "q":
                     request_end = True
@@ -688,7 +712,7 @@ def _run(
                     match_string = s
                     dirty = True
 
-            # time.sleep(0.01)
+            # time.sleep(0.05)
 
         except KeyboardInterrupt:
             # First press ^C asks for a graceful shutdown of child processes

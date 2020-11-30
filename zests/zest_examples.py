@@ -64,7 +64,7 @@ def zest_basics():
         import sys
         print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
         print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
-        raise AssertionError
+        #raise AssertionError
         pass
 
     # def it_fails_2():

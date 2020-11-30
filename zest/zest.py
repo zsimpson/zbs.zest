@@ -201,7 +201,7 @@ class MockFunction:
 class JSONDataClassEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, BaseException):
-            return str(o)
+            return o.__class__.__name__
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
