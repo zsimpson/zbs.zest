@@ -282,6 +282,22 @@ class zest:
         zest._capture_stdio = False
 
     @staticmethod
+    def parameterized(**params):
+        def decorator(fn):
+            @wraps(fn)
+            def wrapper(*args, **kwargs):
+                keys = list(params.keys())
+                assert len(keys) == 1
+                pkey = keys[0]
+                for pval in params[pkey]:
+                    extra = {pkey: pval}
+                    fn(*args, **kwargs, **extra)
+
+            return wrapper
+
+        return decorator
+
+    @staticmethod
     def skip(reason=None):
         def decorator(fn):
             @wraps(fn)

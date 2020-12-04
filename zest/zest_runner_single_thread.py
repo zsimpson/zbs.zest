@@ -60,6 +60,7 @@ def run(
     root=None,
     include_dirs=None,
     allow_to_run="__all__",
+    allow_files=None,
     match_string=None,
     exclude_string=None,
     verbose=1,
@@ -79,6 +80,8 @@ def run(
         Special values:
             __all__: Consider all zests to run
             __failed__: Consider previous failed zests
+    allow_files:
+        If not None: A colon-delimited list of filenames (without paths or extension) that will be allowed
     match_string:
         If not None: A substring that if found in a zest name will include it
         Note: If allow_to_run includes only a subset of zests then this match_string
@@ -118,6 +121,7 @@ def run(
         root,
         include_dirs,
         allow_to_run.split(":"),
+        allow_files.split(":") if allow_files is not None else None,
         match_string,
         exclude_string,
         bypass_skip,

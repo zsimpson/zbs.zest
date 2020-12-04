@@ -149,6 +149,7 @@ def find_zests(
     root,
     include_dirs,
     allow_to_run=None,
+    allow_files=None,
     match_string=None,
     exclude_string=None,
     bypass_skip=None,
@@ -164,6 +165,8 @@ def find_zests(
         allow_to_run:
             If not None: a list of full test names (dot-delimited) that will be included.
             Plus two specials: "__all__" and "__failed__"
+        allow_files:
+            If not None: a list of filenames (without directory) that will be included.
         match_string:
             If not None then any zest full name that *contains* this string will be included.
             Note that match_string only narrows the scope from allow_to_run
@@ -190,7 +193,7 @@ def find_zests(
         allow_to_run = []
 
     if root is None:
-        log(f"root none {include_dirs} {allow_to_run} {match_string}")
+        log(f"root none {include_dirs} {allow_to_run} {match_string} {allow_files}")
         return {}, {}, []
 
     n_root_parts = len(root.split(os.sep))
@@ -203,6 +206,11 @@ def find_zests(
 
     for curr in _walk_include_dirs(root, include_dirs):
         for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
+            if allow_files is not None:
+                if module_name not in allow_files:
+                    log(f"skipping filename {module_name}")
+                    continue
+
             path = os.path.join(curr, module_name + ".py")
             with open(path) as file:
                 source = file.read()

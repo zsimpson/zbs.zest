@@ -7,6 +7,7 @@ import os
 import sys
 import argparse
 import pathlib
+from pathlib import Path
 from zest import zest_runner_single_thread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, ZestRunnerErrors
 from zest.zest_display import display_errors, display_complete
@@ -29,6 +30,13 @@ def main():
 
     parser.add_argument("--include_dirs", nargs="?", default=".",
         help="Optional colon-delimited list of directories to search.",
+    )
+
+    parser.add_argument("--allow_files", nargs="?",
+        help=(
+            "Optional colon-delimited list of filenames "
+            "that will be allowed to run. Special: '__all__'."
+        )
     )
 
     parser.add_argument("--allow_to_run", nargs="?", default="__all__",
@@ -85,7 +93,7 @@ def main():
         retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:
-            retcode = ZestRunnerMultiThread(**kwargs)
+            retcode = ZestRunnerMultiThread(output_folder=Path(".zest_results"), callback=None, **kwargs)
         else:
             retcode = zest_runner_single_thread.run(**kwargs)
 

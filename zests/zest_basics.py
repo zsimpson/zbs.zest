@@ -1,6 +1,9 @@
 """
-This is a (self-referential) test that tests zest itself.
+This is a simple test that tests the basics of zest itself.
 It also serves as an example of how to build a zest.
+
+It does not include any complicated self-referential tests,
+see
 """
 
 import time
@@ -60,12 +63,12 @@ def zest_basics():
     #     raise NotImplementedError
 
 
-    def it_fails_1():
-        import sys
-        print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
-        print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
-        #raise AssertionError
-        pass
+    # def it_fails_1():
+    #     import sys
+    #     print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
+    #     print(" ".join(["Something to stderr!"] * 30), file=sys.stderr)
+    #     #raise AssertionError
+    #     pass
 
     # def it_fails_2():
     #     import time
@@ -291,199 +294,3 @@ def zest_mocks():
         assert m_foo.called_once_with_kws(arg1="arg1", arg2="arg2")
 
     zest()
-
-
-@zest.skip(reason="bad_zest_1")
-def zest_bad_zest_1():
-    # These are special cases that are bad which are excluded
-    # except in the zest_runner case below that tests that the
-    # errors are correctly detected
-    def it_foobars():
-        pass
-
-    def outer_foobar():
-        def inner_foobar():
-            pass
-
-        # Inner does call zest
-        zest()
-
-    # Outer does not call zest
-
-
-@zest.skip(reason="bad_zest_2")
-def zest_bad_zest_2():
-    # These are special cases that are bad which are excluded
-    # except in the zest_runner case below that tests that the
-    # errors are correctly detected
-    def it_foobars():
-        pass
-
-    # zest before final
-    zest()
-
-    def outer_foobar():
-        pass
-
-
-@zest.skip(reason="noisy_zests")
-def zest_noisy_zests():
-    def it_foobars():
-        print("This is to stdout")
-        print("This is to stderr", file=sys.stderr)
-
-    zest()
-
-
-@zest.skip(reason="fails")
-def zest_failing_zest():
-    assert False
-    log("IT ASSERTS?")
-
-    def it_asserts():
-        assert False
-
-    zest()
-
-
-def _call_zest(*args):
-    # Run zest_runner in a sub-processes so that we don't end up with
-    # recursion problems since these tests themselves is running under ZestRunner
-    try:
-        to_run = "python -m zest.zest_cli " + " --add_markers " + " ".join(args)
-        output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
-        ret_code = 0
-    except subprocess.CalledProcessError as e:
-        ret_code = e.returncode
-        output = e.output
-    return ret_code, output.decode("utf-8")
-
-
-def zest_runner_single_thread():
-    def _get_run_tests(output):
-        found_tests = []
-        for line in output.split("\n"):
-            m = re.search(r"^[^\+]*[\+]([a-z0-9_]+)", line)
-            if m:
-                skipped = re.search(r"skipped", line, re.IGNORECASE)
-                if not skipped:
-                    found_tests += [m.group(1)]
-        return found_tests
-
-    def it_returns_version():
-        ret_code, output = _call_zest("--version")
-        assert ret_code == 0 and output.strip() == __version__
-
-    def shuffling():
-        def _all_identical_ordering(disable_shuffle):
-            first_found_tests = []
-            for tries in range(5):
-                ret_code, output = _call_zest(
-                    "--verbose=2",
-                    "--disable_shuffle" if disable_shuffle else "",
-                    "zest_basics",
-                )
-                if ret_code != 0:
-                    print(output)
-                assert ret_code == 0
-
-                found_tests = _get_run_tests(output)
-                if len(first_found_tests) == 0:
-                    first_found_tests = list(found_tests)
-                else:
-                    if found_tests != first_found_tests:
-                        return False
-            else:
-                return True
-
-        def it_shuffles_by_default():
-            assert not _all_identical_ordering(False)
-
-        def it_can_disable_shuffle():
-            assert _all_identical_ordering(True)
-
-        zest()
-
-    def it_runs_parent_tests():
-        ret_code, output = _call_zest("--verbose=2", "level_two")
-        found_tests = _get_run_tests(output)
-        assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
-
-    def it_skips():
-        ret_code, output = _call_zest("--verbose=2", "zest_bad_zest_1")
-        assert "+zest_bad_zest_1: SKIPPED" in strip_ansi(output)
-
-    def it_skips_bypass():
-        ret_code, output = _call_zest(
-            "--verbose=2", "zest_bad_zest_1", "--bypass_skip=bad_zest_1"
-        )
-        assert "+zest_bad_zest_1: SKIPPED" not in strip_ansi(output)
-
-    def it_warns_if_no_trailing_zest():
-        ret_code, output = _call_zest(
-            "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
-        )
-        assert "did not terminate with a call to zest" in output
-        assert "zest_examples.py:" in output
-        assert ret_code != 0
-
-    def it_warns_if_zest_not_final():
-        ret_code, output = _call_zest(
-            "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
-        )
-        assert "before all functions were defined" in output
-        assert "zest_examples.py:" in output
-        assert ret_code != 0
-
-    zest()
-
-
-def _call_multi_zest(*args):
-    return _call_zest(*(args + ("--n_workers=2",)))
-
-
-"""
-def zest_runner_multi_thread():
-    def _get_run_tests(output):
-        found_tests = []
-        for line in output.split("\n"):
-            m = re.search(r"^[^\+]*[\+]([a-z0-9_]+)", line)
-            if m:
-                skipped = re.search(r"skipped", line, re.IGNORECASE)
-                if not skipped:
-                    found_tests += [m.group(1)]
-        return found_tests
-
-    def it_returns_version():
-        ret_code, output = _call_multi_zest("--version")
-        assert ret_code == 0 and output.strip() == __version__
-
-    def it_skips():
-        ret_code, output = _call_multi_zest()
-        log(f"OUTPUT {output}")
-        assert "noisy_zests" not in output
-        assert ret_code == 0 and output.strip() == __version__
-
-    def it_runs_parent_tests():
-        ret_code, output = _call_multi_zest("--verbose=2", "level_two")
-        found_tests = _get_run_tests(output)
-        assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
-
-    def it_warns_if_no_trailing_zest():
-        ret_code, output = _call_multi_zest(
-            "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
-        )
-        assert "did not terminate with a call to zest" in output
-        assert "zest_examples.py:" in output
-        assert ret_code != 0
-
-    def it_warns_if_zest_not_final():
-        ret_code, output = _call_multi_zest(
-            "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
-        )
-        assert "before all functions were defined" in output
-        assert "zest_examples.py:" in output
-        assert ret_code != 0
-
-    zest()
-"""
