@@ -612,14 +612,13 @@ class zest:
                         start_time = time.time()
                         try:
                             zest._mock_stack += [[]]
-                            # log(f"zest._call_log={zest._call_log}")
 
                             try:
-                                # log(f"func={func}")
+                                log(f"calling {func}")
                                 func(*params)
-                                # log(f"called={zest._call_log}")
                             except SkipException as e:
                                 skip_reason = e.reason
+                            log(f"returned from {func}")
                             zest._clear_stack_mocks()
                             zest._mock_stack.pop()
                         except Exception as e:

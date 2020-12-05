@@ -105,7 +105,6 @@ class ZestRunnerBase:
             exclude_string,
             bypass_skip,
         )
-        log("FOUND", self.root_zests, allow_to_run)
 
         self.handle_find_errors(find_errors)
 

@@ -45,7 +45,7 @@ def read_zest_result_line(fd):
 
 
 def _do_work_order(
-    root_name, module_name, package, full_path, output_folder, capture_stdio
+    root_name, module_name, package, full_path, output_folder, capture_stdio, allow_to_run
 ):
     event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
 
@@ -58,7 +58,6 @@ def _do_work_order(
     zest_result_to_return = None
 
     try:
-
         def emit_zest_result(zest_result, stream):
             assert isinstance(zest_result, ZestResult)
             try:
@@ -82,7 +81,7 @@ def _do_work_order(
             root_zest_func,
             test_start_callback=event_callback,
             test_stop_callback=event_callback,
-            allow_to_run=None,
+            allow_to_run=allow_to_run,
         )
     except Exception as e:
         e._formatted = traceback.format_exception(
@@ -176,6 +175,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 full_path,
                 self.output_folder,
                 self.capture_stdio,
+                self.allow_to_run,
             )
             for (
                 root_name,
@@ -195,9 +195,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         ) as self.pool:
             self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
             self.pool.close()
-
-            # call_log = []
-            # call_errors = []
 
             zest_results_path = pathlib.Path(".zest_results")
             zest_results_path.mkdir(parents=True, exist_ok=True)

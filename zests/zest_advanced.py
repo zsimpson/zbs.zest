@@ -46,11 +46,12 @@ def zest_runner(n_workers):
     def _get_run_tests(output):
         found_tests = []
         for line in output.split("\n"):
-            m = re.search(r"^[^\+]*[\+]([a-z0-9_]+)", line)
+            m = re.search(r"^[^\+]*[\+]([a-z0-9_\.]+)", line)
             if m:
                 skipped = re.search(r"skipped", line, re.IGNORECASE)
                 if not skipped:
-                    found_tests += [m.group(1)]
+                    found_tests += [m.group(1).split(".")[-1]]
+        # log(f"found_tests {found_tests}")
         return found_tests
 
     def it_returns_version():
@@ -90,7 +91,7 @@ def zest_runner(n_workers):
     def it_runs_parent_tests():
         ret_code, output = _call_zest_cli("--verbose=2", "level_two")
         found_tests = _get_run_tests(output)
-        assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
+        assert set(found_tests) == set(["zest_basics", "it_recurses", "level_one", "level_two"])
 
     def it_skips():
         ret_code, output = _call_zest_cli("--verbose=2", "zest_bad_zest_1")
