@@ -10,6 +10,7 @@ import os
 import re
 import curses
 import json
+import traceback
 from pathlib import Path
 from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
@@ -501,11 +502,9 @@ def load_results(zest_results_path):
 def _run(
     _scr,
     root=".",
-    include_dirs=None,
-    allow_to_run=None,
     match_string=None,
-    exclude_string=None,
     n_workers=1,
+    allow_to_run=None,
     **kwargs,
 ):
     global scr
@@ -526,7 +525,6 @@ def _run(
     request_end = False
     zest_results_path = Path(".zest_results")
     zest_results_by_full_name = None
-    allow_to_run_list = [] if allow_to_run is None else allow_to_run.split(":")
 
     def render():
         nonlocal dirty
@@ -582,22 +580,19 @@ def _run(
 
             n_errors, n_success, n_skips = 0, 0, 0
 
-            if allow_to_run in allow_to_run_list or "__all__" in allow_to_run_list:
-                runner = ZestRunnerMultiThread(
-                    zest_results_path,
-                    callback=callback,
-                    root=root,
-                    include_dirs=include_dirs,
-                    allow_to_run=allow_to_run,
-                    match_string=match_string,
-                    exclude_string=exclude_string,
-                    n_workers=n_workers,
-                    capture_stdio=True,
-                )
+            runner = ZestRunnerMultiThread(
+                output_folder=zest_results_path,
+                callback=callback,
+                root=root,
+                match_string=match_string,
+                capture_stdio=True,
+                allow_to_run=allow_to_run,
+                **kwargs
+            )
 
-                run_state = RUNNING
-                dirty = True
-                render()
+            run_state = RUNNING
+            dirty = True
+            render()
 
         nonlocal request_run, request_stop, runner
         nonlocal zest_results_by_full_name
@@ -711,8 +706,6 @@ def _run(
                     match_string = s
                     dirty = True
 
-            # time.sleep(0.05)
-
         except KeyboardInterrupt:
             # First press ^C asks for a graceful shutdown of child processes
             # Second ^C just aborts out of the parent process.
@@ -725,4 +718,7 @@ def run(**kwargs):
     try:
         curses.wrapper(_run, **kwargs)
     except Exception as e:
-        colorful_exception(e, e._formatted, gray_libs=False)
+        formatted = traceback.format_exception(
+            etype=type(e), value=e, tb=e.__traceback__
+        )
+        colorful_exception(e, formatted, gray_libs=False)

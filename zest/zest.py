@@ -592,7 +592,7 @@ class zest:
                             zest._test_start_callback(
                                 ZestResult(
                                     zest._call_stack,
-                                    ".".join(zest._call_stack),
+                                    full_name,
                                     zest._call_stack[-1],
                                     None,
                                     None,
@@ -614,11 +614,11 @@ class zest:
                             zest._mock_stack += [[]]
 
                             try:
-                                log(f"calling {func}")
+                                # log(f"calling {func}")
                                 func(*params)
                             except SkipException as e:
                                 skip_reason = e.reason
-                            log(f"returned from {func}")
+                            # log(f"returned from {func}")
                             zest._clear_stack_mocks()
                             zest._mock_stack.pop()
                         except Exception as e:

@@ -116,7 +116,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
 
             runner = ZestRunnerMultiThread(callback=callback, ...)
             while runner.poll(request_stop):
-                time.sleep(0.1)
                 if ...: request_stop = True
         """
 
@@ -147,7 +146,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         except Empty:
             pass
 
-        if self.map_results.ready() and self.queue.empty():
+        if self.map_results is not None and self.map_results.ready() and self.queue.empty():
             self.pool.join()
             return False
 
@@ -161,6 +160,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         self.worker_status = [None] * self.n_workers
         self.pool = None
         self.queue = Queue()
+        self.map_results = None
 
     def run(self):
         if self.retcode != 0:
@@ -229,13 +229,9 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     n_status_lines = max(n_status_lines, n_workers)
 
                     cursor_move_to_start()
-
-                    time.sleep(0.05)
                 except KeyboardInterrupt:
                     request_stop = True
                     self.retcode = 1
-
-            # results = self.map_results.get()
 
             cursor_move_to_start()
             display_complete("", self.results)
@@ -248,8 +244,3 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 for result in self.results:
                     display_start(result.full_name, None, None, self.add_markers)
                     display_stop(result.error, result.elapsed, result.skip, None, None)
-
-            # HERE?!
-            # when if run
-            # python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers=2 --verbose=2 level_two
-            # it runs everything why?

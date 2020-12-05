@@ -2,7 +2,7 @@ from zest import colors
 import sys
 import os
 import re
-
+import traceback
 
 def s(*strs):
     return sys.stdout.write("".join(strs) + colors.reset)
@@ -279,10 +279,10 @@ def colorful_exception(
                 s(gray, " in function ")
                 s(gray, context, "\n")
             else:
-                s("File ", yellow, leading, "/", yellow, bold, basename)
-                s(":", yellow, bold, lineno)
+                s("File ", colors.yellow, leading, "/", colors.yellow, colors.bold, basename)
+                s(":", colors.yellow, colors.bold, lineno)
                 s(" in function ")
-                s(magenta, bold, context, "\n")
+                s(colors.magenta, colors.bold, context, "\n")
 
     if show_raised:
         s(

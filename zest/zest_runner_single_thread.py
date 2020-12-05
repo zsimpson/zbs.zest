@@ -19,6 +19,7 @@ from zest.zest_display import (
     display_start,
     display_stop,
     display_error,
+    display_abbreviated,
 )
 
 
