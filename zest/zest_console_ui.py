@@ -13,9 +13,8 @@ import json
 from pathlib import Path
 from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
-from zest.zest_display import colorful_exception
+from zest.zest_display import colorful_exception, traceback_match_filename
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_zest_result_line
-from zest.zest_runner_single_thread import traceback_match_filename
 from . import __version__
 
 if os.name == "nt":

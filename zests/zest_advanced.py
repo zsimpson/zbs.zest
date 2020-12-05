@@ -14,8 +14,8 @@ from zest.version import __version__
 import subprocess
 
 
-#@zest.parameter_list([1, 2])
-@zest.parameter_list([2])
+# @zest.parameter_list([1, 2])
+@zest.parameter_list([1])
 def zest_runner(n_workers):
     """Test all options under single and multi threaded models"""
 
@@ -27,7 +27,9 @@ def zest_runner(n_workers):
         """
         try:
             to_run = f"python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers={n_workers} " + " ".join(args)
+            log("Advanced running", to_run)
             output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
+            log("Output", output)
             ret_code = 0
         except subprocess.CalledProcessError as e:
             ret_code = e.returncode
@@ -110,54 +112,3 @@ def zest_runner(n_workers):
         assert ret_code != 0
 
     zest()
-
-
-def _call_multi_zest(*args):
-    return _call_zest_cli(*(args + ("--n_workers=2",)))
-
-
-"""
-def zest_runner_multi_thread():
-    def _get_run_tests(output):
-        found_tests = []
-        for line in output.split("\n"):
-            m = re.search(r"^[^\+]*[\+]([a-z0-9_]+)", line)
-            if m:
-                skipped = re.search(r"skipped", line, re.IGNORECASE)
-                if not skipped:
-                    found_tests += [m.group(1)]
-        return found_tests
-
-    def it_returns_version():
-        ret_code, output = _call_multi_zest("--version")
-        assert ret_code == 0 and output.strip() == __version__
-
-    def it_skips():
-        ret_code, output = _call_multi_zest()
-        log(f"OUTPUT {output}")
-        assert "noisy_zests" not in output
-        assert ret_code == 0 and output.strip() == __version__
-
-    def it_runs_parent_tests():
-        ret_code, output = _call_multi_zest("--verbose=2", "level_two")
-        found_tests = _get_run_tests(output)
-        assert found_tests == ["zest_basics", "it_recurses", "level_one", "level_two"]
-
-    def it_warns_if_no_trailing_zest():
-        ret_code, output = _call_multi_zest(
-            "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
-        )
-        assert "did not terminate with a call to zest" in output
-        assert "zest_examples.py:" in output
-        assert ret_code != 0
-
-    def it_warns_if_zest_not_final():
-        ret_code, output = _call_multi_zest(
-            "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
-        )
-        assert "before all functions were defined" in output
-        assert "zest_examples.py:" in output
-        assert ret_code != 0
-
-    zest()
-"""

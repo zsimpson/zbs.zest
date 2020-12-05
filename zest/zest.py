@@ -578,6 +578,7 @@ class zest:
                         if (
                             zest._allow_to_run is not None
                             and full_name not in zest._allow_to_run
+                            and zest._allow_to_run != "__all__"
                         ):
                             return
 

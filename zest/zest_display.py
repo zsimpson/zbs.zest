@@ -1,20 +1,11 @@
+from zest import colors
 import sys
 import os
 import re
 
-blue = "\u001b[34m"
-yellow = "\u001b[33m"
-red = "\u001b[31m"
-green = "\u001b[32m"
-gray = "\u001b[30;1m"
-cyan = "\u001b[36m"
-magenta = "\u001b[35m"
-bold = "\u001b[1m"
-reset = "\u001b[0m"
-
 
 def s(*strs):
-    return sys.stdout.write("".join(strs) + reset)
+    return sys.stdout.write("".join(strs) + colors.reset)
 
 
 _tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
@@ -49,7 +40,7 @@ def error_header(edge, edge_style, label):
         + " "
         + label
         + " "
-        + reset
+        + colors.reset
         + edge_style
         + (edge * (tty_size()[1] - 7 - len(label)))
     )
@@ -66,31 +57,35 @@ def tty_size():
     return _tty_size_cache
 
 
-def display_errors(errors):
+def display_find_errors(errors):
+    s(colors.reset, colors.red, "Zest Finder Errors:\n")
     for error in errors:
         parent_name, path, lineno, error_message = error
 
         s(
-            red,
-            "\nERROR: ",
-            reset,
-            "Zest function ",
-            bold,
-            red,
-            parent_name,
-            reset,
+            colors.reset,
+            colors.bold,
+            colors.red,
+            "  ", parent_name,
+            colors.reset,
+            colors.yellow,
             f" (@ {path}:{lineno}) ",
+            colors.red,
             f"{error_message}\n",
-            f"If you are using local functions that are not tests, prefix them with underscore.\n",
         )
+
+    s(
+        colors.yellow,
+        f"Reminder: If you are using local functions that are not tests, prefix them with underscore.\n",
+    )
 
 
 def _display_error(root, zest_result):
     stack = zest_result.full_name.split(".")
     leaf_test_name = stack[-1]
-    formatted_test_name = " . ".join(stack[0:-1]) + bold + " . " + leaf_test_name
+    formatted_test_name = " . ".join(stack[0:-1]) + colors.bold + " . " + leaf_test_name
 
-    s("\n", error_header("=", red, formatted_test_name), "\n")
+    s("\n", error_header("=", colors.red, formatted_test_name), "\n")
     lines = []
     for line in (zest_result.error_formatted or [""]):
         lines += [sub_line for sub_line in line.strip().split("\n")]
@@ -99,27 +94,27 @@ def _display_error(root, zest_result):
     for line in lines[1:-1]:
         split_line = traceback_match_filename(root, line)
         if split_line is None:
-            s(gray if is_libs else "", line, "\n")
+            s(colors.gray if is_libs else "", line, "\n")
         else:
             leading, basename, lineno, context, is_libs = split_line
             if is_libs:
-                s(gray, "File ", leading, "/", basename)
-                s(gray, ":", lineno)
-                s(gray, " in function ")
-                s(gray, context, "\n")
+                s(colors.gray, "File ", leading, "/", basename)
+                s(colors.gray, ":", lineno)
+                s(colors.gray, " in function ")
+                s(colors.gray, context, "\n")
             else:
-                s("File ", yellow, leading, "/", yellow, bold, basename)
-                s(":", yellow, lineno)
+                s("File ", colors.yellow, leading, "/", colors.yellow, colors.bold, basename)
+                s(":", colors.yellow, lineno)
                 s(" in function ")
                 if leaf_test_name == context:
-                    s(red, bold, context, "\n")
+                    s(colors.red, colors.bold, context, "\n")
                 else:
-                    s(magenta, bold, context, "\n")
+                    s(colors.magenta, colors.bold, context, "\n")
 
-    s(red, "raised: ", red, bold, zest_result.error.__class__.__name__, "\n")
+    s(colors.red, "raised: ", colors.red, colors.bold, zest_result.error.__class__.__name__, "\n")
     error_message = str(zest_result.error).strip()
     if error_message != "":
-        s(red, error_message, "\n")
+        s(colors.red, error_message, "\n")
     s()
 
 
@@ -138,9 +133,27 @@ def display_complete(root, zest_results):
 
     s(f"\nRan {len(zest_results)} tests. ")
     if n_errors == 0:
-        s(green, "SUCCESS\n")
+        s(colors.green, "SUCCESS\n")
     else:
-        s(red, bold, f"{n_errors} ERROR(s)\n")
+        s(colors.red, colors.bold, f"{n_errors} ERROR(s)\n")
+
+
+def display_timings(results):
+    s("Slowest 5%\n")
+    n_timings = len(results)
+    timings = [
+        (result.full_name, result.elapsed) for result in results
+    ]
+    timings.sort(key=lambda tup: tup[1])
+    ninety_percentile = 95 * n_timings // 100
+    for i in range(n_timings - 1, ninety_percentile, -1):
+        name = timings[i]
+        s("  ", name[0], colors.gray, f" {int(1000.0 * name[1])} ms)\n")
+
+
+def display_warnings(call_warnings):
+    for warn in call_warnings:
+        s(colors.yellow, warn, "\n")
 
 
 def colorful_exception(
@@ -150,7 +163,7 @@ def colorful_exception(
 
     def s(*strs):
         nonlocal accum
-        accum += "".join(strs) + reset
+        accum += "".join(strs) + colors.reset
 
     tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
 
@@ -215,10 +228,10 @@ def colorful_exception(
                 s(magenta, bold, context, "\n")
 
     if show_raised:
-        s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
+        s(colors.red, "raised: ", colors.red, colors.bold, error.__class__.__name__, "\n")
         error_message = str(error).strip()
         if error_message != "":
-            s(red, error_message, "\n")
+            s(colors.red, error_message, "\n")
 
     if write_to_stderr:
         sys.stderr.write(accum)

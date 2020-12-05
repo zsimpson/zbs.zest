@@ -9,8 +9,8 @@ import argparse
 import pathlib
 from pathlib import Path
 from zest.zest_runner_single_thread import ZestRunnerSingleThread
-from zest.zest_runner_multi_thread import ZestRunnerMultiThread, ZestRunnerErrors
-from zest.zest_display import display_errors, display_complete
+from zest.zest_runner_multi_thread import ZestRunnerMultiThread
+from zest.zest_display import display_find_errors, display_complete
 from zest import zest_console_ui
 from zest.zest import log
 from . import __version__

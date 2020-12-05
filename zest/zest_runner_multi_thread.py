@@ -15,17 +15,13 @@ from collections import deque
 from pathlib import Path
 from zest import zest
 from zest.zest import ZestResult
+from zest.zest_runner_base import ZestRunnerBase
 from zest import zest_finder
 from zest.zest import log
 from subprocess import Popen, DEVNULL
 from dataclasses import dataclass
 from contextlib import redirect_stdout, redirect_stderr
-from zest.zest_display import *
-
-
-class ZestRunnerErrors(Exception):
-    def __init__(self, errors):
-        self.errors = errors
+from zest.zest_display import s, display_complete, display_timings, display_warnings
 
 
 def read_zest_result_line(fd):
@@ -94,7 +90,7 @@ def _do_worker_init(queue):
     _do_work_order.queue = queue
 
 
-class ZestRunnerMultiThread:
+class ZestRunnerMultiThread(ZestRunnerBase):
     def n_live_procs(self):
         return len([proc for proc in self.procs if proc.exit_code is None])
 
@@ -146,68 +142,19 @@ class ZestRunnerMultiThread:
 
         return True
 
-    '''
-    def callback(zest_result):
-        nonlocal call_log, call_errors
-        if not zest_result.is_running:
-            call_log += [zest_result.full_name]
-            if zest_result.error is not None:
-                # TODO: Convert to using a simple list of results
-                call_errors += [
-                    (
-                        zest_result.error,
-                        zest_result.error_formatted,
-                        zest_result.full_name.split("."),
-                    )
-                ]
-    '''
+    def __init__(self, n_workers=2, **kwargs):
+        super().__init__(**kwargs)
 
-    def __init__(
-        self,
-        output_folder=Path(".zest_results"),
-        callback=None,
-        root=None,
-        include_dirs=None,
-        allow_to_run="__all__",
-        allow_files=None,
-        match_string=None,
-        exclude_string=None,
-        bypass_skip=None,
-        n_workers=1,
-        capture_stdio=False,
-        **kwargs,
-    ):
-        self.callback = callback
-
-        zest._bypass_skip = (bypass_skip or "").split(":")
-        self.root_zests, allow_to_run, find_errors = zest_finder.find_zests(
-            root,
-            include_dirs,
-            allow_to_run.split(":"),
-            allow_files.split(":") if allow_files is not None else None,
-            match_string,
-            exclude_string,
-            bypass_skip,
-        )
-
-        if len(find_errors) > 0:
-            raise ZestRunnerErrors(find_errors)
-
-        self.retcode = 0
-        self.output_folder = output_folder
         self.n_workers = n_workers
-        self.n_run = 0
         self.pid_to_worker_i = {}
         self.worker_status = [None] * self.n_workers
-        self.capture_stdio = capture_stdio
         self.pool = None
         self.queue = Queue()
-        self.results = []
 
     def run(self):
-        """
-        Start up the pool of workers and run
-        """
+        if self.retcode != 0:
+            # CHECK that zest_find did not fail
+            return self.retcode
 
         work_orders = [
             (root_name, module_name, package, full_path, self.output_folder, self.capture_stdio)
@@ -230,43 +177,38 @@ class ZestRunnerMultiThread:
 
             zest_results_path = pathlib.Path(".zest_results")
             zest_results_path.mkdir(parents=True, exist_ok=True)
-            try:
-                request_stop = False
-                self.retcode = 0
-                state_messages = ["DONE", "RUNNING"]
-                wrote_status = False
-                while True:
-                    try:
-                        n_workers = len(self.worker_status)
 
-                        # if ...: request_stop = True
-                        if not self.poll(request_stop):
-                            if wrote_status:
-                                for _ in range(n_workers):
-                                    sys.stdout.write("\033[K\n")  # Clear to EOL and new line
-                            break
+            request_stop = False
+            self.retcode = 0
+            state_messages = ["DONE", "RUNNING"]
+            wrote_status = False
+            while True:
+                try:
+                    n_workers = len(self.worker_status)
 
-                        for i, worker in enumerate(self.worker_status):
-                            wrote_status = True
-                            if worker is not None:
-                                sys.stdout.write(f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}")
-                            else:
-                                sys.stdout.write(f"{i:2d}: NOT STARTED")
-                            sys.stdout.write("\033[K\n")  # Clear to EOL and new line
+                    # if ...: request_stop = True
+                    if not self.poll(request_stop):
+                        if wrote_status:
+                            for _ in range(n_workers):
+                                sys.stdout.write("\033[K\n")  # Clear to EOL and new line
+                        break
 
-                        n_status_lines = max(n_status_lines, n_workers)
+                    for i, worker in enumerate(self.worker_status):
+                        wrote_status = True
+                        if worker is not None:
+                            sys.stdout.write(f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}")
+                        else:
+                            sys.stdout.write(f"{i:2d}: NOT STARTED")
+                        sys.stdout.write("\033[K\n")  # Clear to EOL and new line
 
-                        cursor_move_to_start()
+                    n_status_lines = max(n_status_lines, n_workers)
 
-                        time.sleep(0.05)
-                    except KeyboardInterrupt:
-                        request_stop = True
-                        self.retcode = 1
+                    cursor_move_to_start()
 
-                cursor_move_to_start()
-                display_complete("", self.results.get())
+                    time.sleep(0.05)
+                except KeyboardInterrupt:
+                    request_stop = True
+                    self.retcode = 1
 
-            except ZestRunnerErrors as e:
-                cursor_move_to_start()
-                display_errors(e.errors)
-                self.retcode = 1
+            cursor_move_to_start()
+            display_complete("", self.results.get())
