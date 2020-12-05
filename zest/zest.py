@@ -282,16 +282,21 @@ class zest:
         zest._capture_stdio = False
 
     @staticmethod
-    def parameterized(**params):
+    def parameter_list(params_list):
+        """
+        Params list is a list of tuples that will be passed to the *args.
+        If param_list is not a list of tuples they will be converted to tuples
+        """
         def decorator(fn):
             @wraps(fn)
-            def wrapper(*args, **kwargs):
-                keys = list(params.keys())
-                assert len(keys) == 1
-                pkey = keys[0]
-                for pval in params[pkey]:
-                    extra = {pkey: pval}
-                    fn(*args, **kwargs, **extra)
+            def wrapper(*params, **kwargs):
+                fn(*params, **kwargs)
+
+            _params_list = [
+                params if isinstance(params, tuple) else (params,)
+                for params in params_list
+            ]
+            setattr(wrapper, "params_list", _params_list)
 
             return wrapper
 
@@ -550,99 +555,106 @@ class zest:
                 )
 
             def _run(name, func, so, se):
-                _before = callers_special_local_funcs.get("_before")
-                if _before:
-                    try:
-                        _before()
-                    except Exception as e:
-                        zest._call_errors += [(e, zest._call_stack.copy())]
-                        s = (
-                            f"There was an exception while running '_before()' in test '{name}'. "
-                            f"This may mean that the sub-tests are not enumerated and therefore can not be run."
-                        )
-                        zest._call_warnings += [s]
+                params_list = [tuple()]
+                if hasattr(func, "params_list"):
+                    params_list = getattr(func, "params_list")
 
-                zest._call_stack += [name]
-                try:
-                    full_name = ".".join(zest._call_stack)
-                    if (
-                        zest._allow_to_run is not None
-                        and full_name not in zest._allow_to_run
-                    ):
-                        return
-
-                    zest._call_tree += [full_name]
-                    zest._call_log += [name]
-
-                    if zest._test_start_callback:
-                        zest._test_start_callback(
-                            ZestResult(
-                                zest._call_stack,
-                                ".".join(zest._call_stack),
-                                zest._call_stack[-1],
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                func.__code__.co_filename,
-                                os.getpid(),
-                                True,
-                            )
-                        )
-
-                    error = None
-                    error_formatted = None
-                    skip_reason = None
-                    start_time = time.time()
-                    try:
-                        zest._mock_stack += [[]]
-                        # log(f"zest._call_log={zest._call_log}")
-
+                for params in params_list:
+                    _before = callers_special_local_funcs.get("_before")
+                    if _before:
                         try:
-                            # log(f"func={func}")
-                            func()
-                            # log(f"called={zest._call_log}")
-                        except SkipException as e:
-                            skip_reason = e.reason
-                        zest._clear_stack_mocks()
-                        zest._mock_stack.pop()
-                    except Exception as e:
-                        error = e
-                        error_formatted = traceback.format_exception(
-                            etype=type(error), value=error, tb=error.__traceback__
-                        )
-                        zest._call_errors += [
-                            (e, error_formatted, zest._call_stack.copy())
-                        ]
-                    finally:
-                        stop_time = time.time()
-                        if zest._test_stop_callback:
-                            zest._test_stop_callback(
+                            _before()
+                        except Exception as e:
+                            zest._call_errors += [(e, zest._call_stack.copy())]
+                            s = (
+                                f"There was an exception while running '_before()' in test '{name}'. "
+                                f"This may mean that the sub-tests are not enumerated and therefore can not be run."
+                            )
+                            zest._call_warnings += [s]
+
+                    zest._call_stack += [name]
+                    try:
+                        full_name = ".".join(zest._call_stack)
+                        if (
+                            zest._allow_to_run is not None
+                            and full_name not in zest._allow_to_run
+                        ):
+                            return
+
+                        full_name += str(params)
+
+                        zest._call_tree += [full_name]
+                        zest._call_log += [name]
+
+                        if zest._test_start_callback:
+                            zest._test_start_callback(
                                 ZestResult(
                                     zest._call_stack,
                                     ".".join(zest._call_stack),
                                     zest._call_stack[-1],
-                                    error,
-                                    error_formatted,
-                                    stop_time - start_time,
-                                    skip_reason,
-                                    so.getvalue() if so is not None else None,
-                                    se.getvalue() if se is not None else None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
                                     func.__code__.co_filename,
                                     os.getpid(),
-                                    False,
+                                    True,
                                 )
                             )
 
-                    _after = callers_special_local_funcs.get("_after")
-                    if _after:
-                        _after()
-                except Exception as e:
-                    log(f"ZEST EXCEPTION 1 {e}")
-                finally:
-                    zest._call_stack.pop()
+                        error = None
+                        error_formatted = None
+                        skip_reason = None
+                        start_time = time.time()
+                        try:
+                            zest._mock_stack += [[]]
+                            # log(f"zest._call_log={zest._call_log}")
+
+                            try:
+                                # log(f"func={func}")
+                                func(*params)
+                                # log(f"called={zest._call_log}")
+                            except SkipException as e:
+                                skip_reason = e.reason
+                            zest._clear_stack_mocks()
+                            zest._mock_stack.pop()
+                        except Exception as e:
+                            error = e
+                            error_formatted = traceback.format_exception(
+                                etype=type(error), value=error, tb=error.__traceback__
+                            )
+                            zest._call_errors += [
+                                (e, error_formatted, zest._call_stack.copy())
+                            ]
+                        finally:
+                            stop_time = time.time()
+                            if zest._test_stop_callback:
+                                zest._test_stop_callback(
+                                    ZestResult(
+                                        zest._call_stack,
+                                        ".".join(zest._call_stack),
+                                        zest._call_stack[-1],
+                                        error,
+                                        error_formatted,
+                                        stop_time - start_time,
+                                        skip_reason,
+                                        so.getvalue() if so is not None else None,
+                                        se.getvalue() if se is not None else None,
+                                        func.__code__.co_filename,
+                                        os.getpid(),
+                                        False,
+                                    )
+                                )
+
+                        _after = callers_special_local_funcs.get("_after")
+                        if _after:
+                            _after()
+                    except Exception as e:
+                        log(f"ZEST EXCEPTION 1 {e}")
+                    finally:
+                        zest._call_stack.pop()
 
             for name, func in funcs_to_call:
                 if len(zest._mock_stack) > 0:

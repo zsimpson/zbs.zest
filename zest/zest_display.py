@@ -85,13 +85,14 @@ def display_errors(errors):
         )
 
 
-def _display_error(root, error, error_formatted, stack):
+def _display_error(root, zest_result):
+    stack = zest_result.full_name.split(".")
     leaf_test_name = stack[-1]
     formatted_test_name = " . ".join(stack[0:-1]) + bold + " . " + leaf_test_name
 
     s("\n", error_header("=", red, formatted_test_name), "\n")
     lines = []
-    for line in (error_formatted or [""]):
+    for line in (zest_result.error_formatted or [""]):
         lines += [sub_line for sub_line in line.strip().split("\n")]
 
     is_libs = False
@@ -115,22 +116,27 @@ def _display_error(root, error, error_formatted, stack):
                 else:
                     s(magenta, bold, context, "\n")
 
-    s(red, "raised: ", red, bold, error.__class__.__name__, "\n")
-    error_message = str(error).strip()
+    s(red, "raised: ", red, bold, zest_result.error.__class__.__name__, "\n")
+    error_message = str(zest_result.error).strip()
     if error_message != "":
         s(red, error_message, "\n")
     s()
 
 
-def display_complete(root, call_log, call_errors):
-    n_errors = len(call_errors)
+def display_complete(root, zest_results):
+    results_with_errors = [
+        res
+        for res in zest_results
+        if res.error
+    ]
+
+    n_errors = len(results_with_errors)
 
     if n_errors > 0:
-        s("\n")
-        for error, error_formatted, stack in call_errors:
-            _display_error(root, error, error_formatted, stack)
+        for res in results_with_errors:
+            _display_error(root, res)
 
-    s(f"\nRan {len(call_log)} tests. ")
+    s(f"\nRan {len(zest_results)} tests. ")
     if n_errors == 0:
         s(green, "SUCCESS\n")
     else:

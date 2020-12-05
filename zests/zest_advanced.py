@@ -14,51 +14,6 @@ from zest.version import __version__
 import subprocess
 
 
-@zest.skip(reason="bad_zest_1")
-def zest_bad_zest_1():
-    """
-    This is a malformed test that is expected to issue a warning
-    when it is tested by the below it_warns_if_no_trailing_zest
-    """
-    def it_foobars():
-        pass
-
-    def outer_foobar():
-        def inner_foobar():
-            pass
-
-        # Inner does call zest
-        zest()
-
-    # Outer does not call zest
-
-
-@zest.skip(reason="bad_zest_2")
-def zest_bad_zest_2():
-    """
-    Like zest_bad_zest_1 but with an error of a zest() before final test.
-    """
-    def it_foobars():
-        pass
-
-    # zest before final
-    zest()
-
-    def outer_foobar():
-        pass
-
-
-@zest.skip(reason="noisy_zests")
-def zest_noisy_zests():
-    """
-    Emits to stdout and stderr to test capturing.
-    """
-    def it_foobars():
-        print("This is to stdout")
-        print("This is to stderr", file=sys.stderr)
-
-    zest()
-
 
 # @zest.skip(reason="fails")
 # def zest_failing_zest():
@@ -74,8 +29,8 @@ def zest_noisy_zests():
 #     zest()
 
 
-@zest.parameterized(n_workers=[1, 2])
-def zest_runner_single_thread(n_workers):
+@zest.parameter_list([1, 2])
+def zest_runner(n_workers):
     def _call_zest_cli(*args):
         """
         Run zest_runner in a sub-processes to avoid recursion issues
@@ -83,8 +38,9 @@ def zest_runner_single_thread(n_workers):
         Plus, captures output for analysis.
         """
         try:
-            to_run = f"python -m zest.zest_cli --add_markers --n_workers={n_workers} " + " ".join(args)
-            output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT, )
+            to_run = f"python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers={n_workers} " + " ".join(args)
+            output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
+            print(f"OUTPUT of {to_run}", output)
             ret_code = 0
         except subprocess.CalledProcessError as e:
             ret_code = e.returncode
@@ -155,7 +111,7 @@ def zest_runner_single_thread(n_workers):
             "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
         )
         assert "did not terminate with a call to zest" in output
-        assert "zest_advanced.py:" in output
+        assert "zest_basics.py:" in output
         assert ret_code != 0
 
     def it_warns_if_zest_not_final():
@@ -163,7 +119,7 @@ def zest_runner_single_thread(n_workers):
             "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
         )
         assert "before all functions were defined" in output
-        assert "zest_advanced.py:" in output
+        assert "zest_basics.py:" in output
         assert ret_code != 0
 
     zest()

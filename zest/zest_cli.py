@@ -93,7 +93,7 @@ def main():
         retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:
-            retcode = ZestRunnerMultiThread(output_folder=Path(".zest_results"), callback=None, **kwargs)
+            retcode = ZestRunnerMultiThread(**kwargs).run()
         else:
             retcode = zest_runner_single_thread.run(**kwargs)
 

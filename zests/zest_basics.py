@@ -294,3 +294,49 @@ def zest_mocks():
         assert m_foo.called_once_with_kws(arg1="arg1", arg2="arg2")
 
     zest()
+
+
+@zest.skip(reason="bad_zest_1")
+def zest_bad_zest_1():
+    """
+    This is a malformed test that is expected to issue a warning
+    when it is tested by the below it_warns_if_no_trailing_zest
+    """
+    def it_foobars():
+        pass
+
+    def outer_foobar():
+        def inner_foobar():
+            pass
+
+        # Inner does call zest
+        zest()
+
+    # Outer does not call zest
+
+
+@zest.skip(reason="bad_zest_2")
+def zest_bad_zest_2():
+    """
+    Like zest_bad_zest_1 but with an error of a zest() before final test.
+    """
+    def it_foobars():
+        pass
+
+    # zest before final
+    zest()
+
+    def outer_foobar():
+        pass
+
+
+@zest.skip(reason="noisy_zests")
+def zest_noisy_zests():
+    """
+    Emits to stdout and stderr to test capturing.
+    """
+    def it_foobars():
+        print("This is to stdout")
+        print("This is to stderr", file=sys.stderr)
+
+    zest()
