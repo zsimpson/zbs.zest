@@ -8,7 +8,7 @@ import sys
 import argparse
 import pathlib
 from pathlib import Path
-from zest import zest_runner_single_thread
+from zest.zest_runner_single_thread import ZestRunnerSingleThread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, ZestRunnerErrors
 from zest.zest_display import display_errors, display_complete
 from zest import zest_console_ui
@@ -95,7 +95,7 @@ def main():
         if kwargs.get("n_workers") > 1:
             retcode = ZestRunnerMultiThread(**kwargs).run()
         else:
-            retcode = zest_runner_single_thread.run(**kwargs)
+            retcode = ZestRunnerSingleThread(**kwargs).run()
 
     sys.exit(retcode)
 

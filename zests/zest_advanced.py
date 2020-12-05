@@ -14,23 +14,10 @@ from zest.version import __version__
 import subprocess
 
 
-
-# @zest.skip(reason="fails")
-# def zest_failing_zest():
-#     """
-#     Demonstrates that the asserts are
-#     """
-#     assert False
-#     log("IT ASSERTS?")
-#
-#     def it_asserts():
-#         assert False
-#
-#     zest()
-
-
 @zest.parameter_list([1, 2])
 def zest_runner(n_workers):
+    """Test all options under single and multi threaded models"""
+
     def _call_zest_cli(*args):
         """
         Run zest_runner in a sub-processes to avoid recursion issues
@@ -40,7 +27,6 @@ def zest_runner(n_workers):
         try:
             to_run = f"python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers={n_workers} " + " ".join(args)
             output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
-            print(f"OUTPUT of {to_run}", output)
             ret_code = 0
         except subprocess.CalledProcessError as e:
             ret_code = e.returncode
