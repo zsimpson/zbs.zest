@@ -111,7 +111,7 @@ class ZestRunnerSingleThread:
         zest._disable_shuffle = disable_shuffle
         zest._bypass_skip = bypass_skip.split(":") if bypass_skip is not None else []
         self.n_zest_missing_errors = 0
-        self.results = {}
+        self.results = []
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
@@ -126,7 +126,7 @@ class ZestRunnerSingleThread:
             self.root,
             self.include_dirs,
             self.allow_to_run.split(":"),
-            self.allow_files.split(":") if allow_files is not None else None,
+            self.allow_files.split(":") if self.allow_files is not None else None,
             self.match_string,
             self.exclude_string,
             self.bypass_skip,
@@ -142,9 +142,9 @@ class ZestRunnerSingleThread:
         def event_test_start(zest_result):
             """Track the callback depth and forward to the display_start()"""
             nonlocal last_depth, curr_depth
-            if verbose >= 2:
+            if self.verbose >= 2:
                 curr_depth = len(zest_result.call_stack) - 1
-                _display_start(zest_result.short_name, last_depth, curr_depth, add_markers)
+                self._display_start(zest_result.short_name, last_depth, curr_depth, self.add_markers)
                 last_depth = curr_depth
 
         def event_test_stop(zest_result):
@@ -152,28 +152,28 @@ class ZestRunnerSingleThread:
             Track the callback depth and forward to display_stop() or display_abbreviated()
             """
             nonlocal last_depth, curr_depth
-            results[zest_result.full_name] = zest_result
+            self.results += [zest_result]
             curr_depth = len(zest_result.call_stack) - 1
-            if verbose >= 2:
-                _display_stop(
+            if self.verbose >= 2:
+                self._display_stop(
                     zest_result.error,
                     zest_result.elapsed,
                     zest_result.skip,
                     last_depth,
                     curr_depth,
                 )
-            elif verbose == 1:
-                _display_abbreviated(zest_result.error, zest_result.skip)
+            elif self.verbose == 1:
+                self._display_abbreviated(zest_result.error, zest_result.skip)
 
         def event_complete():
-            if verbose > 0:
-                display_complete(root, zest._call_log, zest._call_errors)
+            if self.verbose > 0:
+                display_complete(self.root, self.results)
 
-            if verbose > 1:
+            if self.verbose > 1:
                 s("Slowest 5%\n")
-                n_timings = len(results)
+                n_timings = len(self.results)
                 timings = [
-                    (full_name, result.elapsed) for full_name, result in results.items()
+                    (result.full_name, result.elapsed) for result in self.results
                 ]
                 timings.sort(key=lambda tup: tup[1])
                 ninety_percentile = 95 * n_timings // 100
@@ -181,8 +181,8 @@ class ZestRunnerSingleThread:
                     name = timings[i]
                     s("  ", name[0], gray, f" {int(1000.0 * name[1])} ms)\n")
 
-            if verbose > 0:
-                _display_warnings(zest._call_warnings)
+            if self.verbose > 0:
+                self._display_warnings(zest._call_warnings)
 
         # LAUNCH root zests
         for (root_name, (module_name, package, full_path)) in root_zests.items():
@@ -198,6 +198,6 @@ class ZestRunnerSingleThread:
         # ---------------------------------------------------------------------------------
 
         event_complete()
-        retcode = 0 if len(zest._call_errors) == 0 and n_zest_missing_errors == 0 else 1
+        retcode = 0 if len(zest._call_errors) == 0 else 1
 
         return retcode

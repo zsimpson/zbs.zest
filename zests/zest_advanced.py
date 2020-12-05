@@ -14,7 +14,8 @@ from zest.version import __version__
 import subprocess
 
 
-@zest.parameter_list([1, 2])
+#@zest.parameter_list([1, 2])
+@zest.parameter_list([2])
 def zest_runner(n_workers):
     """Test all options under single and multi threaded models"""
 
