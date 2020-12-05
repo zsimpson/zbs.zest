@@ -66,7 +66,8 @@ def display_find_errors(errors):
             colors.reset,
             colors.bold,
             colors.red,
-            "  ", parent_name,
+            "  ",
+            parent_name,
             colors.reset,
             colors.yellow,
             f" (@ {path}:{lineno}) ",
@@ -80,14 +81,14 @@ def display_find_errors(errors):
     )
 
 
-def _display_error(root, zest_result):
+def display_error(root, zest_result):
     stack = zest_result.full_name.split(".")
     leaf_test_name = stack[-1]
     formatted_test_name = " . ".join(stack[0:-1]) + colors.bold + " . " + leaf_test_name
 
     s("\n", error_header("=", colors.red, formatted_test_name), "\n")
     lines = []
-    for line in (zest_result.error_formatted or [""]):
+    for line in zest_result.error_formatted or [""]:
         lines += [sub_line for sub_line in line.strip().split("\n")]
 
     is_libs = False
@@ -103,7 +104,15 @@ def _display_error(root, zest_result):
                 s(colors.gray, " in function ")
                 s(colors.gray, context, "\n")
             else:
-                s("File ", colors.yellow, leading, "/", colors.yellow, colors.bold, basename)
+                s(
+                    "File ",
+                    colors.yellow,
+                    leading,
+                    "/",
+                    colors.yellow,
+                    colors.bold,
+                    basename,
+                )
                 s(":", colors.yellow, lineno)
                 s(" in function ")
                 if leaf_test_name == context:
@@ -111,25 +120,70 @@ def _display_error(root, zest_result):
                 else:
                     s(colors.magenta, colors.bold, context, "\n")
 
-    s(colors.red, "raised: ", colors.red, colors.bold, zest_result.error.__class__.__name__, "\n")
+    s(
+        colors.red,
+        "raised: ",
+        colors.red,
+        colors.bold,
+        zest_result.error.__class__.__name__,
+        "\n",
+    )
     error_message = str(zest_result.error).strip()
     if error_message != "":
         s(colors.red, error_message, "\n")
     s()
 
 
+def display_start(name, last_depth, curr_depth, add_markers):
+    if last_depth is not None and curr_depth is not None:
+        if last_depth < curr_depth:
+            s("\n")
+
+    if curr_depth is None:
+        curr_depth = 0
+    marker = "+" if add_markers else ""
+    s("  " * curr_depth, colors.yellow, marker + name, colors.reset, ": ")
+    # Note, no \n on this line because it will be added on the display_stop call
+
+
+def display_stop(error, elapsed, skip, last_depth, curr_depth):
+    if last_depth is not None and curr_depth is not None:
+        if curr_depth < last_depth:
+            s(f"{'  ' * curr_depth}")
+    if isinstance(error, str) and error.startswith("skipped"):
+        s(colors.bold, colors.yellow, error)
+    elif skip is not None:
+        s(colors.bold, colors.yellow, "SKIPPED (reason: ", skip, ")")
+    elif error:
+        s(
+            colors.bold,
+            colors.red,
+            "ERROR",
+            colors.gray,
+            f" (in {int(1000.0 * elapsed)} ms)",
+        )
+    else:
+        s(colors.green, "SUCCESS", colors.gray, f" (in {int(1000.0 * elapsed)} ms)")
+    s("\n")
+
+
+def display_abbreviated(error, skip):
+    if error:
+        s(colors.bold, colors.red, "F")
+    elif skip:
+        s(colors.yellow, "s")
+    else:
+        s(colors.green, ".")
+
+
 def display_complete(root, zest_results):
-    results_with_errors = [
-        res
-        for res in zest_results
-        if res.error
-    ]
+    results_with_errors = [res for res in zest_results if res.error]
 
     n_errors = len(results_with_errors)
 
     if n_errors > 0:
         for res in results_with_errors:
-            _display_error(root, res)
+            display_error(root, res)
 
     s(f"\nRan {len(zest_results)} tests. ")
     if n_errors == 0:
@@ -141,9 +195,7 @@ def display_complete(root, zest_results):
 def display_timings(results):
     s("Slowest 5%\n")
     n_timings = len(results)
-    timings = [
-        (result.full_name, result.elapsed) for result in results
-    ]
+    timings = [(result.full_name, result.elapsed) for result in results]
     timings.sort(key=lambda tup: tup[1])
     ninety_percentile = 95 * n_timings // 100
     for i in range(n_timings - 1, ninety_percentile, -1):
@@ -157,7 +209,12 @@ def display_warnings(call_warnings):
 
 
 def colorful_exception(
-    error=None, formatted=None, write_to_stderr=True, show_raised=True, compact=False, gray_libs=True
+    error=None,
+    formatted=None,
+    write_to_stderr=True,
+    show_raised=True,
+    compact=False,
+    gray_libs=True,
 ):
     accum = ""
 
@@ -228,7 +285,14 @@ def colorful_exception(
                 s(magenta, bold, context, "\n")
 
     if show_raised:
-        s(colors.red, "raised: ", colors.red, colors.bold, error.__class__.__name__, "\n")
+        s(
+            colors.red,
+            "raised: ",
+            colors.red,
+            colors.bold,
+            error.__class__.__name__,
+            "\n",
+        )
         error_message = str(error).strip()
         if error_message != "":
             s(colors.red, error_message, "\n")

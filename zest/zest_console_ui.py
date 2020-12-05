@@ -540,9 +540,7 @@ def _run(
         y = draw_warnings(y, warnings)
         draw_fail_lines(y + 1, zest_results_by_full_name, root, show_result_full_name)
         y = draw_result_details(
-            y + 13,
-            root,
-            zest_results_by_full_name.get(show_result_full_name),
+            y + 13, root, zest_results_by_full_name.get(show_result_full_name),
         )
         scr.refresh()
 
@@ -552,7 +550,9 @@ def _run(
         # TODO: Rename proc_i to worker_i
         proc_i = zest_result.worker_i
         state_messages = ["DONE", "RUNNING"]
-        current_running_tests_by_proc_i[proc_i] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
+        current_running_tests_by_proc_i[
+            proc_i
+        ] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
         if not zest_result.is_running:
             if zest_result.error is not None:
                 n_errors += 1

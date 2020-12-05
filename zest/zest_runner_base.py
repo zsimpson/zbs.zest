@@ -14,6 +14,7 @@ from queue import Empty
 from collections import deque
 from pathlib import Path
 from zest import zest
+from zest.zest import log
 from zest import zest_finder
 from zest import zest_display
 
@@ -95,7 +96,7 @@ class ZestRunnerBase:
         self.root = root or os.getcwd()
         assert self.root[0] == os.sep
 
-        self.root_zests, allow_to_run, find_errors = zest_finder.find_zests(
+        self.root_zests, self.allow_to_run, find_errors = zest_finder.find_zests(
             root,
             include_dirs,
             self.allow_to_run.split(":"),
@@ -104,10 +105,11 @@ class ZestRunnerBase:
             exclude_string,
             bypass_skip,
         )
+        log("FOUND", self.root_zests, allow_to_run)
 
-        if len(find_errors) > 0:
-            self.handle_find_errors(find_errors)
+        self.handle_find_errors(find_errors)
 
     def handle_find_errors(self, find_errors):
-        zest_display.display_find_errors(find_errors)
-        self.retcode = 1
+        if len(find_errors) > 0:
+            zest_display.display_find_errors(find_errors)
+            self.retcode = 1

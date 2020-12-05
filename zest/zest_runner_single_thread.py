@@ -11,39 +11,18 @@ from zest import zest_finder
 from zest.zest_runner_base import ZestRunnerBase
 from zest import zest_display
 from zest import colors
-from zest.zest_display import s, display_complete, display_timings, display_warnings
+from zest.zest_display import (
+    s,
+    display_complete,
+    display_timings,
+    display_warnings,
+    display_start,
+    display_stop,
+    display_error,
+)
 
 
 class ZestRunnerSingleThread(ZestRunnerBase):
-
-    def _display_start(self, name, last_depth, curr_depth, add_markers):
-        if last_depth < curr_depth:
-            s("\n")
-        marker = "+" if add_markers else ""
-        s("  " * curr_depth, colors.yellow, marker + name, colors.reset, ": ")
-        # Note, no \n on this line because it will be added on the display_stop call
-
-    def _display_stop(self, error, elapsed, skip, last_depth, curr_depth):
-        if curr_depth < last_depth:
-            s(f"{'  ' * curr_depth}")
-        if isinstance(error, str) and error.startswith("skipped"):
-            s(colors.bold, colors.yellow, error)
-        elif skip is not None:
-            s(colors.bold, colors.yellow, "SKIPPED (reason: ", skip, ")")
-        elif error:
-            s(colors.bold, colors.red, "ERROR", colors.gray, f" (in {int(1000.0 * elapsed)} ms)")
-        else:
-            s(colors.green, "SUCCESS", colors.gray, f" (in {int(1000.0 * elapsed)} ms)")
-        s("\n")
-
-    def _display_abbreviated(self, error, skip):
-        if error:
-            s(colors.bold, colors.red, "F")
-        elif skip:
-            s(colors.yellow, "s")
-        else:
-            s(colors.green, ".")
-
     def run(self):
         if self.retcode != 0:
             # CHECK that zest_find did not fail
@@ -58,7 +37,9 @@ class ZestRunnerSingleThread(ZestRunnerBase):
             nonlocal last_depth, curr_depth
             if self.verbose >= 2:
                 curr_depth = len(zest_result.call_stack) - 1
-                self._display_start(zest_result.short_name, last_depth, curr_depth, self.add_markers)
+                display_start(
+                    zest_result.short_name, last_depth, curr_depth, self.add_markers
+                )
                 last_depth = curr_depth
 
         def event_test_stop(zest_result):
@@ -66,7 +47,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
             self.results += [zest_result]
             curr_depth = len(zest_result.call_stack) - 1
             if self.verbose >= 2:
-                self._display_stop(
+                display_stop(
                     zest_result.error,
                     zest_result.elapsed,
                     zest_result.skip,
@@ -74,7 +55,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
                     curr_depth,
                 )
             elif self.verbose == 1:
-                self._display_abbreviated(zest_result.error, zest_result.skip)
+                display_abbreviated(zest_result.error, zest_result.skip)
 
         # LAUNCH root zests
         for (root_name, (module_name, package, full_path)) in self.root_zests.items():

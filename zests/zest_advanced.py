@@ -15,7 +15,7 @@ import subprocess
 
 
 # @zest.parameter_list([1, 2])
-@zest.parameter_list([1])
+@zest.parameter_list([2])
 def zest_runner(n_workers):
     """Test all options under single and multi threaded models"""
 
@@ -26,14 +26,21 @@ def zest_runner(n_workers):
         Plus, captures output for analysis.
         """
         try:
-            to_run = f"python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers={n_workers} " + " ".join(args)
-            log("Advanced running", to_run)
-            output = subprocess.check_output(to_run, shell=True, stderr=subprocess.STDOUT,)
-            log("Output", output)
+            to_run = (
+                f"python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers={n_workers} "
+                + " ".join(args)
+            )
+            log(
+                f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
+            )
+            output = subprocess.check_output(
+                to_run, shell=True, stderr=subprocess.STDOUT,
+            )
             ret_code = 0
         except subprocess.CalledProcessError as e:
             ret_code = e.returncode
             output = e.output
+        log(f"RETURN FROM call to child runner ------------- {ret_code}")
         return ret_code, output.decode("utf-8")
 
     def _get_run_tests(output):

@@ -62,7 +62,6 @@ def zest_basics():
     #         time.sleep(1)
     #     raise NotImplementedError
 
-
     # def it_fails_1():
     #     import sys
     #     print(" ".join(["Something to stdout!"] * 30), file=sys.stdout)
@@ -302,6 +301,7 @@ def zest_bad_zest_1():
     This is a malformed test that is expected to issue a warning
     when it is tested by the below it_warns_if_no_trailing_zest
     """
+
     def it_foobars():
         pass
 
@@ -320,6 +320,7 @@ def zest_bad_zest_2():
     """
     Like zest_bad_zest_1 but with an error of a zest() before final test.
     """
+
     def it_foobars():
         pass
 
@@ -335,6 +336,7 @@ def zest_noisy_zests():
     """
     Emits to stdout and stderr to test capturing.
     """
+
     def it_foobars():
         print("This is to stdout")
         print("This is to stderr", file=sys.stderr)

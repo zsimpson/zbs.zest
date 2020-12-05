@@ -287,6 +287,7 @@ class zest:
         Params list is a list of tuples that will be passed to the *args.
         If param_list is not a list of tuples they will be converted to tuples
         """
+
         def decorator(fn):
             @wraps(fn)
             def wrapper(*params, **kwargs):

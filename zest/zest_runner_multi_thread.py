@@ -21,7 +21,15 @@ from zest.zest import log
 from subprocess import Popen, DEVNULL
 from dataclasses import dataclass
 from contextlib import redirect_stdout, redirect_stderr
-from zest.zest_display import s, display_complete, display_timings, display_warnings
+from zest.zest_display import (
+    s,
+    display_complete,
+    display_timings,
+    display_warnings,
+    display_start,
+    display_stop,
+    display_error,
+)
 
 
 def read_zest_result_line(fd):
@@ -36,7 +44,9 @@ def read_zest_result_line(fd):
         yield ZestResult.loads(line)
 
 
-def _do_work_order(root_name, module_name, package, full_path, output_folder, capture_stdio):
+def _do_work_order(
+    root_name, module_name, package, full_path, output_folder, capture_stdio
+):
     event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
 
     # It may be very slow to have the load_module here in the child
@@ -48,6 +58,7 @@ def _do_work_order(root_name, module_name, package, full_path, output_folder, ca
     zest_result_to_return = None
 
     try:
+
         def emit_zest_result(zest_result, stream):
             assert isinstance(zest_result, ZestResult)
             try:
@@ -56,7 +67,6 @@ def _do_work_order(root_name, module_name, package, full_path, output_folder, ca
                 stream.flush()
             except TypeError:
                 log(f"Serialization error on {zest_result}")
-
 
         def event_callback(zest_result):
             """
@@ -131,12 +141,14 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     self.pid_to_worker_i[zest_result.pid] = len(self.pid_to_worker_i)
                 zest_result.worker_i = self.pid_to_worker_i[zest_result.pid]
                 self.worker_status[zest_result.worker_i] = zest_result
+                if not zest_result.is_running:
+                    self.results += [zest_result]
                 if self.callback is not None:
                     self.callback(zest_result)
         except Empty:
             pass
 
-        if self.results.ready() and self.queue.empty():
+        if self.map_results.ready() and self.queue.empty():
             self.pool.join()
             return False
 
@@ -157,8 +169,18 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             return self.retcode
 
         work_orders = [
-            (root_name, module_name, package, full_path, self.output_folder, self.capture_stdio)
-            for (root_name, (module_name, package, full_path)) in self.root_zests.items()
+            (
+                root_name,
+                module_name,
+                package,
+                full_path,
+                self.output_folder,
+                self.capture_stdio,
+            )
+            for (
+                root_name,
+                (module_name, package, full_path),
+            ) in self.root_zests.items()
         ]
 
         n_status_lines = 0
@@ -168,8 +190,10 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             sys.stdout.write(f"\033[{n_status_lines}A")
 
         # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
-        with multiprocessing.Pool(self.n_workers, _do_worker_init, [self.queue]) as self.pool:
-            self.results = self.pool.starmap_async(_do_work_order, work_orders)
+        with multiprocessing.Pool(
+            self.n_workers, _do_worker_init, [self.queue]
+        ) as self.pool:
+            self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
             self.pool.close()
 
             # call_log = []
@@ -190,13 +214,17 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     if not self.poll(request_stop):
                         if wrote_status:
                             for _ in range(n_workers):
-                                sys.stdout.write("\033[K\n")  # Clear to EOL and new line
+                                sys.stdout.write(
+                                    "\033[K\n"
+                                )  # Clear to EOL and new line
                         break
 
                     for i, worker in enumerate(self.worker_status):
                         wrote_status = True
                         if worker is not None:
-                            sys.stdout.write(f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}")
+                            sys.stdout.write(
+                                f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}"
+                            )
                         else:
                             sys.stdout.write(f"{i:2d}: NOT STARTED")
                         sys.stdout.write("\033[K\n")  # Clear to EOL and new line
@@ -210,5 +238,21 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     request_stop = True
                     self.retcode = 1
 
+            # results = self.map_results.get()
+
             cursor_move_to_start()
-            display_complete("", self.results.get())
+            display_complete("", self.results)
+
+            if self.verbose > 1:
+                # When verbose then AFTER the multithreads have all had a chance
+                # to run THEN we can dump the run logs.
+                # This is particularly important for the advanced tests so that
+                # they can see what ran.
+                for result in self.results:
+                    display_start(result.full_name, None, None, self.add_markers)
+                    display_stop(result.error, result.elapsed, result.skip, None, None)
+
+            # HERE?!
+            # when if run
+            # python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers=2 --verbose=2 level_two
+            # it runs everything why?

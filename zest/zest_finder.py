@@ -208,7 +208,6 @@ def find_zests(
         for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
             if allow_files is not None:
                 if module_name not in allow_files:
-                    log(f"skipping filename {module_name}")
                     continue
 
             path = os.path.join(curr, module_name + ".py")
