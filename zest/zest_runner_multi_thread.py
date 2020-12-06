@@ -167,8 +167,9 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             sys.stdout.write("\033[K\n")
 
         def write_line(line):
-            assert line[-1] != "\n"
-            sys.stdout.write(line)
+            if len(line) > 0:
+                assert line[-1] != "\n"
+                sys.stdout.write(line)
             cursor_clear_to_eol_and_newline()
 
         for i, worker in enumerate(self.worker_status):
@@ -177,17 +178,14 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             else:
                 if worker is not None:
                     write_line(
-                        f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}"
+                        f"{i:2d}: {self.state_messages[worker.is_running]:<8s} {worker.full_name}"
                     )
                 else:
                     write_line(f"{i:2d}: NOT STARTED")
 
         cursor_move_up(len(self.worker_status))
 
-TESTING HERE
-
     def draw_complete(self):
-        cursor_move_to_start()
         display_complete("", self.results)
 
         if self.verbose > 1:
@@ -200,7 +198,7 @@ TESTING HERE
                 display_stop(result.error, result.elapsed, result.skip, None, None)
 
 
-    def __init__(self, n_workers=2, **kwargs):
+    def __init__(self, n_workers=2, allow_output=True, **kwargs):
         super().__init__(**kwargs)
 
         self.n_workers = n_workers
@@ -209,15 +207,22 @@ TESTING HERE
         self.pool = None
         self.queue = Queue()
         self.map_results = None
+        self.allow_output = allow_output
+        self.run_complete = False
 
     def message_pump(self):
+        if self.retcode != 0:
+            # CHECK that zest_find did not fail
+            return self
+
         request_stop = False
         while True:
             try:
                 # if ...: request_stop = True
                 #   TODO
 
-                self.draw_status()
+                if self.allow_output:
+                    self.draw_status()
 
                 if not self.poll(request_stop):
                     self.run_complete = True
@@ -227,7 +232,9 @@ TESTING HERE
                 request_stop = True
                 self.retcode = 1
 
-        self.draw_complete()
+        if self.allow_output:
+            self.draw_status()
+            self.draw_complete()
 
     def run(self):
         if self.retcode != 0:
@@ -251,11 +258,16 @@ TESTING HERE
         ]
 
         # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
-        with multiprocessing.Pool(
-            self.n_workers, _do_worker_init, [self.queue]
-        ) as self.pool:
-            self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
-            self.pool.close()
-            self.message_pump()
+        self.pool = multiprocessing.Pool(self.n_workers, _do_worker_init, [self.queue])
+        self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
+        self.pool.close()
+        # self.message_pump()
+
+        # with multiprocessing.Pool(
+        #     self.n_workers, _do_worker_init, [self.queue]
+        # ) as self.pool:
+        #     self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
+        #     self.pool.close()
+        #     self.message_pump()
 
         return self

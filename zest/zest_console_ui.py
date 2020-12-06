@@ -16,7 +16,6 @@ from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
 from zest.zest_display import colorful_exception, traceback_match_filename
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_zest_result_line
-from zest.zest_runner_single_thread import ZestRunnerSingleThread
 from . import __version__
 
 if os.name == "nt":
@@ -526,7 +525,6 @@ def _run(
     request_end = False
     zest_results_path = Path(".zest_results")
     zest_results_by_full_name = None
-    runner_klass = ZestRunnerMultiThread if n_workers > 1 else ZestRunnerSingleThread
 
     def render():
         nonlocal dirty
@@ -582,15 +580,18 @@ def _run(
 
             n_errors, n_success, n_skips = 0, 0, 0
 
-            runner = runner_klass(
+            runner = ZestRunnerMultiThread(
                 output_folder=zest_results_path,
                 callback=callback,
                 root=root,
                 match_string=match_string,
                 capture_stdio=True,
                 allow_to_run=allow_to_run,
+                allow_output=False,
                 **kwargs
-            ).run()
+            )
+
+            runner.run()
 
             run_state = RUNNING
             dirty = True
@@ -618,6 +619,8 @@ def _run(
             #    * the "runner_thread" has terminated. Goto STOPPED
             #    * a new run is requested before the current run has terminated. Goto STOPPING
             running = runner.poll(request_stop)
+            # log("running", running, time.time())
+            time.sleep(0.05)
 
             if not running or request_end or request_run is not None:
                 new_state(STOPPING)

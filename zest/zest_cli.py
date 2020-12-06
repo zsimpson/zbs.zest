@@ -94,6 +94,7 @@ def main():
     else:
         if kwargs.get("n_workers") > 1:
             runner = ZestRunnerMultiThread(**kwargs).run()
+            runner.message_pump()
         else:
             runner = ZestRunnerSingleThread(**kwargs).run()
         retcode = runner.retcode
