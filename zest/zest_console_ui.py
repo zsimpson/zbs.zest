@@ -523,8 +523,7 @@ def _run(
     request_run = None
     request_stop = False
     request_end = False
-    zest_results_path = Path(".zest_results")
-    zest_results_by_full_name = None
+    zest_results_path = Path(kwargs.pop("output_folder"))
 
     def render():
         nonlocal dirty
@@ -553,6 +552,7 @@ def _run(
         ] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
         if not zest_result.is_running:
             if zest_result.error is not None:
+                log("FAILED?", zest_result.full_name, zest_result.error)
                 n_errors += 1
             else:
                 n_success += 1

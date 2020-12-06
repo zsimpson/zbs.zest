@@ -24,6 +24,10 @@ def main():
         help="Show version and exit",
     )
 
+    parser.add_argument("--output_folder", nargs="?", default=".zest_results",
+        help="Where to store results",
+    )
+
     parser.add_argument("--root", nargs="?", default=os.getcwd(),
         help="Optional root directory to search (default: cwd).",
     )

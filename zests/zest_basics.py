@@ -107,6 +107,9 @@ def zest_basics():
 
         zest()
 
+    def it_fails():
+        assert False
+
     zest()
 
 

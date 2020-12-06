@@ -77,7 +77,7 @@ class ZestRunnerBase:
             Used for debugging. Ignore.
         """
         self.callback = callback
-        self.output_folder = output_folder
+        self.output_folder = pathlib.Path(output_folder)
         self.n_run = 0
         self.capture_stdio = capture
         self.results = []
@@ -87,8 +87,7 @@ class ZestRunnerBase:
         self.bypass_skip = bypass_skip
         self.allow_to_run = allow_to_run
 
-        zest_results_path = pathlib.Path(".zest_results")
-        zest_results_path.mkdir(parents=True, exist_ok=True)
+        self.output_folder.mkdir(parents=True, exist_ok=True)
 
         zest.reset()
         zest._disable_shuffle = disable_shuffle

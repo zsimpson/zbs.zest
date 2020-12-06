@@ -14,7 +14,8 @@ from zest.version import __version__
 import subprocess
 
 
-@zest.parameter_list([1, 2])
+#@zest.parameter_list([1, 2])
+@zest.parameter_list([1])
 def zest_runner(n_workers):
     """Test all options under single and multi threaded models"""
 
@@ -25,8 +26,9 @@ def zest_runner(n_workers):
         Plus, captures output for analysis.
         """
         try:
+            tmp_folder = f"/tmp/{time.time()}"
             to_run = (
-                f"python -m zest.zest_cli --add_markers --allow_files=zest_basics --n_workers={n_workers} "
+                f"python -m zest.zest_cli --output_folder={tmp_folder} --add_markers --allow_files=zest_basics --n_workers={n_workers} "
                 + " ".join(args)
             )
             # log(
@@ -39,6 +41,7 @@ def zest_runner(n_workers):
         except subprocess.CalledProcessError as e:
             ret_code = e.returncode
             output = e.output
+        # time.sleep(3.0)  # HACK
         # log(f"RETURN FROM call to child runner ------------- {ret_code}")
         return ret_code, output.decode("utf-8")
 
@@ -66,8 +69,6 @@ def zest_runner(n_workers):
                     "--disable_shuffle" if disable_shuffle else "",
                     "zest_basics",
                 )
-                if ret_code != 0:
-                    print(output)
                 assert ret_code == 0
 
                 found_tests = _get_run_tests(output)
