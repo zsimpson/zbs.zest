@@ -87,6 +87,9 @@ class ZestRunnerBase:
         self.bypass_skip = bypass_skip
         self.allow_to_run = allow_to_run
 
+        zest_results_path = pathlib.Path(".zest_results")
+        zest_results_path.mkdir(parents=True, exist_ok=True)
+
         zest.reset()
         zest._disable_shuffle = disable_shuffle
         zest._bypass_skip = bypass_skip.split(":") if bypass_skip is not None else []

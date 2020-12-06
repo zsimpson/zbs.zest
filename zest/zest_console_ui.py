@@ -16,6 +16,7 @@ from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
 from zest.zest_display import colorful_exception, traceback_match_filename
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_zest_result_line
+from zest.zest_runner_single_thread import ZestRunnerSingleThread
 from . import __version__
 
 if os.name == "nt":
@@ -525,6 +526,7 @@ def _run(
     request_end = False
     zest_results_path = Path(".zest_results")
     zest_results_by_full_name = None
+    runner_klass = ZestRunnerMultiThread if n_workers > 1 else ZestRunnerSingleThread
 
     def render():
         nonlocal dirty
@@ -580,7 +582,7 @@ def _run(
 
             n_errors, n_success, n_skips = 0, 0, 0
 
-            runner = ZestRunnerMultiThread(
+            runner = runner_klass(
                 output_folder=zest_results_path,
                 callback=callback,
                 root=root,
@@ -588,7 +590,7 @@ def _run(
                 capture_stdio=True,
                 allow_to_run=allow_to_run,
                 **kwargs
-            )
+            ).run()
 
             run_state = RUNNING
             dirty = True

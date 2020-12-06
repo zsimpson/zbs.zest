@@ -93,9 +93,10 @@ def main():
         retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:
-            retcode = ZestRunnerMultiThread(**kwargs).run()
+            runner = ZestRunnerMultiThread(**kwargs).run()
         else:
-            retcode = ZestRunnerSingleThread(**kwargs).run()
+            runner = ZestRunnerSingleThread(**kwargs).run()
+        retcode = runner.retcode
 
     sys.exit(retcode)
 

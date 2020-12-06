@@ -27,7 +27,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
     def run(self):
         if self.retcode != 0:
             # CHECK that zest_find did not fail
-            return self.retcode
+            return self
 
         last_depth = 0
         curr_depth = 0
@@ -78,6 +78,5 @@ class ZestRunnerSingleThread(ZestRunnerBase):
         if self.verbose > 0:
             display_warnings(zest._call_warnings)
 
-        retcode = 0 if len(zest._call_errors) == 0 else 1
-
-        return retcode
+        self.retcode = 0 if len(zest._call_errors) == 0 else 1
+        return self
