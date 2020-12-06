@@ -107,9 +107,6 @@ def zest_basics():
 
         zest()
 
-    def it_fails():
-        assert False
-
     zest()
 
 
@@ -327,3 +324,35 @@ def zest_noisy_zests():
         print("This is to stderr", file=sys.stderr)
 
     zest()
+
+'''
+def zest_parameter_list():
+    saw = {1: False, 2: False}
+
+    @zest.parameter_list([1, 2])
+    def it_calls_multiple_times(arg):
+        nonlocal saw
+        saw[arg] = True
+
+        def it_has_an_interior_method():
+            pass
+
+        zest()
+
+    zest()
+
+    assert saw[1] is True and saw[2] is True
+    assert zest._call_log == [
+        "zest_parameter_list()",
+        "zest_parameter_list.it_calls_multiple_times(1,)",
+        "zest_parameter_list.it_calls_multiple_times(2,)",
+    ]
+
+    [
+        'zest_parameter_list()',
+        'zest_parameter_list().it_calls_multiple_times(1,)',
+        'zest_parameter_list().it_calls_multiple_times(1,).it_has_an_interior_method()',
+        'zest_parameter_list().it_calls_multiple_times(1, ).it_has_an_interior_method().it_calls_multiple_times(2, )',
+        'zest_parameter_list().it_calls_multiple_times(1, ).it_has_an_interior_method().it_calls_multiple_times(2, ).it_has_an_interior_method()'
+    ]
+'''

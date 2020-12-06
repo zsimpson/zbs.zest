@@ -500,12 +500,7 @@ def load_results(zest_results_path):
 
 
 def _run(
-    _scr,
-    root=".",
-    match_string=None,
-    n_workers=1,
-    allow_to_run=None,
-    **kwargs,
+    _scr, root=".", match_string=None, n_workers=1, allow_to_run=None, **kwargs,
 ):
     global scr
     scr = _scr
@@ -552,7 +547,7 @@ def _run(
         ] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
         if not zest_result.is_running:
             if zest_result.error is not None:
-                log("FAILED?", zest_result.full_name, zest_result.error)
+                # log("FAILED?", zest_result.full_name, zest_result.error)
                 n_errors += 1
             else:
                 n_success += 1
@@ -588,7 +583,7 @@ def _run(
                 capture_stdio=True,
                 allow_to_run=allow_to_run,
                 allow_output=False,
-                **kwargs
+                **kwargs,
             )
 
             runner.run()

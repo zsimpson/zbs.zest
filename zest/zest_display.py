@@ -4,6 +4,7 @@ import os
 import re
 import traceback
 
+
 def s(*strs):
     return sys.stdout.write("".join(strs) + colors.reset)
 
@@ -279,7 +280,15 @@ def colorful_exception(
                 s(gray, " in function ")
                 s(gray, context, "\n")
             else:
-                s("File ", colors.yellow, leading, "/", colors.yellow, colors.bold, basename)
+                s(
+                    "File ",
+                    colors.yellow,
+                    leading,
+                    "/",
+                    colors.yellow,
+                    colors.bold,
+                    basename,
+                )
                 s(":", colors.yellow, colors.bold, lineno)
                 s(" in function ")
                 s(colors.magenta, colors.bold, context, "\n")

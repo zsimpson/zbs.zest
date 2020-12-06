@@ -45,7 +45,13 @@ def read_zest_result_line(fd):
 
 
 def _do_work_order(
-    root_name, module_name, package, full_path, output_folder, capture_stdio, allow_to_run
+    root_name,
+    module_name,
+    package,
+    full_path,
+    output_folder,
+    capture_stdio,
+    allow_to_run,
 ):
     event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
 
@@ -58,6 +64,7 @@ def _do_work_order(
     zest_result_to_return = None
 
     try:
+
         def emit_zest_result(zest_result, stream):
             assert isinstance(zest_result, ZestResult)
             try:
@@ -71,8 +78,8 @@ def _do_work_order(
             """
             This callback occurs anytime a sub-zest starts or stops.
             """
-            if "zest_runner.shuffling.it_can_disable_shuffle" in zest_result.full_name:
-                log("MULTI event_callback", zest_result)
+            # if "zest_runner.shuffling.it_can_disable_shuffle" in zest_result.full_name:
+            #     log("MULTI event_callback", zest_result)
 
             emit_zest_result(zest_result, event_stream)
             _do_work_order.queue.put(zest_result)
@@ -137,8 +144,8 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             while True:
                 zest_result = self.queue.get_nowait()
 
-                if "zest_runner.shuffling.it_can_disable_shuffle" in zest_result.full_name:
-                    log("POLL", zest_result.full_name, type(zest_result.error))
+                # if "zest_runner.shuffling.it_can_disable_shuffle" in zest_result.full_name:
+                #     log("POLL", zest_result.full_name, type(zest_result.error))
 
                 if isinstance(zest_result, Exception):
                     raise zest_result
@@ -152,13 +159,17 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     self.results += [zest_result]
 
                 if self.callback is not None:
-                    if zest_result.error is not None:
-                        log("CALLING CALLBAK", zest_result.full_name, type(zest_result.error))
+                    # if zest_result.error is not None:
+                    #     log("CALLING CALLBAK", zest_result.full_name, type(zest_result.error))
                     self.callback(zest_result)
         except Empty:
             pass
 
-        if self.map_results is not None and self.map_results.ready() and self.queue.empty():
+        if (
+            self.map_results is not None
+            and self.map_results.ready()
+            and self.queue.empty()
+        ):
             self.pool.join()
             return False
 
@@ -170,6 +181,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         If run us complete, then clear all those lines
         Return the cursor to the start line
         """
+
         def cursor_move_up(n_lines):
             sys.stdout.write(f"\033[{n_lines}A")
 
@@ -206,7 +218,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             for result in self.results:
                 display_start(result.full_name, None, None, self.add_markers)
                 display_stop(result.error, result.elapsed, result.skip, None, None)
-
 
     def __init__(self, n_workers=2, allow_output=True, **kwargs):
         super().__init__(**kwargs)
@@ -252,26 +263,24 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             return self
 
         work_orders = []
-        for (
-            root_name,
-            (module_name, package, full_path),
-        ) in self.root_zests.items():
-            work_orders += [(
-                root_name,
-                module_name,
-                package,
-                full_path,
-                self.output_folder,
-                self.capture_stdio,
-                self.allow_to_run,
-            )]
+        for (root_name, (module_name, package, full_path),) in self.root_zests.items():
+            work_orders += [
+                (
+                    root_name,
+                    module_name,
+                    package,
+                    full_path,
+                    self.output_folder,
+                    self.capture_stdio,
+                    self.allow_to_run,
+                )
+            ]
 
             result_filename = self.output_folder / f"{root_name}.evt"
             try:
                 os.remove(result_filename)
             except:
                 pass
-
 
         # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
         self.pool = multiprocessing.Pool(self.n_workers, _do_worker_init, [self.queue])
