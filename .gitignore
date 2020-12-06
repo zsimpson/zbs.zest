@@ -1,3 +1,5 @@
+log.txt
+.zest_results/
 .idea/
 build/
 dist/
