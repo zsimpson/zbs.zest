@@ -100,6 +100,8 @@ def _do_worker_init(queue):
 
 
 class ZestRunnerMultiThread(ZestRunnerBase):
+    state_messages = ["DONE", "RUNNING"]
+
     def n_live_procs(self):
         return len([proc for proc in self.procs if proc.exit_code is None])
 
@@ -152,6 +154,52 @@ class ZestRunnerMultiThread(ZestRunnerBase):
 
         return True
 
+    def draw_status(self):
+        """
+        Draw worker status one line per worker with a Clear to EOL.
+        If run us complete, then clear all those lines
+        Return the cursor to the start line
+        """
+        def cursor_move_up(n_lines):
+            sys.stdout.write(f"\033[{n_lines}A")
+
+        def cursor_clear_to_eol_and_newline():
+            sys.stdout.write("\033[K\n")
+
+        def write_line(line):
+            assert line[-1] != "\n"
+            sys.stdout.write(line)
+            cursor_clear_to_eol_and_newline()
+
+        for i, worker in enumerate(self.worker_status):
+            if self.run_complete:
+                write_line("")
+            else:
+                if worker is not None:
+                    write_line(
+                        f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}"
+                    )
+                else:
+                    write_line(f"{i:2d}: NOT STARTED")
+
+        cursor_move_up(len(self.worker_status))
+
+TESTING HERE
+
+    def draw_complete(self):
+        cursor_move_to_start()
+        display_complete("", self.results)
+
+        if self.verbose > 1:
+            # When verbose then AFTER the multithreads have all had a chance
+            # to run THEN we can dump the run logs.
+            # This is particularly important for the advanced tests so that
+            # they can see what ran.
+            for result in self.results:
+                display_start(result.full_name, None, None, self.add_markers)
+                display_stop(result.error, result.elapsed, result.skip, None, None)
+
+
     def __init__(self, n_workers=2, **kwargs):
         super().__init__(**kwargs)
 
@@ -162,46 +210,10 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         self.queue = Queue()
         self.map_results = None
 
-    def draw_status(self):
-        def cursor_move_up(n_lines):
-            sys.stdout.write(f"\033[{n_lines}A")
-
-        def cursor_clear_to_eol():
-            sys.stdout.write("\033[K\n")
-
-        def write_line(line):
-            assert line[-1] != "\n"
-            sys.stdout.write(line)
-            cursor_clear_to_eol()
-            sys.stdout.write("\n")
-
-HERHE: NOT DONE IWTH THIS REFACT
-        n_status_lines = max(n_status_lines, n_workers)
-        cursor_move_to_start()
-
-        if self.run_complete:
-            if self.wrote_status:
-                for _ in range(n_workers):
-                    cursor_clear_to_eol()
-        else:
-            for i, worker in enumerate(self.worker_status):
-                self.wrote_status = True
-                if worker is not None:
-                    write_line(
-                        f"{i:2d}: {state_messages[worker.is_running]:<8s} {worker.full_name}"
-                    )
-                else:
-                    write_line(f"{i:2d}: NOT STARTED")
-
     def message_pump(self):
-        n_status_lines = 0
-
         request_stop = False
-        state_messages = ["DONE", "RUNNING"]
-        wrote_status = False
         while True:
             try:
-                n_workers = len(self.worker_status)
                 # if ...: request_stop = True
                 #   TODO
 
@@ -215,17 +227,7 @@ HERHE: NOT DONE IWTH THIS REFACT
                 request_stop = True
                 self.retcode = 1
 
-        cursor_move_to_start()
-        display_complete("", self.results)
-
-        if self.verbose > 1:
-            # When verbose then AFTER the multithreads have all had a chance
-            # to run THEN we can dump the run logs.
-            # This is particularly important for the advanced tests so that
-            # they can see what ran.
-            for result in self.results:
-                display_start(result.full_name, None, None, self.add_markers)
-                display_stop(result.error, result.elapsed, result.skip, None, None)
+        self.draw_complete()
 
     def run(self):
         if self.retcode != 0:
@@ -254,6 +256,6 @@ HERHE: NOT DONE IWTH THIS REFACT
         ) as self.pool:
             self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
             self.pool.close()
-            self.message_pump(self.pool)
+            self.message_pump()
 
         return self
