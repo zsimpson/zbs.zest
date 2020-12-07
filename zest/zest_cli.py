@@ -54,7 +54,7 @@ def main():
         help="Optional substring that must be present in a test to run."
     )
 
-    parser.add_argument("exclude_string", type=str, nargs="?",
+    parser.add_argument("--exclude_string", type=str, nargs="?",
         help="Optional substring that must be absent in a test to run."
     )
 

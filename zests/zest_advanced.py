@@ -121,6 +121,18 @@ def zest_runner_single_thread():
         assert "zest_basics.py:" in output
         assert ret_code != 0
 
+    def it_includes_all_groups_by_default():
+        raise NotImplmentedError
+
+    def it_can_limit_to_group():
+        raise NotImplmentedError
+
+    def it_can_exclude_a_group():
+        raise NotImplmentedError
+
+    def it_can_exclude_a_string():
+        raise NotImplmentedError
+
     zest()
 
 

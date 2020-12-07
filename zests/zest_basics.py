@@ -325,6 +325,10 @@ def zest_noisy_zests():
 
     zest()
 
+@zest.group("group1")
+def zest_group():
+    zest()
+
 '''
 def zest_parameter_list():
     saw = {1: False, 2: False}

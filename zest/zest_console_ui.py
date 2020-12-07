@@ -518,7 +518,7 @@ def _run(
     request_run = None
     request_stop = False
     request_end = False
-    zest_results_path = Path(kwargs.pop("output_folder"))
+    zest_results_path = Path(kwargs.pop("output_folder", ".zest_results"))
 
     def render():
         nonlocal dirty
