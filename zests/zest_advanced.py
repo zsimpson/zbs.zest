@@ -125,7 +125,9 @@ def zest_runner_single_thread():
         raise NotImplmentedError
 
     def it_can_limit_to_group():
-        raise NotImplmentedError
+        ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1")
+        found_tests = _get_run_tests(output)
+        assert set(found_tests) == set(["zest_group"])
 
     def it_can_exclude_a_group():
         raise NotImplmentedError

@@ -297,7 +297,7 @@ def zest_bad_zest_1():
     # Outer does not call zest
 
 
-@zest.skip(reason="bad_zest_2")
+# @zest.skip(reason="bad_zest_2")
 def zest_bad_zest_2():
     """
     Like zest_bad_zest_1 but with an error of a zest() before final test.
@@ -325,11 +325,13 @@ def zest_noisy_zests():
 
     zest()
 
+
 @zest.group("group1")
 def zest_group():
     zest()
 
-'''
+
+"""
 def zest_parameter_list():
     saw = {1: False, 2: False}
 
@@ -359,4 +361,4 @@ def zest_parameter_list():
         'zest_parameter_list().it_calls_multiple_times(1, ).it_has_an_interior_method().it_calls_multiple_times(2, )',
         'zest_parameter_list().it_calls_multiple_times(1, ).it_has_an_interior_method().it_calls_multiple_times(2, ).it_has_an_interior_method()'
     ]
-'''
+"""

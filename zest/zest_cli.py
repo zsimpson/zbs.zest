@@ -32,6 +32,10 @@ def main():
         help="Optional root directory to search (default: cwd).",
     )
 
+    parser.add_argument("--groups", nargs="?",
+        help="Optional colon-delimited list of groups to run.",
+    )
+
     parser.add_argument("--include_dirs", nargs="?", default=".",
         help="Optional colon-delimited list of directories to search.",
     )

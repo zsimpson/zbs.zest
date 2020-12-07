@@ -6,6 +6,8 @@ import os
 import ast
 import pkgutil
 import sys
+import typing
+from dataclasses import dataclass
 from importlib import import_module, util
 from zest.zest import log
 
@@ -29,26 +31,207 @@ def _walk_include_dirs(root, include_dirs):
                 yield curr
 
 
-def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name):
+@dataclass
+class FoundZest:
+    full_name: str
+    groups: []
+    errors: []
+    children: []
+    skip: str = None
+
+
+def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
     """
-    Recursively traverse the Abstract Syntax Tree extracting zests
+    TODO
+
+    body:
+        This body of the module or function that is being analyzed
+    parent_name:
+        If not a module, this will contain the name of the parent
+        For example:
+        some_module:
+            def zest_root_1():
+                def it_foos():
+                    pass
+
+                @zest.group("group1")
+                def it_bars():
+                    pass
+
+                zest()
+
+            def zest_root_2():
+                def it_goos():
+                    pass
+
+                @zest.skip("Ignore me")
+                def it_zoos():
+                    pass
+
+                zest()
+
+                def it_bad_zest_declared_after_the_call_to_zest():
+                    pass
+
+
+            _recurse_ast("./path/some_module.py", 0, body_of_some_module, None, None)
+                Which will return:
+                [
+                    FoundZest(
+                        full_name="zest_root_1",
+                        groups=[],
+                        errors=[],
+                        children=[
+                            FoundZest("it_foos"),
+                            FoundZest("it_bars", groups=["group1"]),
+                        ],
+                        skip=None,
+                    ),
+                    FoundZest(
+                        full_name="zest_root_2",
+                        groups=[],
+                        errors=["it_bad_zest_declared_after_the_call_to_zest was declared...."],
+                        children=[
+                            FoundZest("it_goos"),
+                            FoundZest("it_zoos", skip="Ignore me"),
+                        ],
+                        skip=None,
+                    ),
+                ]
+
+
+    The tricky thing here is that _recurse_ast is called in two contexts:
+        1. At a module level where parent_name and func_name are None
+        2. On a function where func_name is not None and parent_name
+            might be None if this is a root-level test.
+
+        In other words:
+            If func_name is None then "body" is a MODULE.
+            If func_name is not None and parent_name is None then "body" is a root-level FUNCTION
+            If func_name is not None and parent_name is not None then "body" is a child FUNCTION
+
+        Errors apply only to FUNCTIONS not to modules.
+    """
+
+    is_module_level = func_name is None
+    is_root_zest = func_name is not None and parent_name is None
+
+    # Will be incremented for each def that is found in this context
+    # that does not start with an underscore.
+    n_test_funcs = 0
+
+    # Flag that will be set if any zest() call is found (there should be only one at the end!)
+    found_zest_call = False
+
+    # Flag that will be set if any test function is declared AFTER the call to zest()
+    found_zest_call_before_final_func_def = False
+
+    # The zests found in this context
+    found_zests = []
+
+    for i, part in enumerate(body):
+        if isinstance(part, ast.With):
+            _children_list_of_zests = _recurse_ast(
+                part.body, parent_name, path, part.lineno,
+            )
+            found_zests += _children_list_of_zests
+
+        if isinstance(part, ast.FunctionDef):
+            this_zest_name = None
+            this_zest_groups = []
+            this_zest_errors = []
+            this_zest_skip_reason = None
+            this_zest_children = None
+
+            if (is_module_level and part.name.startswith("zest_")) or (
+                not is_module_level and not part.name.startswith("_")
+            ):
+                this_zest_name = part.name
+
+                if part.decorator_list:
+                    for dec in part.decorator_list:
+                        if isinstance(dec, ast.Call):
+                            if isinstance(dec.func, ast.Attribute):
+                                if dec.func.attr == "group":
+                                    this_zest_groups += ["?"]
+                                elif dec.func.attr == "skip":
+                                    this_zest_skip_reason = "?"
+
+                # RECURSE un-skipped functions
+                if this_zest_skip_reason is None:
+                    n_test_funcs += 1
+                    this_zest_children = _recurse_ast(
+                        path, part.lineno, part.body, this_zest_name, parent_name
+                    )
+HERE
+            if found_zest_call:
+                # A call to zest() has already been seen previously in this context
+                # therefore it is an error to define another function after this point
+                # so we set the following flag
+                found_zest_call_before_final_func_def = True
+
+            found_zests += [
+                FoundZest(
+                    this_zest_full_name,
+                    this_zest_groups,
+                    this_zest_errors,
+                    this_zest_skip_reason,
+                    this_zest_children,
+                )
+            ]
+
+        # Check for the call to "zest()"
+        if (
+            isinstance(part, ast.Expr)
+            and isinstance(part.value, ast.Call)
+            and isinstance(part.value.func, ast.Name)
+            and part.value.func.id == "zest"
+        ):
+            found_zest_call = True
+
+    if func_name is not None:
+        this_func_skipped = False
+        if skips and len(skips) > 0:
+            this_func_skipped = True
+
+            # There is a skip request on this func, but is there a bypass for it?
+            if bypass_skip and bypass_skip in skips:
+                this_func_skipped = False
+
+        if n_test_funcs > 0 and parent_name is not None and not this_func_skipped:
+            if found_zest_call_before_final_func_def:
+                error_message = "called zest() before all functions were defined."
+                errors += [(parent_name, path, lineno, error_message)]
+            elif not found_zest_call:
+                error_message = "did not terminate with a call to zest()"
+                errors += [(parent_name, path, lineno, error_message)]
+
+    return found_zests
+
+
+def _recurse_ast_old(body, parent_name, skips, path, lineno, bypass_skip, func_name):
+    """
+    Recursively traverse the Abstract Syntax Tree extracting zests.
 
     Args:
         body: the AST func_body or module body
         parent_name: The parent function name or None if a module
         skips: a list of skip names for the current func_body or None if module
+            This is used so that we do not accumulate errors on skipped zests
 
     Returns:
-        list of children: [(full_name, skips, errors)]
+        flat list of all zests (and sub zests): [(full_name, errors, props)]
     """
     n_test_funcs = 0
     found_zest_call = False
     found_zest_call_before_final_func_def = False
-    child_list = []
-    errors = []
+
+    # list_of_zests is a FLAT list of zests, the recursive children are appended to this
+    list_of_zests = []
+
     for i, part in enumerate(body):
         if isinstance(part, ast.With):
-            _child_list, _errors = _recurse_ast(
+            _children_list_of_zests = _recurse_ast(
                 part.body,
                 parent_name,
                 skips,
@@ -57,10 +240,10 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                 bypass_skip,
                 func_name=None,
             )
-            child_list += _child_list
-            errors += _errors
+            list_of_zests += _children_list_of_zests
 
         if isinstance(part, ast.FunctionDef):
+            props = {}
             full_name = None
             if parent_name is None:
                 if part.name.startswith("zest_"):
@@ -69,6 +252,7 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                 if not part.name.startswith("_"):
                     full_name = f"{parent_name}.{part.name}"
 
+            # Accumulate _skips so that we can ignore errors in skipped tests
             _skips = []
 
             def add_to_skips(full_name):
@@ -80,7 +264,9 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                 for dec in part.decorator_list:
                     if isinstance(dec, ast.Call):
                         if isinstance(dec.func, ast.Attribute):
-                            if dec.func.attr == "skip":
+                            if dec.func.attr == "group":
+                                props["group"] = "?"
+                            elif dec.func.attr == "skip":
                                 add_to_skips(full_name)
                                 # if len(dec.args) > 0 and isinstance(
                                 #     dec.args[0], ast.Str
@@ -92,7 +278,7 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
 
             if full_name is not None:
                 n_test_funcs += 1
-                _child_list, _errors = _recurse_ast(
+                _children_list_of_zests = _recurse_ast(
                     part.body,
                     full_name,
                     _skips,
@@ -101,8 +287,8 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                     bypass_skip,
                     func_name=full_name,
                 )
-                child_list += [(full_name, _skips)]
-                child_list += _child_list
+                list_of_zests += [(full_name, [], _props)]
+                list_of_zests += _children_list_of_zests
                 errors += _errors
 
             if found_zest_call:
@@ -133,7 +319,7 @@ def _recurse_ast(body, parent_name, skips, path, lineno, bypass_skip, func_name)
                 error_message = "did not terminate with a call to zest()"
                 errors += [(parent_name, path, lineno, error_message)]
 
-    return child_list, errors
+    return list_of_zests, errors
 
 
 def load_module(root_name, module_name, full_path):
@@ -153,6 +339,8 @@ def find_zests(
     match_string=None,
     exclude_string=None,
     bypass_skip=None,
+    only_groups=None,
+    exclude_groups=None,
 ):
     """
     Traverses the tree looking for /zests/ folders and opens and parses any file found
@@ -172,6 +360,12 @@ def find_zests(
             Note that match_string only narrows the scope from allow_to_run
         exclude_string:
             If not None then any zest full name that *contains* this string will be excluded.
+        bypass_skip:
+            Used for debugging/testing
+        only_groups:
+            Run only this (colon delimited set of groups)
+        exclude_groups:
+            Do not run these (colon deliminted) set of groups
 
     Returns:
         dict of root zests by name -> (module_name, package, path)
