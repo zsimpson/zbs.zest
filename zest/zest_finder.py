@@ -6,7 +6,7 @@ import os
 import ast
 import pkgutil
 import sys
-import typing
+from typing import List
 from dataclasses import dataclass
 from importlib import import_module, util
 from zest.zest import log
@@ -33,7 +33,7 @@ def _walk_include_dirs(root, include_dirs):
 
 @dataclass
 class FoundZest:
-    full_name: str
+    name: str
     groups: []
     errors: []
     children: []
@@ -78,7 +78,7 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
                 Which will return:
                 [
                     FoundZest(
-                        full_name="zest_root_1",
+                        name="zest_root_1",
                         groups=[],
                         errors=[],
                         children=[
@@ -88,7 +88,7 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
                         skip=None,
                     ),
                     FoundZest(
-                        full_name="zest_root_2",
+                        name="zest_root_2",
                         groups=[],
                         errors=["it_bad_zest_declared_after_the_call_to_zest was declared...."],
                         children=[
@@ -128,16 +128,17 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
 
     # The zests found in this context
     found_zests = []
+    errors = []
 
     for i, part in enumerate(body):
-        if isinstance(part, ast.With):
-            _children_list_of_zests = _recurse_ast(
-                part.body, parent_name, path, part.lineno,
-            )
-            found_zests += _children_list_of_zests
+        # TODO
+        # if isinstance(part, ast.With):
+        #     _children_list_of_zests = _recurse_ast(
+        #         part.body, parent_name, path, part.lineno,
+        #     )
+        #     found_zests += _children_list_of_zests
 
         if isinstance(part, ast.FunctionDef):
-            this_zest_name = None
             this_zest_groups = []
             this_zest_errors = []
             this_zest_skip_reason = None
@@ -153,32 +154,37 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
                         if isinstance(dec, ast.Call):
                             if isinstance(dec.func, ast.Attribute):
                                 if dec.func.attr == "group":
-                                    this_zest_groups += ["?"]
+                                    group = dec.args[0].s
+                                    this_zest_groups += [group]
                                 elif dec.func.attr == "skip":
-                                    this_zest_skip_reason = "?"
+                                    if len(dec.args) == 1:
+                                        reason = dec.args[0].s
+                                    else:
+                                        reason = dec.keywords[0].value.s
+                                    this_zest_skip_reason = reason
 
                 # RECURSE un-skipped functions
                 if this_zest_skip_reason is None:
                     n_test_funcs += 1
-                    this_zest_children = _recurse_ast(
+                    this_zest_children, this_zest_errors = _recurse_ast(
                         path, part.lineno, part.body, this_zest_name, parent_name
                     )
-HERE
-            if found_zest_call:
-                # A call to zest() has already been seen previously in this context
-                # therefore it is an error to define another function after this point
-                # so we set the following flag
-                found_zest_call_before_final_func_def = True
 
-            found_zests += [
-                FoundZest(
-                    this_zest_full_name,
-                    this_zest_groups,
-                    this_zest_errors,
-                    this_zest_skip_reason,
-                    this_zest_children,
-                )
-            ]
+                found_zests += [
+                    FoundZest(
+                        name=this_zest_name,
+                        groups=this_zest_groups,
+                        errors=this_zest_errors,
+                        children=this_zest_children,
+                        skip=this_zest_skip_reason,
+                    )
+                ]
+
+                if found_zest_call:
+                    # A call to zest() has already been seen previously in this context
+                    # therefore it is an error to define another function after this point
+                    # so we set the following flag
+                    found_zest_call_before_final_func_def = True
 
         # Check for the call to "zest()"
         if (
@@ -189,26 +195,156 @@ HERE
         ):
             found_zest_call = True
 
-    if func_name is not None:
-        this_func_skipped = False
-        if skips and len(skips) > 0:
-            this_func_skipped = True
+    if n_test_funcs > 0 and not is_module_level:
+        if found_zest_call_before_final_func_def:
+            error_message = "called zest() before all functions were defined."
+            errors += [(func_name, path, lineno, error_message)]
+        elif not found_zest_call:
+            error_message = "did not terminate with a call to zest()"
+            errors += [(func_name, path, lineno, error_message)]
 
-            # There is a skip request on this func, but is there a bypass for it?
-            if bypass_skip and bypass_skip in skips:
-                this_func_skipped = False
-
-        if n_test_funcs > 0 and parent_name is not None and not this_func_skipped:
-            if found_zest_call_before_final_func_def:
-                error_message = "called zest() before all functions were defined."
-                errors += [(parent_name, path, lineno, error_message)]
-            elif not found_zest_call:
-                error_message = "did not terminate with a call to zest()"
-                errors += [(parent_name, path, lineno, error_message)]
-
-    return found_zests
+    return found_zests, errors
 
 
+def load_module(root_name, module_name, full_path):
+    # TODO: Add cache here?
+    spec = util.spec_from_file_location(module_name, full_path)
+    mod = util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return getattr(mod, root_name)
+
+
+def _flatten_found_zests(found_zests_tree: List[FoundZest], parent_name) -> List[FoundZest]:
+    """
+    Convert a tree of found_zests_tree into a flat list converting
+    the names to full names using a dot delimiter.
+    """
+    ret_list = []
+    for found_zest in (found_zests_tree or []):
+        found_zest.name = (parent_name + "." if parent_name is not None else "") + found_zest.name
+        children = _flatten_found_zests(found_zest.children, found_zest.name)
+        found_zest.children = None
+        ret_list += [found_zest]
+        ret_list += children
+
+    return ret_list
+
+
+def find_zests(
+    root,
+    include_dirs,
+    allow_to_run=None,
+    allow_files=None,
+    match_string=None,
+    exclude_string=None,
+    bypass_skip=None,
+    only_groups=None,
+    exclude_groups=None,
+):
+    """
+    Traverses the tree looking for /found_zests/ folders and opens and parses any file found
+
+    Arguments:
+        root:
+            Root path
+        include_dirs: String
+            Colon-delimited folders to search
+        allow_to_run:
+            If not None: a list of full test names (dot-delimited) that will be included.
+            Plus two specials: "__all__" and "__failed__"
+        allow_files:
+            If not None: a list of filenames (without directory) that will be included.
+        match_string:
+            If not None then any zest full name that *contains* this string will be included.
+            Note that match_string only narrows the scope from allow_to_run
+        exclude_string:
+            If not None then any zest full name that *contains* this string will be excluded.
+        bypass_skip:
+            Used for debugging/testing
+        only_groups:
+            Run only this (colon delimited set of groups)
+        exclude_groups:
+            Do not run these (colon deliminted) set of groups
+
+    Returns:
+        dict of root found_zests by name -> (module_name, package, path)
+        set of full names allowed to run (not all test under a root have to be allowed)
+        list of all errors
+
+    Note, when a zest is identified all of its ancestor are also be added to the the list.
+    Example:
+        full_name = "zest_test1.it_does_y.it_does_y1"
+        match_string = "it_does_y1"
+        Then return_allow_to_run == set(
+            "zest_test1",
+            "zest_test1.it_does_y",
+            "zest_test1.it_does_y.it_does_y1",
+        )
+    """
+
+    if allow_to_run is None:
+        allow_to_run = []
+
+    if root is None:
+        log(f"root none {include_dirs} {allow_to_run} {match_string} {allow_files}")
+        return {}, {}, []
+
+    n_root_parts = len(root.split(os.sep))
+
+    return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
+
+    # root_zest_funcs is a dict of entrypoints (root found_zests) -> (module_name, package, path)
+    root_zest_funcs = {}
+    errors_to_show = []
+
+    for curr in _walk_include_dirs(root, include_dirs):
+        for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
+            if allow_files is not None:
+                if module_name not in allow_files:
+                    continue
+
+            path = os.path.join(curr, module_name + ".py")
+            with open(path) as file:
+                source = file.read()
+
+            module_ast = ast.parse(source)
+
+            found_zests, errors = _recurse_ast(path, 0, module_ast.body)
+            assert len(errors) == 0
+            found_zests = _flatten_found_zests(found_zests, None)
+
+            for found_zest in found_zests:
+                full_name = found_zest.name
+                parts = full_name.split(".")
+                package = ".".join(curr.split(os.sep)[n_root_parts:])
+
+                if "__all__" in allow_to_run or full_name in allow_to_run:
+                    if match_string is None or match_string in full_name:
+                        if exclude_string is not None and exclude_string in full_name:
+                            continue
+
+                        # FIND any errors from this zest:
+                        for error in found_zest.errors:
+                            errors_to_show += [error]
+
+                        # Include this and all ancestors in the list
+                        for i in range(len(parts)):
+                            name = ".".join(parts[0 : i + 1])
+                            return_allow_to_run.update({name})
+
+                        root_zest_funcs[parts[0]] = (module_name, package, path)
+
+    return root_zest_funcs, return_allow_to_run, errors_to_show
+
+
+if __name__ == "__main__":
+    zests = find_zests(".", "./zests", allow_files="zest_basics.py", allow_to_run="__all__")
+    for z in zests:
+        print(z)
+
+
+'''
 def _recurse_ast_old(body, parent_name, skips, path, lineno, bypass_skip, func_name):
     """
     Recursively traverse the Abstract Syntax Tree extracting zests.
@@ -322,116 +458,5 @@ def _recurse_ast_old(body, parent_name, skips, path, lineno, bypass_skip, func_n
     return list_of_zests, errors
 
 
-def load_module(root_name, module_name, full_path):
-    # TODO: Add cache here?
-    spec = util.spec_from_file_location(module_name, full_path)
-    mod = util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return getattr(mod, root_name)
 
-
-def find_zests(
-    root,
-    include_dirs,
-    allow_to_run=None,
-    allow_files=None,
-    match_string=None,
-    exclude_string=None,
-    bypass_skip=None,
-    only_groups=None,
-    exclude_groups=None,
-):
-    """
-    Traverses the tree looking for /zests/ folders and opens and parses any file found
-
-    Arguments:
-        root:
-            Root path
-        include_dirs: String
-            Colon-delimited folders to search
-        allow_to_run:
-            If not None: a list of full test names (dot-delimited) that will be included.
-            Plus two specials: "__all__" and "__failed__"
-        allow_files:
-            If not None: a list of filenames (without directory) that will be included.
-        match_string:
-            If not None then any zest full name that *contains* this string will be included.
-            Note that match_string only narrows the scope from allow_to_run
-        exclude_string:
-            If not None then any zest full name that *contains* this string will be excluded.
-        bypass_skip:
-            Used for debugging/testing
-        only_groups:
-            Run only this (colon delimited set of groups)
-        exclude_groups:
-            Do not run these (colon deliminted) set of groups
-
-    Returns:
-        dict of root zests by name -> (module_name, package, path)
-        set of full names allowed to run (not all test under a root have to be allowed)
-        list of all errors
-
-    Note, when a zest is identified all of its ancestor are also be added to the the list.
-    Example:
-        full_name = "zest_test1.it_does_y.it_does_y1"
-        match_string = "it_does_y1"
-        Then return_allow_to_run == set(
-            "zest_test1",
-            "zest_test1.it_does_y",
-            "zest_test1.it_does_y.it_does_y1",
-        )
-    """
-
-    if allow_to_run is None:
-        allow_to_run = []
-
-    if root is None:
-        log(f"root none {include_dirs} {allow_to_run} {match_string} {allow_files}")
-        return {}, {}, []
-
-    n_root_parts = len(root.split(os.sep))
-
-    return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
-
-    # root_zest_funcs is a dict of entrypoints (root zests) -> (module_name, package, path)
-    root_zest_funcs = {}
-    errors_to_show = []
-
-    for curr in _walk_include_dirs(root, include_dirs):
-        for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
-            if allow_files is not None:
-                if module_name not in allow_files:
-                    continue
-
-            path = os.path.join(curr, module_name + ".py")
-            with open(path) as file:
-                source = file.read()
-
-            module_ast = ast.parse(source)
-            zests, errors = _recurse_ast(
-                module_ast.body, None, None, path, 0, bypass_skip, func_name=None
-            )
-
-            for full_name, skips in zests:
-                parts = full_name.split(".")
-                package = ".".join(curr.split(os.sep)[n_root_parts:])
-
-                if "__all__" in allow_to_run or full_name in allow_to_run:
-                    if match_string is None or match_string in full_name:
-                        if exclude_string is not None and exclude_string in full_name:
-                            continue
-
-                        # FIND any errors from this zest:
-                        for error in errors:
-                            if error[0] == full_name:
-                                errors_to_show += [error]
-
-                        # Include this and all ancestors in the list
-                        for i in range(len(parts)):
-                            name = ".".join(parts[0 : i + 1])
-                            return_allow_to_run.update({name})
-
-                        root_zest_funcs[parts[0]] = (module_name, package, path)
-
-    return root_zest_funcs, return_allow_to_run, errors_to_show
+'''

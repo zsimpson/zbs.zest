@@ -297,7 +297,7 @@ def zest_bad_zest_1():
     # Outer does not call zest
 
 
-# @zest.skip(reason="bad_zest_2")
+@zest.skip(reason="bad_zest_2")
 def zest_bad_zest_2():
     """
     Like zest_bad_zest_1 but with an error of a zest() before final test.

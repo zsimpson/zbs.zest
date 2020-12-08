@@ -156,9 +156,9 @@ def zest_runner_multi_thread():
                 f"python -m zest.zest_cli --output_folder={tmp_folder} --add_markers --allow_files=zest_basics --n_workers={n_workers} "
                 + " ".join(args)
             )
-            # log(
-            #     f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
-            # )
+            log(
+                f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
+            )
             output = subprocess.check_output(
                 to_run, shell=True, stderr=subprocess.STDOUT,
             )
