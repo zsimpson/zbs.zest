@@ -121,19 +121,26 @@ def zest_runner_single_thread():
         assert "zest_basics.py:" in output
         assert ret_code != 0
 
-    # def it_includes_all_groups_by_default():
-    #     raise NotImplmentedError
-    #
-    # def it_can_limit_to_group():
-    #     ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1")
-    #     found_tests = _get_run_tests(output)
-    #     assert set(found_tests) == set(["zest_group"])
-    #
-    # def it_can_exclude_a_group():
-    #     raise NotImplmentedError
-    #
-    # def it_can_exclude_a_string():
-    #     raise NotImplmentedError
+    def it_includes_all_groups_by_default():
+        ret_code, output = _call_zest_cli("--verbose=2")
+        found_tests = _get_run_tests(output)
+        assert "zest_group1" in found_tests
+        assert "zest_group2" in found_tests
+
+    def it_can_limit_to_group():
+        ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1")
+        found_tests = _get_run_tests(output)
+        assert set(found_tests) == set(["zest_group1"])
+
+    def it_can_limit_to_groups():
+        ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1:group2")
+        found_tests = _get_run_tests(output)
+        assert set(found_tests) == set(["zest_group1", "zest_group2"])
+
+    def it_can_exclude_a_group():
+        ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1:group2", "--exclude_groups=group1")
+        found_tests = _get_run_tests(output)
+        assert set(found_tests) == set(["zest_group2"])
 
     zest()
 

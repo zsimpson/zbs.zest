@@ -327,7 +327,11 @@ def zest_noisy_zests():
 
 
 @zest.group("group1")
-def zest_group():
+def zest_group1():
+    zest()
+
+@zest.group("group2")
+def zest_group2():
     zest()
 
 

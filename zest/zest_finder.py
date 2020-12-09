@@ -239,7 +239,7 @@ def find_zests(
     match_string=None,
     exclude_string=None,
     bypass_skip=None,
-    only_groups=None,
+    groups=None,
     exclude_groups=None,
 ):
     """
@@ -289,6 +289,12 @@ def find_zests(
 
     n_root_parts = len(root.split(os.sep))
 
+    if groups is not None:
+        groups = set(groups)
+
+    if exclude_groups is not None:
+        exclude_groups = set(exclude_groups)
+
     return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
 
     # root_zest_funcs is a dict of entrypoints (root found_zests) -> (module_name, package, path)
@@ -327,6 +333,20 @@ def find_zests(
                             if bypass_skip is None or bypass_skip != full_name:
                                 continue
 
+                        # IGNORE groups not in the groups list or in exclude_groups
+                        if found_zest.groups is not None:
+                            # If CLI groups is specified and there there is no
+                            # group in common between the CLI groups and the
+                            # groups of this test then skip it.
+                            if groups is not None and not set.intersection(set(found_zest.groups), groups):
+                                continue
+
+                            # If CLI exclude_groups is specified and there there *is*
+                            # a group in common between then skip it.
+                            if exclude_groups is not None and set.intersection(set(found_zest.groups), exclude_groups):
+                                log(exclude_groups, found_zest.groups)
+                                continue
+
                         # FIND any errors from this zest:
                         for error in found_zest.errors:
                             errors_to_show += [error]
@@ -346,120 +366,3 @@ if __name__ == "__main__":
     for z in zests:
         print(z)
 
-
-'''
-def _recurse_ast_old(body, parent_name, skips, path, lineno, bypass_skip, func_name):
-    """
-    Recursively traverse the Abstract Syntax Tree extracting zests.
-
-    Args:
-        body: the AST func_body or module body
-        parent_name: The parent function name or None if a module
-        skips: a list of skip names for the current func_body or None if module
-            This is used so that we do not accumulate errors on skipped zests
-
-    Returns:
-        flat list of all zests (and sub zests): [(full_name, errors, props)]
-    """
-    n_test_funcs = 0
-    found_zest_call = False
-    found_zest_call_before_final_func_def = False
-
-    # list_of_zests is a FLAT list of zests, the recursive children are appended to this
-    list_of_zests = []
-
-    for i, part in enumerate(body):
-        if isinstance(part, ast.With):
-            _children_list_of_zests = _recurse_ast(
-                part.body,
-                parent_name,
-                skips,
-                path,
-                part.lineno,
-                bypass_skip,
-                func_name=None,
-            )
-            list_of_zests += _children_list_of_zests
-
-        if isinstance(part, ast.FunctionDef):
-            props = {}
-            full_name = None
-            if parent_name is None:
-                if part.name.startswith("zest_"):
-                    full_name = f"{part.name}"
-            else:
-                if not part.name.startswith("_"):
-                    full_name = f"{parent_name}.{part.name}"
-
-            # Accumulate _skips so that we can ignore errors in skipped tests
-            _skips = []
-
-            def add_to_skips(full_name):
-                nonlocal _skips
-                if bypass_skip is None or bypass_skip == "" or full_name in bypass_skip:
-                    _skips += [full_name]
-
-            if part.decorator_list:
-                for dec in part.decorator_list:
-                    if isinstance(dec, ast.Call):
-                        if isinstance(dec.func, ast.Attribute):
-                            if dec.func.attr == "group":
-                                props["group"] = "?"
-                            elif dec.func.attr == "skip":
-                                add_to_skips(full_name)
-                                # if len(dec.args) > 0 and isinstance(
-                                #     dec.args[0], ast.Str
-                                # ):
-                                # elif len(dec.keywords) > 0 and isinstance(
-                                #     dec.keywords[0].value, ast.Str
-                                # ):
-                                #     add_to_skips(full_name, dec.keywords[0].value.s)
-
-            if full_name is not None:
-                n_test_funcs += 1
-                _children_list_of_zests = _recurse_ast(
-                    part.body,
-                    full_name,
-                    _skips,
-                    path,
-                    part.lineno,
-                    bypass_skip,
-                    func_name=full_name,
-                )
-                list_of_zests += [(full_name, [], _props)]
-                list_of_zests += _children_list_of_zests
-                errors += _errors
-
-            if found_zest_call:
-                found_zest_call_before_final_func_def = True
-
-        if isinstance(part, ast.Expr):
-            if isinstance(part.value, ast.Call):
-                if isinstance(part.value.func, ast.Name):
-                    if part.value.func.id == "zest":
-                        found_zest_call = True
-
-    # Accumulate error message if this function did not end with a zest() call
-    # unless this function is skipped
-    if func_name is not None:
-        this_func_skipped = False
-        if skips and len(skips) > 0:
-            this_func_skipped = True
-
-            # There is a skip request on this func, but is there a bypass for it?
-            if bypass_skip and bypass_skip in skips:
-                this_func_skipped = False
-
-        if n_test_funcs > 0 and parent_name is not None and not this_func_skipped:
-            if found_zest_call_before_final_func_def:
-                error_message = "called zest() before all functions were defined."
-                errors += [(parent_name, path, lineno, error_message)]
-            elif not found_zest_call:
-                error_message = "did not terminate with a call to zest()"
-                errors += [(parent_name, path, lineno, error_message)]
-
-    return list_of_zests, errors
-
-
-
-'''

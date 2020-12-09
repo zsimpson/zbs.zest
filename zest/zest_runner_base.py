@@ -35,6 +35,8 @@ class ZestRunnerBase:
         verbose=1,
         disable_shuffle=False,
         add_markers=False,
+        groups=None,
+        exclude_groups=None,
         **kwargs,
     ):
         """
@@ -88,6 +90,8 @@ class ZestRunnerBase:
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.disable_shuffle = disable_shuffle
         self.bypass_skip = bypass_skip
+        self.groups = groups
+        self.exclude_groups = exclude_groups
 
         zest.reset(disable_shuffle, bypass_skip)
 
@@ -104,6 +108,8 @@ class ZestRunnerBase:
             match_string,
             exclude_string,
             bypass_skip,
+            groups.split(":") if groups is not None else None,
+            exclude_groups.split(":") if exclude_groups is not None else None,
         )
 
         self.handle_find_errors(find_errors)
