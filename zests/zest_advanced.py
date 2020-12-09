@@ -101,13 +101,13 @@ def zest_runner_single_thread():
 
     def it_skips_bypass():
         ret_code, output = _call_zest_cli(
-            "--verbose=2", "zest_bad_zest_1", "--bypass_skip=bad_zest_1"
+            "--verbose=2", "zest_bad_zest_1", "--bypass_skip=zest_bad_zest_1"
         )
         assert "+zest_bad_zest_1: SKIPPED" not in strip_ansi(output)
 
     def it_warns_if_no_trailing_zest():
         ret_code, output = _call_zest_cli(
-            "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
+            "--verbose=2", "--bypass_skip=zest_bad_zest_1", "zest_bad_zest_1"
         )
         assert "did not terminate with a call to zest" in output
         assert "zest_basics.py:" in output
@@ -115,7 +115,7 @@ def zest_runner_single_thread():
 
     def it_warns_if_zest_not_final():
         ret_code, output = _call_zest_cli(
-            "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
+            "--verbose=2", "--bypass_skip=zest_bad_zest_2", "zest_bad_zest_2"
         )
         assert "before all functions were defined" in output
         assert "zest_basics.py:" in output
@@ -226,13 +226,13 @@ def zest_runner_multi_thread():
 
     def it_skips_bypass():
         ret_code, output = _call_zest_cli(
-            "--verbose=2", "zest_bad_zest_1", "--bypass_skip=bad_zest_1"
+            "--verbose=2", "zest_bad_zest_1", "--bypass_skip=zest_bad_zest_1"
         )
         assert "+zest_bad_zest_1: SKIPPED" not in strip_ansi(output)
 
     def it_warns_if_no_trailing_zest():
         ret_code, output = _call_zest_cli(
-            "--verbose=2", "--bypass_skip=bad_zest_1", "zest_bad_zest_1"
+            "--verbose=2", "--bypass_skip=zest_bad_zest_1", "zest_bad_zest_1"
         )
         assert "did not terminate with a call to zest" in output
         assert "zest_basics.py:" in output
@@ -240,8 +240,9 @@ def zest_runner_multi_thread():
 
     def it_warns_if_zest_not_final():
         ret_code, output = _call_zest_cli(
-            "--verbose=2", "--bypass_skip=bad_zest_2", "zest_bad_zest_2"
+            "--verbose=2", "--bypass_skip=zest_bad_zest_2", "zest_bad_zest_2"
         )
+        log(output)
         assert "before all functions were defined" in output
         assert "zest_basics.py:" in output
         assert ret_code != 0

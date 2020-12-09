@@ -47,12 +47,16 @@ def read_zest_result_line(fd):
 def _do_work_order(
     root_name,
     module_name,
-    package,
     full_path,
     output_folder,
     capture_stdio,
     allow_to_run,
+    disable_shuffle,
+    bypass_skip,
 ):
+    zest.reset(disable_shuffle, bypass_skip)
+    log("IN WO, _bypass", zest._bypass_skip)
+
     event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
 
     # It may be very slow to have the load_module here in the child
@@ -106,6 +110,7 @@ def _do_work_order(
 
 
 def _do_worker_init(queue):
+    log("_do_worker_init", zest._bypass_skip)
     _do_work_order.queue = queue
 
 
@@ -268,11 +273,12 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 (
                     root_name,
                     module_name,
-                    package,
                     full_path,
                     self.output_folder,
                     self.capture_stdio,
                     self.allow_to_run,
+                    self.disable_shuffle,
+                    self.bypass_skip,
                 )
             ]
 
@@ -283,10 +289,13 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 pass
 
         # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
+        log("IN RUN 1, _bypass", zest._bypass_skip)
         self.pool = multiprocessing.Pool(self.n_workers, _do_worker_init, [self.queue])
         self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
         self.pool.close()
         # self.message_pump()
+
+        log("IN RUN 2, _bypass", zest._bypass_skip)
 
         # with multiprocessing.Pool(
         #     self.n_workers, _do_worker_init, [self.queue]

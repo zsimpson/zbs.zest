@@ -84,14 +84,13 @@ class ZestRunnerBase:
         self.retcode = 0
         self.verbose = verbose
         self.add_markers = add_markers
-        self.bypass_skip = bypass_skip
         self.allow_to_run = allow_to_run
-
         self.output_folder.mkdir(parents=True, exist_ok=True)
+        self.disable_shuffle = disable_shuffle
+        self.bypass_skip = bypass_skip
 
-        zest.reset()
-        zest._disable_shuffle = disable_shuffle
-        zest._bypass_skip = bypass_skip.split(":") if bypass_skip is not None else []
+        zest.reset(disable_shuffle, bypass_skip)
+        log("BASE RESET NEW SKIP", zest._bypass_skip)
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.

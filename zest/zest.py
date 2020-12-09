@@ -253,7 +253,7 @@ class zest:
     zest(some_test)
     """
 
-    # TODO: COnvert these to just use a list of zest_results
+    # TODO: Convert these to just use a list of zest_results
     _call_log = []
     _call_stack = []
     _call_errors = []
@@ -268,7 +268,7 @@ class zest:
     _bypass_skip = []
 
     @staticmethod
-    def reset():
+    def reset(disable_shuffle=False, bypass_skip=None):
         zest._call_log = []
         zest._call_stack = []
         zest._call_errors = []
@@ -278,8 +278,9 @@ class zest:
         zest._test_stop_callback = None
         zest._mock_stack = []
         zest._allow_to_run = None
-        zest._disable_shuffle = False
         zest._capture_stdio = False
+        zest._disable_shuffle = disable_shuffle
+        zest._bypass_skip = [] if bypass_skip is None else bypass_skip.split(":")
 
     # TODO: Sort out all the naming conventions for this
     # @staticmethod
@@ -311,6 +312,7 @@ class zest:
             def wrapper(*args, **kwargs):
                 full_name = ".".join(zest._call_stack)
                 if full_name not in zest._bypass_skip:
+                    log("WTFSKIP", full_name, reason, zest._bypass_skip, full_name)
                     raise SkipException(full_name, reason)
                 else:
                     fn(*args, **kwargs)

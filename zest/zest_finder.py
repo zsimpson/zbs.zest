@@ -40,7 +40,7 @@ class FoundZest:
     skip: str = None
 
 
-def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
+def _recurse_ast(path, lineno, body, func_name=None, parent_name=None, bypass_skip=None):
     """
     TODO
 
@@ -164,10 +164,10 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
                                     this_zest_skip_reason = reason
 
                 # RECURSE un-skipped functions
-                if this_zest_skip_reason is None:
+                if this_zest_skip_reason is None or (bypass_skip is not None and bypass_skip == this_zest_name):
                     n_test_funcs += 1
                     this_zest_children, this_zest_errors = _recurse_ast(
-                        path, part.lineno, part.body, this_zest_name, parent_name
+                        path, part.lineno, part.body, this_zest_name, parent_name, bypass_skip
                     )
 
                 found_zests += [
@@ -310,7 +310,7 @@ def find_zests(
 
             module_ast = ast.parse(source)
 
-            found_zests, errors = _recurse_ast(path, 0, module_ast.body)
+            found_zests, errors = _recurse_ast(path, 0, module_ast.body, bypass_skip=bypass_skip)
             assert len(errors) == 0
             found_zests = _flatten_found_zests(found_zests, None)
 
@@ -324,8 +324,17 @@ def find_zests(
                         if exclude_string is not None and exclude_string in full_name:
                             continue
 
+                        # IGNORE skips
+                        if found_zest.skip is not None:
+                            log("FIND wa skip", found_zest.name, bypass_skip, full_name)
+                            # possible skip unless bypassed
+                            if bypass_skip is None or bypass_skip != full_name:
+                                log("SKIP")
+                                continue
+
                         # FIND any errors from this zest:
                         for error in found_zest.errors:
+                            log("ERROR in find", error)
                             errors_to_show += [error]
 
                         # Include this and all ancestors in the list

@@ -102,7 +102,10 @@ def main():
     else:
         if kwargs.get("n_workers") > 1:
             runner = ZestRunnerMultiThread(**kwargs).run()
+            from zest.zest import zest
+            log("IN CLI 1, _bypass", zest._bypass_skip)
             runner.message_pump()
+            log("IN CLI 2, _bypass", zest._bypass_skip)
         else:
             runner = ZestRunnerSingleThread(**kwargs).run()
         retcode = runner.retcode
