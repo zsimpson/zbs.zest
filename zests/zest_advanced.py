@@ -130,17 +130,18 @@ def zest_runner_single_thread():
     def it_can_limit_to_group():
         ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1")
         found_tests = _get_run_tests(output)
-        assert set(found_tests) == set(["zest_group1"])
+        log("found_tests", found_tests)
+        assert set(found_tests) == set(["zest_group1", "it_foos"])
 
     def it_can_limit_to_groups():
         ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1:group2")
         found_tests = _get_run_tests(output)
-        assert set(found_tests) == set(["zest_group1", "zest_group2"])
+        assert set(found_tests) == set(["zest_group1", "zest_group2", "it_foos"])
 
     def it_can_exclude_a_group():
         ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1:group2", "--exclude_groups=group1")
         found_tests = _get_run_tests(output)
-        assert set(found_tests) == set(["zest_group2"])
+        assert set(found_tests) == set(["zest_group2", "it_foos"])
 
     zest()
 

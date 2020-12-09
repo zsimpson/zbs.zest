@@ -112,6 +112,8 @@ class ZestRunnerBase:
             exclude_groups.split(":") if exclude_groups is not None else None,
         )
 
+        log("FIND DONE", self.root_zests, self.allow_to_run)
+
         self.handle_find_errors(find_errors)
 
     def handle_find_errors(self, find_errors):

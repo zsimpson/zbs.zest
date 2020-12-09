@@ -141,9 +141,7 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
 
         if isinstance(part, ast.FunctionDef):
             this_zest_groups = []
-            this_zest_errors = []
             this_zest_skip_reason = None
-            this_zest_children = None
 
             if (is_module_level and part.name.startswith("zest_")) or (
                 not is_module_level and not part.name.startswith("_")
@@ -215,7 +213,7 @@ def load_module(root_name, module_name, full_path):
     return getattr(mod, root_name)
 
 
-def _flatten_found_zests(found_zests_tree: List[FoundZest], parent_name) -> List[FoundZest]:
+def _flatten_found_zests(found_zests_tree: List[FoundZest], parent_name, parent_groups) -> List[FoundZest]:
     """
     Convert a tree of found_zests_tree into a flat list converting
     the names to full names using a dot delimiter.
@@ -223,7 +221,9 @@ def _flatten_found_zests(found_zests_tree: List[FoundZest], parent_name) -> List
     ret_list = []
     for found_zest in (found_zests_tree or []):
         found_zest.name = (parent_name + "." if parent_name is not None else "") + found_zest.name
-        children = _flatten_found_zests(found_zest.children, found_zest.name)
+        _parent_groups = set(parent_groups) | set(found_zest.groups)
+        found_zest.groups = list(_parent_groups)
+        children = _flatten_found_zests(found_zest.children, found_zest.name, _parent_groups)
         found_zest.children = None
         ret_list += [found_zest]
         ret_list += children
@@ -315,7 +315,7 @@ def find_zests(
 
             found_zests, errors = _recurse_ast(path, 0, module_ast.body)
             assert len(errors) == 0
-            found_zests = _flatten_found_zests(found_zests, None)
+            found_zests = _flatten_found_zests(found_zests, None, set())
 
             for found_zest in found_zests:
                 full_name = found_zest.name

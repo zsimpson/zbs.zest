@@ -328,10 +328,18 @@ def zest_noisy_zests():
 
 @zest.group("group1")
 def zest_group1():
+
+    def it_foos():
+        pass
+
     zest()
 
 @zest.group("group2")
 def zest_group2():
+
+    def it_foos():
+        pass
+
     zest()
 
 
