@@ -7,6 +7,7 @@ import random
 import sys
 import signal
 import multiprocessing
+import multiprocessing.pool
 import traceback
 import pathlib
 from multiprocessing import Queue
@@ -30,6 +31,27 @@ from zest.zest_display import (
     display_stop,
     display_error,
 )
+
+# Nondaemonic
+# based on https://stackoverflow.com/a/53180921
+class NoDaemonProcess(multiprocessing.Process):
+    @property
+    def daemon(self):
+        return False
+
+    @daemon.setter
+    def daemon(self, value):
+        pass
+
+
+class NoDaemonContext(type(multiprocessing.get_context())):
+    Process = NoDaemonProcess
+
+
+class NestablePool(multiprocessing.pool.Pool):
+    def __init__(self, *args, **kwargs):
+        kwargs['context'] = NoDaemonContext()
+        super(NestablePool, self).__init__(*args, **kwargs)
 
 
 def read_zest_result_line(fd):
@@ -213,31 +235,21 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 display_start(result.full_name, None, None, self.add_markers)
                 display_stop(result.error, result.elapsed, result.skip, None, None)
 
-    def __init__(self, n_workers=2, allow_output=True, **kwargs):
-        super().__init__(**kwargs)
-
-        self.n_workers = n_workers
-        self.pid_to_worker_i = {}
-        self.worker_status = [None] * self.n_workers
-        self.pool = None
-        self.queue = Queue()
-        self.map_results = None
-        self.allow_output = allow_output
-        self.run_complete = False
-
     def message_pump(self):
         if self.retcode != 0:
             # CHECK that zest_find did not fail
             return self
 
         request_stop = False
+        last_draw = 0.0
         while True:
             try:
                 # if ...: request_stop = True
                 #   TODO
 
-                if self.allow_output:
+                if self.allow_output and time.time() - last_draw > 0.5:
                     self.draw_status()
+                    last_draw = time.time()
 
                 if not self.poll(request_stop):
                     self.run_complete = True
@@ -251,10 +263,21 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             self.draw_status()
             self.draw_complete()
 
-    def run(self):
+    def __init__(self, n_workers=2, allow_output=True, **kwargs):
+        super().__init__(**kwargs)
+
         if self.retcode != 0:
             # CHECK that zest_find did not fail
-            return self
+            return
+
+        self.n_workers = n_workers
+        self.pid_to_worker_i = {}
+        self.worker_status = [None] * self.n_workers
+        self.pool = None
+        self.queue = Queue()
+        self.map_results = None
+        self.allow_output = allow_output
+        self.run_complete = False
 
         work_orders = []
         for (root_name, (module_name, package, full_path),) in self.root_zests.items():
@@ -278,16 +301,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 pass
 
         # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
-        self.pool = multiprocessing.Pool(self.n_workers, _do_worker_init, [self.queue])
+        self.pool = NestablePool(self.n_workers, _do_worker_init, [self.queue])
         self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
         self.pool.close()
-        # self.message_pump()
-
-        # with multiprocessing.Pool(
-        #     self.n_workers, _do_worker_init, [self.queue]
-        # ) as self.pool:
-        #     self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
-        #     self.pool.close()
-        #     self.message_pump()
-
-        return self

@@ -585,8 +585,6 @@ def _run(
                 **kwargs,
             )
 
-            runner.run()
-
             run_state = RUNNING
             dirty = True
             render()

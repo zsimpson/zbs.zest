@@ -24,10 +24,12 @@ from zest.zest_display import (
 
 
 class ZestRunnerSingleThread(ZestRunnerBase):
-    def run(self):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
         if self.retcode != 0:
             # CHECK that zest_find did not fail
-            return self
+            return
 
         last_depth = 0
         curr_depth = 0
@@ -79,4 +81,3 @@ class ZestRunnerSingleThread(ZestRunnerBase):
             display_warnings(zest._call_warnings)
 
         self.retcode = 0 if len(zest._call_errors) == 0 else 1
-        return self
