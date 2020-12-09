@@ -55,7 +55,6 @@ def _do_work_order(
     bypass_skip,
 ):
     zest.reset(disable_shuffle, bypass_skip)
-    log("IN WO, _bypass", zest._bypass_skip)
 
     event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
 
@@ -82,9 +81,6 @@ def _do_work_order(
             """
             This callback occurs anytime a sub-zest starts or stops.
             """
-            # if "zest_runner.shuffling.it_can_disable_shuffle" in zest_result.full_name:
-            #     log("MULTI event_callback", zest_result)
-
             emit_zest_result(zest_result, event_stream)
             _do_work_order.queue.put(zest_result)
             nonlocal zest_result_to_return
@@ -110,7 +106,6 @@ def _do_work_order(
 
 
 def _do_worker_init(queue):
-    log("_do_worker_init", zest._bypass_skip)
     _do_work_order.queue = queue
 
 
@@ -148,10 +143,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         try:
             while True:
                 zest_result = self.queue.get_nowait()
-
-                # if "zest_runner.shuffling.it_can_disable_shuffle" in zest_result.full_name:
-                #     log("POLL", zest_result.full_name, type(zest_result.error))
-
                 if isinstance(zest_result, Exception):
                     raise zest_result
                 assert isinstance(zest_result, ZestResult)
@@ -164,8 +155,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     self.results += [zest_result]
 
                 if self.callback is not None:
-                    # if zest_result.error is not None:
-                    #     log("CALLING CALLBAK", zest_result.full_name, type(zest_result.error))
                     self.callback(zest_result)
         except Empty:
             pass
@@ -289,13 +278,10 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 pass
 
         # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
-        log("IN RUN 1, _bypass", zest._bypass_skip)
         self.pool = multiprocessing.Pool(self.n_workers, _do_worker_init, [self.queue])
         self.map_results = self.pool.starmap_async(_do_work_order, work_orders)
         self.pool.close()
         # self.message_pump()
-
-        log("IN RUN 2, _bypass", zest._bypass_skip)
 
         # with multiprocessing.Pool(
         #     self.n_workers, _do_worker_init, [self.queue]

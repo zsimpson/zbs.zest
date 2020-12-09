@@ -40,7 +40,7 @@ class FoundZest:
     skip: str = None
 
 
-def _recurse_ast(path, lineno, body, func_name=None, parent_name=None, bypass_skip=None):
+def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
     """
     TODO
 
@@ -131,12 +131,13 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None, bypass_sk
     errors = []
 
     for i, part in enumerate(body):
-        # TODO
-        # if isinstance(part, ast.With):
-        #     _children_list_of_zests = _recurse_ast(
-        #         part.body, parent_name, path, part.lineno,
-        #     )
-        #     found_zests += _children_list_of_zests
+        if isinstance(part, ast.With):
+            # _children_list_of_zests = _recurse_ast(
+            #     part.body, parent_name, path, part.lineno,
+            # )
+            return _recurse_ast(
+                path, part.lineno, part.body, func_name, parent_name
+            )
 
         if isinstance(part, ast.FunctionDef):
             this_zest_groups = []
@@ -163,12 +164,11 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None, bypass_sk
                                         reason = dec.keywords[0].value.s
                                     this_zest_skip_reason = reason
 
-                # RECURSE un-skipped functions
-                if this_zest_skip_reason is None or (bypass_skip is not None and bypass_skip == this_zest_name):
-                    n_test_funcs += 1
-                    this_zest_children, this_zest_errors = _recurse_ast(
-                        path, part.lineno, part.body, this_zest_name, parent_name, bypass_skip
-                    )
+                # RECURSE
+                n_test_funcs += 1
+                this_zest_children, this_zest_errors = _recurse_ast(
+                    path, part.lineno, part.body, this_zest_name, parent_name
+                )
 
                 found_zests += [
                     FoundZest(
@@ -260,8 +260,6 @@ def find_zests(
             Note that match_string only narrows the scope from allow_to_run
         exclude_string:
             If not None then any zest full name that *contains* this string will be excluded.
-        bypass_skip:
-            Used for debugging/testing
         only_groups:
             Run only this (colon delimited set of groups)
         exclude_groups:
@@ -287,7 +285,6 @@ def find_zests(
         allow_to_run = []
 
     if root is None:
-        log(f"root none {include_dirs} {allow_to_run} {match_string} {allow_files}")
         return {}, {}, []
 
     n_root_parts = len(root.split(os.sep))
@@ -310,7 +307,7 @@ def find_zests(
 
             module_ast = ast.parse(source)
 
-            found_zests, errors = _recurse_ast(path, 0, module_ast.body, bypass_skip=bypass_skip)
+            found_zests, errors = _recurse_ast(path, 0, module_ast.body)
             assert len(errors) == 0
             found_zests = _flatten_found_zests(found_zests, None)
 
@@ -326,15 +323,12 @@ def find_zests(
 
                         # IGNORE skips
                         if found_zest.skip is not None:
-                            log("FIND wa skip", found_zest.name, bypass_skip, full_name)
                             # possible skip unless bypassed
                             if bypass_skip is None or bypass_skip != full_name:
-                                log("SKIP")
                                 continue
 
                         # FIND any errors from this zest:
                         for error in found_zest.errors:
-                            log("ERROR in find", error)
                             errors_to_show += [error]
 
                         # Include this and all ancestors in the list

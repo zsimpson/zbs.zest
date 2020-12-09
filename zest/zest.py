@@ -312,7 +312,6 @@ class zest:
             def wrapper(*args, **kwargs):
                 full_name = ".".join(zest._call_stack)
                 if full_name not in zest._bypass_skip:
-                    log("WTFSKIP", full_name, reason, zest._bypass_skip, full_name)
                     raise SkipException(full_name, reason)
                 else:
                     fn(*args, **kwargs)
@@ -615,11 +614,9 @@ class zest:
                         zest._mock_stack += [[]]
 
                         try:
-                            # log(f"zest calling {func}")
                             func()
                         except SkipException as e:
                             skip_reason = e.reason
-                        # log(f"zest returned from {func}")
                         zest._clear_stack_mocks()
                         zest._mock_stack.pop()
                     except Exception as e:

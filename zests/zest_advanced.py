@@ -31,9 +31,9 @@ def zest_runner_single_thread():
                 f"python -m zest.zest_cli --output_folder={tmp_folder} --add_markers --allow_files=zest_basics --n_workers={n_workers} "
                 + " ".join(args)
             )
-            # log(
-            #     f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
-            # )
+            log(
+                f"START call to child runner from {zest._call_stack} ------------- TO_RUN = {to_run} "
+            )
             output = subprocess.check_output(
                 to_run, shell=True, stderr=subprocess.STDOUT,
             )
@@ -121,19 +121,19 @@ def zest_runner_single_thread():
         assert "zest_basics.py:" in output
         assert ret_code != 0
 
-    def it_includes_all_groups_by_default():
-        raise NotImplmentedError
-
-    def it_can_limit_to_group():
-        ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1")
-        found_tests = _get_run_tests(output)
-        assert set(found_tests) == set(["zest_group"])
-
-    def it_can_exclude_a_group():
-        raise NotImplmentedError
-
-    def it_can_exclude_a_string():
-        raise NotImplmentedError
+    # def it_includes_all_groups_by_default():
+    #     raise NotImplmentedError
+    #
+    # def it_can_limit_to_group():
+    #     ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1")
+    #     found_tests = _get_run_tests(output)
+    #     assert set(found_tests) == set(["zest_group"])
+    #
+    # def it_can_exclude_a_group():
+    #     raise NotImplmentedError
+    #
+    # def it_can_exclude_a_string():
+    #     raise NotImplmentedError
 
     zest()
 

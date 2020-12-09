@@ -90,7 +90,6 @@ class ZestRunnerBase:
         self.bypass_skip = bypass_skip
 
         zest.reset(disable_shuffle, bypass_skip)
-        log("BASE RESET NEW SKIP", zest._bypass_skip)
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.

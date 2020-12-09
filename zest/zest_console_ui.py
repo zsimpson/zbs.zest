@@ -547,7 +547,6 @@ def _run(
         ] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
         if not zest_result.is_running:
             if zest_result.error is not None:
-                # log("FAILED?", zest_result.full_name, zest_result.error)
                 n_errors += 1
             else:
                 n_success += 1
@@ -614,7 +613,6 @@ def _run(
             #    * the "runner_thread" has terminated. Goto STOPPED
             #    * a new run is requested before the current run has terminated. Goto STOPPING
             running = runner.poll(request_stop)
-            # log("running", running, time.time())
             time.sleep(0.05)
 
             if not running or request_end or request_run is not None:
