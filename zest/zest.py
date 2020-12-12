@@ -201,7 +201,7 @@ class MockFunction:
 class JSONDataClassEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, BaseException):
-            return o.__class__.__name__
+            return f"{o.__class__.__name__}('{str(o)}')"
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
@@ -264,7 +264,7 @@ class zest:
     _mock_stack = []
     _allow_to_run = None
     _disable_shuffle = False
-    _capture_stdio = False
+    _capture = False
     _bypass_skip = []
 
     @staticmethod
@@ -278,7 +278,7 @@ class zest:
         zest._test_stop_callback = None
         zest._mock_stack = []
         zest._allow_to_run = None
-        zest._capture_stdio = False
+        zest._capture = False
         zest._disable_shuffle = disable_shuffle
         zest._bypass_skip = [] if bypass_skip is None else bypass_skip.split(":")
 
@@ -630,22 +630,21 @@ class zest:
                     finally:
                         stop_time = time.time()
                         if zest._test_stop_callback:
-                            zest._test_stop_callback(
-                                ZestResult(
-                                    zest._call_stack,
-                                    ".".join(zest._call_stack),
-                                    zest._call_stack[-1],
-                                    error,
-                                    error_formatted,
-                                    stop_time - start_time,
-                                    skip_reason,
-                                    so.getvalue() if so is not None else None,
-                                    se.getvalue() if se is not None else None,
-                                    func.__code__.co_filename,
-                                    os.getpid(),
-                                    False,
-                                )
+                            zest_result = ZestResult(
+                                zest._call_stack,
+                                ".".join(zest._call_stack),
+                                zest._call_stack[-1],
+                                error,
+                                error_formatted,
+                                stop_time - start_time,
+                                skip_reason,
+                                so.getvalue() if so is not None else None,
+                                se.getvalue() if se is not None else None,
+                                func.__code__.co_filename,
+                                os.getpid(),
+                                False,
                             )
+                            zest._test_stop_callback(zest_result)
 
                     _after = callers_special_local_funcs.get("_after")
                     if _after:
@@ -661,7 +660,7 @@ class zest:
                         if mock_tuple[4]:  # if reset_before_each is set
                             mock_tuple[3].reset()  # Tell the mock to reset
 
-                if zest._capture_stdio:
+                if zest._capture:
                     so = io.StringIO()
                     se = io.StringIO()
                     with redirect_stdout(so):

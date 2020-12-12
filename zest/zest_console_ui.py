@@ -214,6 +214,10 @@ def draw_title_bar():
         "f",
         PAL_MENU,
         "ails   ",
+        PAL_MENU_KEY,
+        "c",
+        PAL_MENU,
+        "lear   ",
     )
     draw_menu_fill_to_end_of_line(0, length)
     y += 1
@@ -403,9 +407,9 @@ def draw_result_details(y, root, zest_result):
         PAL_MENU,
         "atch test file (auto-re-run)   ",
         PAL_MENU_KEY,
-        "c",
+        "h",
         PAL_MENU,
-        "lear this view   ",
+        "ide this view   ",
     )
     draw_menu_fill_to_end_of_line(y, length)
     y += 1
@@ -499,6 +503,16 @@ def load_results(zest_results_path):
     return zest_results_by_full_name
 
 
+def clear_results(zest_results_path):
+    """
+    Delete all results in the output path
+    """
+    for res_path in os.listdir(zest_results_path):
+        res_path = zest_results_path / res_path
+        if str(res_path).endswith(".evt"):
+            res_path.unlink()
+
+
 def _run(
     _scr, root=".", match_string=None, n_workers=1, allow_to_run=None, **kwargs,
 ):
@@ -574,12 +588,13 @@ def _run(
 
             n_errors, n_success, n_skips = 0, 0, 0
 
+            kwargs.pop("capture", None)
             runner = ZestRunnerMultiThread(
                 output_folder=zest_results_path,
                 callback=callback,
                 root=root,
                 match_string=match_string,
-                capture_stdio=True,
+                capture=True,
                 allow_to_run=allow_to_run,
                 allow_output=False,
                 **kwargs,
@@ -669,7 +684,12 @@ def _run(
                             show_result_full_name = error.full_name
                         dirty = True
 
+                if key == "h":
+                    show_result_full_name = None
+                    dirty = True
+
                 if key == "c":
+                    clear_results(zest_results_path)
                     show_result_full_name = None
                     dirty = True
 

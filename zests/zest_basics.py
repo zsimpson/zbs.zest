@@ -9,6 +9,7 @@ see
 import time
 import re
 import os
+import sys
 from contextlib import contextmanager
 from zest import zest, TrappedException
 from zest.zest import log, strip_ansi

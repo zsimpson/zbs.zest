@@ -344,7 +344,6 @@ def find_zests(
                             # If CLI exclude_groups is specified and there there *is*
                             # a group in common between then skip it.
                             if exclude_groups is not None and set.intersection(set(found_zest.groups), exclude_groups):
-                                log(exclude_groups, found_zest.groups)
                                 continue
 
                         # FIND any errors from this zest:

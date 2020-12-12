@@ -31,9 +31,9 @@ def zest_runner_single_thread():
                 f"python -m zest.zest_cli --output_folder={tmp_folder} --add_markers --allow_files=zest_basics --n_workers={n_workers} "
                 + " ".join(args)
             )
-            log(
-                f"START call to child runner from {zest._call_stack} ------------- TO_RUN = {to_run} "
-            )
+            # log(
+            #     f"START call to child runner from {zest._call_stack} ------------- TO_RUN = {to_run} "
+            # )
             output = subprocess.check_output(
                 to_run, shell=True, stderr=subprocess.STDOUT,
             )
@@ -130,7 +130,6 @@ def zest_runner_single_thread():
     def it_can_limit_to_group():
         ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1")
         found_tests = _get_run_tests(output)
-        log("found_tests", found_tests)
         assert set(found_tests) == set(["zest_group1", "it_foos"])
 
     def it_can_limit_to_groups():
@@ -250,7 +249,6 @@ def zest_runner_multi_thread():
         ret_code, output = _call_zest_cli(
             "--verbose=2", "--bypass_skip=zest_bad_zest_2", "zest_bad_zest_2"
         )
-        log(output)
         assert "before all functions were defined" in output
         assert "zest_basics.py:" in output
         assert ret_code != 0

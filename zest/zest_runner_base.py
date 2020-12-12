@@ -65,7 +65,7 @@ class ZestRunnerBase:
             If not None: A substring that if found in a zest name will exclude it
         bypass_skip:
             Used for debugging. Ignore.
-        capture_stdio:
+        capture:
             If True, capture all stdio
         verbose:
             0: no output
@@ -81,7 +81,7 @@ class ZestRunnerBase:
         self.callback = callback
         self.output_folder = pathlib.Path(output_folder)
         self.n_run = 0
-        self.capture_stdio = capture
+        self.capture = capture
         self.results = []
         self.retcode = 0
         self.verbose = verbose
@@ -111,8 +111,6 @@ class ZestRunnerBase:
             groups.split(":") if groups is not None else None,
             exclude_groups.split(":") if exclude_groups is not None else None,
         )
-
-        log("FIND DONE", self.root_zests, self.allow_to_run)
 
         self.handle_find_errors(find_errors)
 

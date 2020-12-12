@@ -22,6 +22,7 @@ from zest.zest import log
 from subprocess import Popen, DEVNULL
 from dataclasses import dataclass
 from contextlib import redirect_stdout, redirect_stderr
+from zest import colors
 from zest.zest_display import (
     s,
     display_complete,
@@ -71,7 +72,7 @@ def _do_work_order(
     module_name,
     full_path,
     output_folder,
-    capture_stdio,
+    capture,
     allow_to_run,
     disable_shuffle,
     bypass_skip,
@@ -108,7 +109,7 @@ def _do_work_order(
             nonlocal zest_result_to_return
             zest_result_to_return = zest_result
 
-        zest._capture_stdio = capture_stdio
+        zest._capture = capture
         zest.do(
             root_zest_func,
             test_start_callback=event_callback,
@@ -176,6 +177,13 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 if not zest_result.is_running:
                     self.results += [zest_result]
 
+                    if zest_result.skip is not None:
+                        self.n_skips += 1
+                    elif zest_result.error is not None:
+                        self.n_errors += 1
+                    else:
+                        self.n_successes += 1
+
                 if self.callback is not None:
                     self.callback(zest_result)
         except Empty:
@@ -220,8 +228,9 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     )
                 else:
                     write_line(f"{i:2d}: NOT STARTED")
+        write_line(f"{colors.green}{self.n_successes} {colors.red}{self.n_errors} {colors.yellow}{self.n_skips} {colors.reset}")
 
-        cursor_move_up(len(self.worker_status))
+        cursor_move_up(len(self.worker_status) + 1)
 
     def draw_complete(self):
         display_complete("", self.results)
@@ -278,6 +287,9 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         self.map_results = None
         self.allow_output = allow_output
         self.run_complete = False
+        self.n_errors = 0
+        self.n_successes = 0
+        self.n_skips = 0
 
         work_orders = []
         for (root_name, (module_name, package, full_path),) in self.root_zests.items():
@@ -287,7 +299,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     module_name,
                     full_path,
                     self.output_folder,
-                    self.capture_stdio,
+                    self.capture,
                     self.allow_to_run,
                     self.disable_shuffle,
                     self.bypass_skip,
