@@ -221,6 +221,7 @@ class ZestResult:
     source: str = None
     pid: int = None
     is_running: bool = False
+    is_starting: bool = False
     worker_i: int = 0
 
     def dumps(self):

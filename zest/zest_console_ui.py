@@ -236,7 +236,7 @@ def draw_title_bar(debug_mode):
     return y
 
 
-def draw_status(y, run_state, match_string, current_running_tests_by_proc_i):
+def draw_status(y, run_state, match_string, current_running_tests_by_worker_i):
     _print(
         y,
         0,
@@ -256,24 +256,20 @@ def draw_status(y, run_state, match_string, current_running_tests_by_proc_i):
     # )
     # y += 1
 
-    proc_iz = sorted(current_running_tests_by_proc_i.keys())
+    worker_iz = sorted(current_running_tests_by_worker_i.keys())
     _print(
         y, 0, PAL_NONE, "Status  : ", PAL_STATUS, run_state_strs[run_state] + " ",
     )
     y += 1
 
-    if len(proc_iz) > 0:
-        # _print(
-        #     y, 0, PAL_NONE, "Proc_i  : ",
-        # )
-        # y += 1
-        for proc_i in proc_iz:
-            name_stack = (current_running_tests_by_proc_i[proc_i] or "").split(".")
+    if len(worker_iz) > 0:
+        for worker_i in worker_iz:
+            name_stack = (current_running_tests_by_worker_i[worker_i] or "").split(".")
             _print(
                 y,
                 0,
                 PAL_ERROR_LIB,
-                f"{proc_i:>2}) ",
+                f"{worker_i:>2}) ",
                 PAL_NAME_SELECTED,
                 name_stack[0],
                 PAL_NAME,
@@ -524,7 +520,7 @@ def _run(
     num_keys = [str(i) for i in range(1, 10)]
     run_state = None
     dirty = True
-    current_running_tests_by_proc_i = {}
+    current_running_tests_by_worker_i = {}
     n_success = 0
     n_errors = 0
     n_skips = 0
@@ -567,7 +563,7 @@ def _run(
         dirty = False
         scr.clear()
         y = draw_title_bar(debug_mode)
-        y = draw_status(y, run_state, match_string, current_running_tests_by_proc_i)
+        y = draw_status(y, run_state, match_string, current_running_tests_by_worker_i)
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
         draw_fail_lines(y + 1, zest_results_by_full_name, root, show_result_full_name)
@@ -577,14 +573,18 @@ def _run(
         scr.refresh()
 
     def callback(zest_result):
-        nonlocal dirty, current_running_tests_by_proc_i, n_errors, n_success
+        nonlocal dirty, current_running_tests_by_worker_i, n_errors, n_success
         dirty = True
-        # TODO: Rename proc_i to worker_i
-        proc_i = zest_result.worker_i
-        state_messages = ["DONE", "RUNNING"]
-        current_running_tests_by_proc_i[
-            proc_i
-        ] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
+        worker_i = zest_result.worker_i
+        if zest_result.is_starting:
+            state_message = "STARTING"
+        elif zest_result.is_running:
+            state_message = "RUNNING"
+        else:
+            state_message = "DONE"
+        current_running_tests_by_worker_i[
+            worker_i
+        ] = f"{state_message:<9s}: {zest_result.full_name}"
         if not zest_result.is_running:
             if zest_result.error is not None:
                 nonlocal zest_results_by_full_name
@@ -796,7 +796,6 @@ def run(**kwargs):
             if debug_request:
                 # This is a request to run the test in debug_request without curses
                 # and then start curses back up again
-                log("RUN DEBUG")
                 orig_allow_to_run = kwargs.get("allow_to_run", None)
                 orig_verbose = kwargs.get("verbose", None)
                 orig_match_string = kwargs.get("match_string", None)
@@ -809,7 +808,6 @@ def run(**kwargs):
                     kwargs["match_string"] = orig_match_string
                     kwargs["verbose"] = orig_verbose
                     kwargs["allow_to_run"] = orig_allow_to_run
-                    log("RETURN DEBUG")
             else:
                 break
 

@@ -89,6 +89,8 @@ def _do_work_order(
     disable_shuffle,
     bypass_skip,
 ):
+    zest_result_to_return = None
+
     zest.reset(disable_shuffle, bypass_skip)
 
     event_stream = open_event_stream(output_folder, root_name)
@@ -99,18 +101,17 @@ def _do_work_order(
     # to move this in to the parent process
     root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
 
-    zest_result_to_return = None
+    def event_callback(zest_result):
+        """
+        This callback occurs anytime a sub-zest starts or stops.
+        """
+        emit_zest_result(zest_result, event_stream)
+        _do_work_order.queue.put(zest_result)
+        nonlocal zest_result_to_return
+        zest_result_to_return = zest_result
 
     try:
-
-        def event_callback(zest_result):
-            """
-            This callback occurs anytime a sub-zest starts or stops.
-            """
-            emit_zest_result(zest_result, event_stream)
-            _do_work_order.queue.put(zest_result)
-            nonlocal zest_result_to_return
-            zest_result_to_return = zest_result
+        event_callback(ZestResult(full_name=root_name, is_starting=True, call_stack=[], short_name=root_name, pid=os.getpid()))
 
         zest._capture = capture
         zest.do(
@@ -149,7 +150,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             for proc in self.pool._pool:
                 if proc.exitcode is None:
                     try:
-                        log(f"KILL {proc.pid}")
                         os.kill(proc.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         log(f"KILL failed {proc.pid}")
@@ -279,7 +279,6 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     break
 
             except KeyboardInterrupt:
-                log("multi key int")
                 request_stop = True
                 self.retcode = 1
 
