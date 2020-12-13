@@ -330,7 +330,7 @@ def find_zests(
                     # So that you can terminate a match_string like "it_foobars."
                     # we add an extra "." to the end pf full_name in this comparison
                     if match_string is None or match_string in full_name:
-                            if exclude_string is not None and exclude_string in full_name + ".":
+                        if exclude_string is not None and exclude_string in full_name + ".":
                             continue
 
                         # IGNORE skips
