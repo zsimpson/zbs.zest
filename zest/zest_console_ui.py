@@ -797,9 +797,9 @@ def run(**kwargs):
                 # This is a request to run the test in debug_request without curses
                 # and then start curses back up again
                 log("RUN DEBUG")
-                orig_allow_to_run = kwargs["allow_to_run"]
-                orig_verbose = kwargs["verbose"]
-                orig_match_string = kwargs["match_string"]
+                orig_allow_to_run = kwargs.get("allow_to_run", None)
+                orig_verbose = kwargs.get("verbose", None)
+                orig_match_string = kwargs.get("match_string", None)
                 try:
                     kwargs["allow_to_run"] = debug_request
                     kwargs["match_string"] = match_string
