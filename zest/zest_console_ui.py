@@ -15,7 +15,12 @@ from pathlib import Path
 from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
 from zest.zest_display import colorful_exception, traceback_match_filename
-from zest.zest_runner_multi_thread import ZestRunnerMultiThread, read_zest_result_line
+from zest.zest_runner_single_thread import ZestRunnerSingleThread
+from zest.zest_runner_multi_thread import (
+    ZestRunnerMultiThread,
+    read_zest_result_line,
+    clear_output_folder,
+)
 from . import __version__
 
 if os.name == "nt":
@@ -98,7 +103,7 @@ pal = [
     (curses.COLOR_RED, curses.COLOR_WHITE, curses.A_BOLD),
     # PAL_MENU_TITLE
     (curses.COLOR_BLUE, curses.COLOR_WHITE, 0),
-    # PAL_MENU_AUTORUN_STATUS
+    # PAL_MENU_RUN_STATUS
     (curses.COLOR_CYAN, curses.COLOR_WHITE, 0),
     # PAL_NAME
     (curses.COLOR_CYAN, -1, 0),
@@ -191,7 +196,7 @@ def draw_menu_fill_to_end_of_line(y, length):
         scr.addstr(y, length, f"{' ':<{cols - length}}", curses.color_pair(PAL_MENU))
 
 
-def draw_title_bar():
+def draw_title_bar(debug_mode):
     y = 0
     _, length = _print(
         0,
@@ -218,6 +223,13 @@ def draw_title_bar():
         "c",
         PAL_MENU,
         "lear   ",
+        PAL_MENU_KEY,
+        "d",
+        PAL_MENU,
+        f"ebug mode:",
+        PAL_MENU_RUN_STATUS,
+        'ON' if debug_mode else 'OFF',
+        "   ",
     )
     draw_menu_fill_to_end_of_line(0, length)
     y += 1
@@ -402,10 +414,11 @@ def draw_result_details(y, root, zest_result):
         "r",
         PAL_MENU,
         "e-run this test   ",
-        PAL_MENU_KEY,
-        "w",
-        PAL_MENU,
-        "atch test file (auto-re-run)   ",
+        # TODO
+        # PAL_MENU_KEY,
+        # "w",
+        # PAL_MENU,
+        # "atch test file (auto-re-run)   ",
         PAL_MENU_KEY,
         "h",
         PAL_MENU,
@@ -503,18 +516,8 @@ def load_results(zest_results_path):
     return zest_results_by_full_name
 
 
-def clear_results(zest_results_path):
-    """
-    Delete all results in the output path
-    """
-    for res_path in os.listdir(zest_results_path):
-        res_path = zest_results_path / res_path
-        if str(res_path).endswith(".evt"):
-            res_path.unlink()
-
-
 def _run(
-    _scr, root=".", match_string=None, n_workers=1, allow_to_run=None, **kwargs,
+    _scr, **kwargs,
 ):
     global scr
     scr = _scr
@@ -529,10 +532,33 @@ def _run(
     run_state = STOPPED
     warnings = []
     runner = None
+    debug_mode = False
     request_run = None
-    request_stop = False
-    request_end = False
+    request_stop = False  # Stop the current run
+    request_end = False  # Stop current app (is set concurrently with request_stop)
     zest_results_path = Path(kwargs.pop("output_folder", ".zest_results"))
+    root = kwargs["root"]
+    match_string = kwargs["match_string"]
+    state_filename = ".zest_state.json"
+
+    def save_state():
+        try:
+            with open(state_filename, "w") as f:
+                f.write(json.dumps(dict(debug_mode=debug_mode, match_string=match_string)))
+        except:
+            pass
+
+    def load_state():
+        try:
+            with open(state_filename, "r") as f:
+                state = json.loads(f.read())
+                nonlocal debug_mode, match_string
+                debug_mode = state.get("debug_mode", None)
+                match_string = state.get("match_string", None)
+        except:
+            pass
+
+    load_state()
 
     def render():
         nonlocal dirty
@@ -540,7 +566,7 @@ def _run(
             return
         dirty = False
         scr.clear()
-        y = draw_title_bar()
+        y = draw_title_bar(debug_mode)
         y = draw_status(y, run_state, match_string, current_running_tests_by_proc_i)
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
@@ -561,6 +587,8 @@ def _run(
         ] = f"{state_messages[zest_result.is_running]:<8s}: {zest_result.full_name}"
         if not zest_result.is_running:
             if zest_result.error is not None:
+                nonlocal zest_results_by_full_name
+                zest_results_by_full_name = load_results(zest_results_path)
                 n_errors += 1
             else:
                 n_success += 1
@@ -589,10 +617,11 @@ def _run(
             n_errors, n_success, n_skips = 0, 0, 0
 
             kwargs.pop("capture", None)
+            kwargs.pop("match_string", None)
+            kwargs.pop("allow_to_run", None)
             runner = ZestRunnerMultiThread(
                 output_folder=zest_results_path,
                 callback=callback,
-                root=root,
                 match_string=match_string,
                 capture=True,
                 allow_to_run=allow_to_run,
@@ -611,6 +640,8 @@ def _run(
             # Ways out:
             #    * request_end can terminate
             #    * request_run can start a new run
+            request_stop = False
+
             if request_end:
                 return False
 
@@ -622,13 +653,13 @@ def _run(
         elif run_state == RUNNING:
             # Tests are running.
             # Ways out:
-            #    * request_end: Goto STOPPING
+            #    * request_stop: Goto STOPPING
             #    * the "runner_thread" has terminated. Goto STOPPED
             #    * a new run is requested before the current run has terminated. Goto STOPPING
             running = runner.poll(request_stop)
             time.sleep(0.05)
 
-            if not running or request_end or request_run is not None:
+            if not running or request_stop or request_run is not None:
                 new_state(STOPPING)
 
         elif run_state == STOPPING:
@@ -689,11 +720,13 @@ def _run(
                     dirty = True
 
                 if key == "c":
-                    clear_results(zest_results_path)
+                    clear_output_folder(zest_results_path)
+                    zest_results_by_full_name = load_results(zest_results_path)
                     show_result_full_name = None
                     dirty = True
 
                 if key == "q":
+                    request_stop = True
                     request_end = True
 
                 if key == "a":
@@ -706,6 +739,10 @@ def _run(
 
                 if key == "r":
                     request_run = show_result_full_name
+                    dirty = True
+
+                if key == "d":
+                    debug_mode = not debug_mode
                     dirty = True
 
                 if key == "w":
@@ -722,19 +759,63 @@ def _run(
                     match_string = s
                     dirty = True
 
+                if request_run is not None and debug_mode:
+                    # This is the special debug mode which returns out of the
+                    # curses-based function and tells the caller to
+                    # run this request outside of curses in single threaded mode
+                    return request_run, match_string
+
         except KeyboardInterrupt:
             # First press ^C asks for a graceful shutdown of child processes
-            # Second ^C just aborts out of the parent process.
-            if request_end:
-                break
-            request_end = True
+            # so "request_stop" is set True.
+            # Second press of ^C force-kil all children and exit
+            if not request_stop:
+                # First press of ^C
+                request_stop = True
+            else:
+                if runner:
+                    runner.kill()
 
+                # This break exits out of the main UI thread
+                break
+
+    save_state()
+    return None, None  # Not debug_request
 
 def run(**kwargs):
-    try:
-        curses.wrapper(_run, **kwargs)
-    except Exception as e:
-        formatted = traceback.format_exception(
-            etype=type(e), value=e, tb=e.__traceback__
-        )
-        colorful_exception(e, formatted, gray_libs=False)
+    """
+    This is the entrypoint for the runner and uses the curses wrapper
+    to handle reset of terminal and exception handling.
+
+    But, when the _run returns True that means that we are in "debug_mode"
+    meaning that we wish to run a test WITHOUT the curses console.
+    """
+    while True:
+        try:
+            debug_request, match_string = curses.wrapper(_run, **kwargs)
+            if debug_request:
+                # This is a request to run the test in debug_request without curses
+                # and then start curses back up again
+                log("RUN DEBUG")
+                orig_allow_to_run = kwargs["allow_to_run"]
+                orig_verbose = kwargs["verbose"]
+                orig_match_string = kwargs["match_string"]
+                try:
+                    kwargs["allow_to_run"] = debug_request
+                    kwargs["match_string"] = match_string
+                    kwargs["verbose"] = 1
+                    ZestRunnerSingleThread(**kwargs)
+                finally:
+                    kwargs["match_string"] = orig_match_string
+                    kwargs["verbose"] = orig_verbose
+                    kwargs["allow_to_run"] = orig_allow_to_run
+                    log("RETURN DEBUG")
+            else:
+                break
+
+        except Exception as e:
+            formatted = traceback.format_exception(
+                etype=type(e), value=e, tb=e.__traceback__
+            )
+            colorful_exception(e, formatted, gray_libs=False)
+            break

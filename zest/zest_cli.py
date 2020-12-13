@@ -108,6 +108,7 @@ def main():
         if kwargs.get("n_workers") > 1:
             runner = ZestRunnerMultiThread(**kwargs)
             from zest.zest import zest
+
             runner.message_pump()
         else:
             runner = ZestRunnerSingleThread(**kwargs)

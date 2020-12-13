@@ -135,9 +135,7 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
             # _children_list_of_zests = _recurse_ast(
             #     part.body, parent_name, path, part.lineno,
             # )
-            return _recurse_ast(
-                path, part.lineno, part.body, func_name, parent_name
-            )
+            return _recurse_ast(path, part.lineno, part.body, func_name, parent_name)
 
         if isinstance(part, ast.FunctionDef):
             this_zest_groups = []
@@ -213,17 +211,23 @@ def load_module(root_name, module_name, full_path):
     return getattr(mod, root_name)
 
 
-def _flatten_found_zests(found_zests_tree: List[FoundZest], parent_name, parent_groups) -> List[FoundZest]:
+def _flatten_found_zests(
+    found_zests_tree: List[FoundZest], parent_name, parent_groups
+) -> List[FoundZest]:
     """
     Convert a tree of found_zests_tree into a flat list converting
     the names to full names using a dot delimiter.
     """
     ret_list = []
-    for found_zest in (found_zests_tree or []):
-        found_zest.name = (parent_name + "." if parent_name is not None else "") + found_zest.name
+    for found_zest in found_zests_tree or []:
+        found_zest.name = (
+            parent_name + "." if parent_name is not None else ""
+        ) + found_zest.name
         _parent_groups = set(parent_groups) | set(found_zest.groups)
         found_zest.groups = list(_parent_groups)
-        children = _flatten_found_zests(found_zest.children, found_zest.name, _parent_groups)
+        children = _flatten_found_zests(
+            found_zest.children, found_zest.name, _parent_groups
+        )
         found_zest.children = None
         ret_list += [found_zest]
         ret_list += children
@@ -323,8 +327,10 @@ def find_zests(
                 package = ".".join(curr.split(os.sep)[n_root_parts:])
 
                 if "__all__" in allow_to_run or full_name in allow_to_run:
+                    # So that you can terminate a match_string like "it_foobars."
+                    # we add an extra "." to the end pf full_name in this comparison
                     if match_string is None or match_string in full_name:
-                        if exclude_string is not None and exclude_string in full_name:
+                            if exclude_string is not None and exclude_string in full_name + ".":
                             continue
 
                         # IGNORE skips
@@ -338,12 +344,16 @@ def find_zests(
                             # If CLI groups is specified and there there is no
                             # group in common between the CLI groups and the
                             # groups of this test then skip it.
-                            if groups is not None and not set.intersection(set(found_zest.groups), groups):
+                            if groups is not None and not set.intersection(
+                                set(found_zest.groups), groups
+                            ):
                                 continue
 
                             # If CLI exclude_groups is specified and there there *is*
                             # a group in common between then skip it.
-                            if exclude_groups is not None and set.intersection(set(found_zest.groups), exclude_groups):
+                            if exclude_groups is not None and set.intersection(
+                                set(found_zest.groups), exclude_groups
+                            ):
                                 continue
 
                         # FIND any errors from this zest:
@@ -361,7 +371,8 @@ def find_zests(
 
 
 if __name__ == "__main__":
-    zests = find_zests(".", "./zests", allow_files="zest_basics.py", allow_to_run="__all__")
+    zests = find_zests(
+        ".", "./zests", allow_files="zest_basics.py", allow_to_run="__all__"
+    )
     for z in zests:
         print(z)
-

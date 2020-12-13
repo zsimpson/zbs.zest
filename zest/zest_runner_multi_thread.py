@@ -16,7 +16,7 @@ from collections import deque
 from pathlib import Path
 from zest import zest
 from zest.zest import ZestResult
-from zest.zest_runner_base import ZestRunnerBase
+from zest.zest_runner_base import ZestRunnerBase, emit_zest_result, open_event_stream
 from zest import zest_finder
 from zest.zest import log
 from subprocess import Popen, DEVNULL
@@ -51,7 +51,7 @@ class NoDaemonContext(type(multiprocessing.get_context())):
 
 class NestablePool(multiprocessing.pool.Pool):
     def __init__(self, *args, **kwargs):
-        kwargs['context'] = NoDaemonContext()
+        kwargs["context"] = NoDaemonContext()
         super(NestablePool, self).__init__(*args, **kwargs)
 
 
@@ -67,6 +67,18 @@ def read_zest_result_line(fd):
         yield ZestResult.loads(line)
 
 
+def clear_output_folder(output_folder):
+    """
+    Delete all results in the output folder
+    """
+    output_folder = Path(output_folder)
+    assert output_folder is not None and str(output_folder) != "/"
+    for res_path in os.listdir(output_folder):
+        res_path = output_folder / res_path
+        if str(res_path).endswith(".evt"):
+            res_path.unlink()
+
+
 def _do_work_order(
     root_name,
     module_name,
@@ -79,7 +91,7 @@ def _do_work_order(
 ):
     zest.reset(disable_shuffle, bypass_skip)
 
-    event_stream = open(f"{output_folder}/{root_name}.evt", "wb", buffering=0)
+    event_stream = open_event_stream(output_folder, root_name)
 
     # It may be very slow to have the load_module here in the child
     # processes as it means that each child will have to load_module
@@ -90,15 +102,6 @@ def _do_work_order(
     zest_result_to_return = None
 
     try:
-
-        def emit_zest_result(zest_result, stream):
-            assert isinstance(zest_result, ZestResult)
-            try:
-                msg = (zest_result.dumps() + "\n").encode()
-                stream.write(msg)
-                stream.flush()
-            except TypeError:
-                log(f"Serialization error on {zest_result}")
 
         def event_callback(zest_result):
             """
@@ -138,6 +141,19 @@ class ZestRunnerMultiThread(ZestRunnerBase):
     def n_live_procs(self):
         return len([proc for proc in self.procs if proc.exit_code is None])
 
+    def kill(self):
+        """
+        Force-kill all children do not wait for them to terminate
+        """
+        if self.pool:
+            for proc in self.pool._pool:
+                if proc.exitcode is None:
+                    try:
+                        log(f"KILL {proc.pid}")
+                        os.kill(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        log(f"KILL failed {proc.pid}")
+
     def poll(self, request_stop):
         """
         Check the status of all running threads
@@ -156,12 +172,8 @@ class ZestRunnerMultiThread(ZestRunnerBase):
 
         if request_stop and self.pool is not None:
             self.pool.terminate()
-            # for proc in self.procs:
-            #     if proc.exit_code is not None:
-            #         try:
-            #             os.kill(proc.child_pid, signal.SIGKILL)
-            #         except ProcessLookupError:
-            #             log(f"KILL failed {proc.child_pid}")
+            self.pool.join()
+            return False
 
         try:
             while True:
@@ -228,7 +240,9 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     )
                 else:
                     write_line(f"{i:2d}: NOT STARTED")
-        write_line(f"{colors.green}{self.n_successes} {colors.red}{self.n_errors} {colors.yellow}{self.n_skips} {colors.reset}")
+        write_line(
+            f"{colors.green}{self.n_successes} {colors.red}{self.n_errors} {colors.yellow}{self.n_skips} {colors.reset}"
+        )
 
         cursor_move_up(len(self.worker_status) + 1)
 
@@ -253,7 +267,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         last_draw = 0.0
         while True:
             try:
-                # if ...: request_stop = True
+                # if  request_stop = True
                 #   TODO
 
                 if self.allow_output and time.time() - last_draw > 0.5:
@@ -265,6 +279,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     break
 
             except KeyboardInterrupt:
+                log("multi key int")
                 request_stop = True
                 self.retcode = 1
 
@@ -306,11 +321,9 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 )
             ]
 
-            result_filename = self.output_folder / f"{root_name}.evt"
-            try:
-                os.remove(result_filename)
-            except:
-                pass
+        if self.is_unlimited_run():
+            # Clear evt caches
+            clear_output_folder(self.output_folder)
 
         # multiprocessing.Queue can only be passed via the pool initializer, not as an arg.
         self.pool = NestablePool(self.n_workers, _do_worker_init, [self.queue])

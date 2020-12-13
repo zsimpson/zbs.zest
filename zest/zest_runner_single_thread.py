@@ -8,7 +8,7 @@ import re
 from zest import zest
 from zest.zest import log
 from zest import zest_finder
-from zest.zest_runner_base import ZestRunnerBase
+from zest.zest_runner_base import ZestRunnerBase, emit_zest_result, open_event_stream
 from zest import zest_display
 from zest import colors
 from zest.zest_display import (
@@ -33,6 +33,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
 
         last_depth = 0
         curr_depth = 0
+        event_stream = None
 
         # Event functions are callbacks from zest
         # ---------------------------------------------------------------------------------
@@ -47,6 +48,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
 
         def event_test_stop(zest_result):
             nonlocal last_depth, curr_depth
+            emit_zest_result(zest_result, event_stream)
             self.results += [zest_result]
             curr_depth = len(zest_result.call_stack) - 1
             if self.verbose >= 2:
@@ -62,6 +64,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
 
         # LAUNCH root zests
         for (root_name, (module_name, package, full_path)) in self.root_zests.items():
+            event_stream = open_event_stream(self.output_folder, root_name)
             root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
             zest.do(
                 root_zest_func,

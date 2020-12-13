@@ -329,19 +329,28 @@ def zest_noisy_zests():
 
 @zest.group("group1")
 def zest_group1():
-
     def it_foos():
         pass
 
     zest()
+
 
 @zest.group("group2")
 def zest_group2():
-
     def it_foos():
         pass
 
     zest()
+
+
+def zest_slow():
+    def it_runs_slowly():
+        # import pudb; pudb.set_trace()
+        # raise Exception("FOOBAR")
+        pass
+
+    zest()
+
 
 
 """

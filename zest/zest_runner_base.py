@@ -9,6 +9,7 @@ import signal
 import multiprocessing
 import traceback
 import pathlib
+from zest.zest import ZestResult
 from multiprocessing import Queue
 from queue import Empty
 from collections import deque
@@ -17,6 +18,20 @@ from zest import zest
 from zest.zest import log
 from zest import zest_finder
 from zest import zest_display
+
+
+def open_event_stream(output_folder, root_name):
+    return open(f"{output_folder}/{root_name}.evt", "a+b", buffering=0)
+
+
+def emit_zest_result(zest_result, stream):
+    assert isinstance(zest_result, ZestResult)
+    try:
+        msg = (zest_result.dumps() + "\n").encode()
+        stream.write(msg)
+        stream.flush()
+    except TypeError:
+        log(f"Serialization error on {zest_result}")
 
 
 class ZestRunnerBase:
@@ -118,3 +133,15 @@ class ZestRunnerBase:
         if len(find_errors) > 0:
             zest_display.display_find_errors(find_errors)
             self.retcode = 1
+
+    def is_unlimited_run(self):
+        """
+        An unlimited run is one that has no constraints -- ir run everything.
+        Int that case subclass code may choose the clear all caches.
+        """
+        return (
+            self.allow_to_run == "__all__"
+            and self.allow_files is None
+            and self.match_string is None
+            and self.groups is None
+        )

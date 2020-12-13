@@ -138,7 +138,9 @@ def zest_runner_single_thread():
         assert set(found_tests) == set(["zest_group1", "zest_group2", "it_foos"])
 
     def it_can_exclude_a_group():
-        ret_code, output = _call_zest_cli("--verbose=2", "--groups=group1:group2", "--exclude_groups=group1")
+        ret_code, output = _call_zest_cli(
+            "--verbose=2", "--groups=group1:group2", "--exclude_groups=group1"
+        )
         found_tests = _get_run_tests(output)
         assert set(found_tests) == set(["zest_group2", "it_foos"])
 
@@ -163,9 +165,9 @@ def zest_runner_multi_thread():
                 f"python -m zest.zest_cli --output_folder={tmp_folder} --add_markers --allow_files=zest_basics --n_workers={n_workers} "
                 + " ".join(args)
             )
-            log(
-                f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
-            )
+            # log(
+            #     f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
+            # )
             output = subprocess.check_output(
                 to_run, shell=True, stderr=subprocess.STDOUT,
             )
