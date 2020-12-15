@@ -1,3 +1,6 @@
+log.txt
+.zest_results/
+.zest_state.json
 .idea/
 build/
 dist/

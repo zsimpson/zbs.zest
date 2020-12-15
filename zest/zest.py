@@ -3,12 +3,42 @@ A function-oriented testing framework for Python 3.
 
 See README.md
 """
+import os
 import time
 import inspect
 import types
+import traceback
+import io
+import re
+import json
+from contextlib import redirect_stdout, redirect_stderr
+import dataclasses
 from functools import wraps
 from contextlib import contextmanager
 from random import shuffle
+
+
+log_fp = None
+log_last_time = None
+
+
+def log(*args):
+    global log_fp, log_last_time
+    if log_fp is None:
+        log_fp = open("log.txt", "a")
+    delta = 0
+    if log_last_time is not None:
+        delta = time.time() - log_last_time
+    log_last_time = time.time()
+    log_fp.write(f"{delta:3.1f} " + "".join([str(i) + " " for i in args]) + "\n")
+    log_fp.flush()
+
+
+ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
+
+
+def strip_ansi(line):
+    return ansi_escape.sub("", line)
 
 
 def get_class_or_module_that_defined_method(meth):
@@ -42,6 +72,12 @@ class TrappedException(Exception):
     """
 
     pass
+
+
+class SkipException(Exception):
+    def __init__(self, full_name, reason):
+        self.full_name = full_name
+        self.reason = reason
 
 
 class MockFunction:
@@ -162,6 +198,40 @@ class MockFunction:
         return kws == self.normalized_calls()[0]
 
 
+class JSONDataClassEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, BaseException):
+            return f"{o.__class__.__name__}('{str(o)}')"
+        if dataclasses.is_dataclass(o):
+            return dataclasses.asdict(o)
+        return super().default(o)
+
+
+@dataclasses.dataclass
+class ZestResult:
+    call_stack: list
+    full_name: str
+    short_name: str
+    error: Exception = None
+    error_formatted: str = None
+    elapsed: float = None
+    skip: str = None
+    stdout: str = None
+    stderr: str = None
+    source: str = None
+    pid: int = None
+    is_running: bool = False
+    is_starting: bool = False
+    worker_i: int = 0
+
+    def dumps(self):
+        return json.dumps(self, cls=JSONDataClassEncoder)
+
+    @classmethod
+    def loads(cls, s):
+        return ZestResult(**json.loads(s))
+
+
 class zest:
     """
     This is a helper to make calling a little bit cleaner.
@@ -184,6 +254,7 @@ class zest:
     zest(some_test)
     """
 
+    # TODO: Convert these to just use a list of zest_results
     _call_log = []
     _call_stack = []
     _call_errors = []
@@ -194,9 +265,11 @@ class zest:
     _mock_stack = []
     _allow_to_run = None
     _disable_shuffle = False
+    _capture = False
+    _bypass_skip = []
 
     @staticmethod
-    def reset():
+    def reset(disable_shuffle=False, bypass_skip=None):
         zest._call_log = []
         zest._call_stack = []
         zest._call_errors = []
@@ -206,20 +279,45 @@ class zest:
         zest._test_stop_callback = None
         zest._mock_stack = []
         zest._allow_to_run = None
-        zest._disable_shuffle = False
+        zest._capture = False
+        zest._disable_shuffle = disable_shuffle
+        zest._bypass_skip = [] if bypass_skip is None else bypass_skip.split(":")
+
+    # TODO: Sort out all the naming conventions for this
+    # @staticmethod
+    # def parameter_list(params_list):
+    #     """
+    #     Params list is a list of tuples that will be passed to the *args.
+    #     If param_list is not a list of tuples they will be converted to tuples
+    #     """
+    #
+    #     def decorator(fn):
+    #         @wraps(fn)
+    #         def wrapper(*params, **kwargs):
+    #             fn(*params, **kwargs)
+    #
+    #         _params_list = [
+    #             params if isinstance(params, tuple) else (params,)
+    #             for params in params_list
+    #         ]
+    #         setattr(wrapper, "params_list", _params_list)
+    #
+    #         return wrapper
+    #
+    #     return decorator
 
     @staticmethod
-    def skip(code="s", reason=None):
+    def skip(reason=None):
         def decorator(fn):
             @wraps(fn)
             def wrapper(*args, **kwargs):
-                return fn(*args, **kwargs)
-
-            if len(code) > 1:
-                raise ValueError("Skip codes can only be one character")
+                full_name = ".".join(zest._call_stack)
+                if full_name not in zest._bypass_skip:
+                    raise SkipException(full_name, reason)
+                else:
+                    fn(*args, **kwargs)
 
             setattr(wrapper, "skip", True)
-            setattr(wrapper, "skip_code", code)
             setattr(wrapper, "skip_reason", reason)
             return wrapper
 
@@ -350,7 +448,9 @@ class zest:
         # If some other exception was raised that should just bubble as usual
 
     @staticmethod
-    def do(*funcs, test_start_callback=None, test_stop_callback=None):
+    def do(
+        *funcs, test_start_callback=None, test_stop_callback=None, allow_to_run=None
+    ):
         """
         This is the entrypoint of any zest at any depth.
 
@@ -382,7 +482,7 @@ class zest:
         Call _before() (if defined) before each test
         Call _after() (if defined) after each test
 
-        The class member _allow_to_run potentialy contains a list of
+        The class member _allow_to_run potentially contains a list of
         zests that are allowed to execute in dotted form. Eg using above:
             ["zest_test1.it_does_y.it_does_y1"]
 
@@ -393,17 +493,21 @@ class zest:
         Eg: ["zest_test1.it_does_y"] means that it_does_y1 will run too.
 
         """
+
         prev_test_start_callback = None
         prev_test_stop_callback = None
+        prev_allow_to_run = None
         if test_start_callback is not None:
             prev_test_start_callback = zest._test_start_callback
             zest._test_start_callback = test_start_callback
         if test_stop_callback is not None:
             prev_test_stop_callback = zest._test_stop_callback
             zest._test_stop_callback = test_stop_callback
+        if allow_to_run is not None:
+            prev_allow_to_run = zest._allow_to_run
+            zest._allow_to_run = allow_to_run
 
         try:
-
             callers_special_local_funcs = {}
 
             if len(funcs) > 0:
@@ -454,12 +558,12 @@ class zest:
                     "A _begin function was declared. Maybe you meant _before?"
                 )
 
-            for name, func in funcs_to_call:
-                if len(zest._mock_stack) > 0:
-                    for mock_tuple in zest._mock_stack[-1]:
-                        if mock_tuple[4]:  # if reset_before_each is set
-                            mock_tuple[3].reset()  # Tell the mock to reset
+            def _run(name, func, so, se):
+                # params_list = [tuple()]
+                # if hasattr(func, "params_list"):
+                #     params_list = getattr(func, "params_list")
 
+                # for params in params_list:
                 _before = callers_special_local_funcs.get("_before")
                 if _before:
                     try:
@@ -473,54 +577,106 @@ class zest:
                         zest._call_warnings += [s]
 
                 zest._call_stack += [name]
-
-                full_name = ".".join(zest._call_stack)
-                if (
-                    zest._allow_to_run is not None
-                    and full_name not in zest._allow_to_run
-                ):
-                    zest._call_stack.pop()
-                    continue
-
-                zest._call_tree += [full_name]
-                zest._call_log += [name]
-
-                if zest._test_start_callback:
-                    zest._test_start_callback(
-                        name, call_stack=zest._call_stack, func=func
-                    )
-
-                error = None
-                start_time = time.time()
                 try:
-                    if not hasattr(func, "skip"):
+                    full_name = ".".join(zest._call_stack)
+                    if (
+                        zest._allow_to_run is not None
+                        and full_name not in zest._allow_to_run
+                        and zest._allow_to_run != "__all__"
+                    ):
+                        return
+
+                    zest._call_tree += [full_name]
+                    zest._call_log += [full_name]
+
+                    if zest._test_start_callback:
+                        zest._test_start_callback(
+                            ZestResult(
+                                zest._call_stack,
+                                full_name,
+                                zest._call_stack[-1],
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                func.__code__.co_filename,
+                                os.getpid(),
+                                True,
+                            )
+                        )
+
+                    error = None
+                    error_formatted = None
+                    skip_reason = None
+                    start_time = time.time()
+                    try:
                         zest._mock_stack += [[]]
-                        func()
+
+                        try:
+                            func()
+                        except SkipException as e:
+                            skip_reason = e.reason
                         zest._clear_stack_mocks()
                         zest._mock_stack.pop()
-                except Exception as e:
-                    error = e
-                    zest._call_errors += [(e, zest._call_stack.copy())]
-                finally:
-                    stop_time = time.time()
-                    if zest._test_stop_callback:
-                        zest._test_stop_callback(
-                            name,
-                            call_stack=zest._call_stack,
-                            error=error,
-                            elapsed=stop_time - start_time,
-                            func=func,
+                    except Exception as e:
+                        error = e
+                        error_formatted = traceback.format_exception(
+                            etype=type(error), value=error, tb=error.__traceback__
                         )
+                        zest._call_errors += [
+                            (e, error_formatted, zest._call_stack.copy())
+                        ]
+                    finally:
+                        stop_time = time.time()
+                        if zest._test_stop_callback:
+                            zest_result = ZestResult(
+                                zest._call_stack,
+                                ".".join(zest._call_stack),
+                                zest._call_stack[-1],
+                                error,
+                                error_formatted,
+                                stop_time - start_time,
+                                skip_reason,
+                                so.getvalue() if so is not None else None,
+                                se.getvalue() if se is not None else None,
+                                func.__code__.co_filename,
+                                os.getpid(),
+                                False,
+                            )
+                            zest._test_stop_callback(zest_result)
+
+                    _after = callers_special_local_funcs.get("_after")
+                    if _after:
+                        _after()
+                except Exception as e:
+                    log(f"ZEST EXCEPTION 1 {e}")
+                finally:
                     zest._call_stack.pop()
 
-                _after = callers_special_local_funcs.get("_after")
-                if _after:
-                    _after()
+            for name, func in funcs_to_call:
+                if len(zest._mock_stack) > 0:
+                    for mock_tuple in zest._mock_stack[-1]:
+                        if mock_tuple[4]:  # if reset_before_each is set
+                            mock_tuple[3].reset()  # Tell the mock to reset
+
+                if zest._capture:
+                    so = io.StringIO()
+                    se = io.StringIO()
+                    with redirect_stdout(so):
+                        with redirect_stderr(se):
+                            _run(name, func, so, se)
+                else:
+                    _run(name, func, None, None)
+
         finally:
             if prev_test_start_callback is not None:
                 zest._test_start_callback = prev_test_start_callback
             if prev_test_stop_callback is not None:
                 zest._test_stop_callback = prev_test_stop_callback
+            if prev_allow_to_run is not None:
+                zest._allow_to_run = prev_allow_to_run
 
     def __init__(self, *args, **kwargs):
         self.do(*args, **kwargs)
