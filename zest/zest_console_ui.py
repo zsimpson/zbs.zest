@@ -549,8 +549,10 @@ def _run(
             with open(state_filename, "r") as f:
                 state = json.loads(f.read())
                 nonlocal debug_mode, match_string
-                debug_mode = state.get("debug_mode", None)
-                match_string = state.get("match_string", None)
+                if state.get("debug_mode", None) is not None:
+                    debug_mode = state.get("debug_mode")
+                if state.get("match_string", None) is not None and match_string is None:
+                    match_string = state.get("match_string")
         except:
             pass
 
