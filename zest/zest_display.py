@@ -148,6 +148,8 @@ def display_start(name, last_depth, curr_depth, add_markers):
 
 
 def display_stop(error, elapsed, skip, last_depth, curr_depth):
+    if elapsed is None:
+        elapsed = 0.0
     if last_depth is not None and curr_depth is not None:
         if curr_depth < last_depth:
             s(f"{'  ' * curr_depth}")

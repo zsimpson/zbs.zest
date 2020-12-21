@@ -202,6 +202,13 @@ class JSONDataClassEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, BaseException):
             return f"{o.__class__.__name__}(\"{str(o)}\")"
+        if isinstance(o, ZestResult):
+            if o.error is not None:
+                try:
+                    dataclasses.asdict(o)
+                except Exception as e:
+                    # If it can not be encoded convert to str
+                    o.error = Exception(f"{o.error.__class__.__name__}: \"{str(o.error)}\"")
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
