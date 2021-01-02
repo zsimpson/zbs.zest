@@ -448,6 +448,10 @@ class zest:
         # If some other exception was raised that should just bubble as usual
 
     @staticmethod
+    def current_test_name():
+        return zest._call_stack[-1]
+
+    @staticmethod
     def do(
         *funcs, test_start_callback=None, test_stop_callback=None, allow_to_run=None
     ):
@@ -563,6 +567,8 @@ class zest:
                 # if hasattr(func, "params_list"):
                 #     params_list = getattr(func, "params_list")
 
+                zest._call_stack += [name]
+
                 # for params in params_list:
                 _before = callers_special_local_funcs.get("_before")
                 if _before:
@@ -576,7 +582,6 @@ class zest:
                         )
                         zest._call_warnings += [s]
 
-                zest._call_stack += [name]
                 try:
                     full_name = ".".join(zest._call_stack)
                     if (
