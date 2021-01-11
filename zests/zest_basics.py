@@ -100,8 +100,13 @@ def zest_basics():
         assert start_was_called == 2 and stop_was_called == 2
 
     def it_recurses():
+        log("it_recurses RUNNING")
+
         def level_one():
+            log("LEVEL ONE RUNNING")
+
             def level_two():
+                log("LEVEL TWO RUNNING")
                 pass
 
             zest()
@@ -351,6 +356,17 @@ def zest_slow():
 
     zest()
 
+
+@zest.skip(reason="no_call_to_before_on_skips")
+def zest_no_call_to_before_on_skips():
+    def _before():
+        raise Exception("Should not happen")
+
+    def do_not_run_this():
+        # This test will be excluded by a non-match and therefore _before should not be called
+        pass
+
+    zest()
 
 
 """

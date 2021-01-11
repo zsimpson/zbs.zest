@@ -595,6 +595,23 @@ class zest:
                 zest._call_stack += [name]
                 zest._current_error = None
 
+                try:
+                    full_name = ".".join(zest._call_stack)
+                    if (
+                        zest._allow_to_run is not None
+                        and full_name not in zest._allow_to_run
+                        and zest._allow_to_run != "__all__"
+                    ):
+                        log(f"Skipping {full_name} {zest._allow_to_run}")
+                        return
+                    else:
+                        log(f"Running {full_name} {zest._allow_to_run}")
+
+                except Exception as e:
+                    log(f"EXCEPTION during allow to check run. NAME {name} e {e}")
+                    zest._call_stack.pop()
+                    return
+
                 # for params in params_list:
                 _before = callers_special_local_funcs.get("_before")
                 if _before:
@@ -609,14 +626,7 @@ class zest:
                         zest._call_warnings += [s]
 
                 try:
-                    full_name = ".".join(zest._call_stack)
-                    if (
-                        zest._allow_to_run is not None
-                        and full_name not in zest._allow_to_run
-                        and zest._allow_to_run != "__all__"
-                    ):
-                        return
-
+                    log(f"RUN {full_name}")
                     zest._call_tree += [full_name]
                     zest._call_log += [full_name]
 
