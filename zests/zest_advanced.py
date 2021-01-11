@@ -144,11 +144,17 @@ def zest_runner_single_thread():
         found_tests = _get_run_tests(output)
         assert set(found_tests) == set(["zest_group2", "it_foos"])
 
+    def it_doesnt_call_begin_on_a_skipped_test():
+        ret_code, output = _call_zest_cli(
+            "--verbose=2", "--bypass_skip=zest_no_call_to_before_on_skips", "--exclude_string=do_not_run_this", "zest_no_call_to_before_on_skips"
+        )
+        assert "exception" not in output
+
     zest()
 
 
 def zest_runner_multi_thread():
-    # TODO: Get parameter_list working and compbine this with above
+    # TODO: Get parameter_list working and combine this with above
     """Test all options under multi threaded models"""
 
     n_workers = 2

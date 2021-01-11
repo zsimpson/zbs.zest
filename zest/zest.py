@@ -201,7 +201,14 @@ class MockFunction:
 class JSONDataClassEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, BaseException):
-            return f"{o.__class__.__name__}('{str(o)}')"
+            return f"{o.__class__.__name__}(\"{str(o)}\")"
+        if isinstance(o, ZestResult):
+            if o.error is not None:
+                try:
+                    dataclasses.asdict(o)
+                except Exception as e:
+                    # If it can not be encoded convert to str
+                    o.error = Exception(f"{o.error.__class__.__name__}: \"{str(o.error)}\"")
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
@@ -267,6 +274,7 @@ class zest:
     _disable_shuffle = False
     _capture = False
     _bypass_skip = []
+    _current_error = None   # Useful for checks by _after
 
     @staticmethod
     def reset(disable_shuffle=False, bypass_skip=None):
@@ -282,6 +290,21 @@ class zest:
         zest._capture = False
         zest._disable_shuffle = disable_shuffle
         zest._bypass_skip = [] if bypass_skip is None else bypass_skip.split(":")
+
+    @staticmethod
+    def current_test_name():
+        return zest._call_stack[-1]
+
+    @staticmethod
+    def current_test_full_name():
+        return ".".join(zest._call_stack)
+
+    @staticmethod
+    def current_test_error():
+        """
+        Current error is a useful state to check in _after()
+        """
+        return zest._current_error
 
     # TODO: Sort out all the naming conventions for this
     # @staticmethod
@@ -406,6 +429,12 @@ class zest:
         """
         Use this in the inner most test. Do not attempt to encapsulate
         more than one test with this context. See README.
+
+        The kwargs can include statements about the exception
+
+            in_args=value
+            in_{key}=substring
+            key=val
         """
         got_expected_exception = False
         trapped_exception = TrappedException()
@@ -568,6 +597,22 @@ class zest:
                 #     params_list = getattr(func, "params_list")
 
                 zest._call_stack += [name]
+                zest._current_error = None
+
+                try:
+                    full_name = ".".join(zest._call_stack)
+                    if (
+                        zest._allow_to_run is not None
+                        and full_name not in zest._allow_to_run
+                        and zest._allow_to_run != "__all__"
+                    ):
+                        zest._call_stack.pop()
+                        return
+
+                except Exception as e:
+                    log(f"EXCEPTION during allow to check run. NAME {name} e {e}")
+                    zest._call_stack.pop()
+                    return
 
                 # for params in params_list:
                 _before = callers_special_local_funcs.get("_before")
@@ -583,14 +628,6 @@ class zest:
                         zest._call_warnings += [s]
 
                 try:
-                    full_name = ".".join(zest._call_stack)
-                    if (
-                        zest._allow_to_run is not None
-                        and full_name not in zest._allow_to_run
-                        and zest._allow_to_run != "__all__"
-                    ):
-                        return
-
                     zest._call_tree += [full_name]
                     zest._call_log += [full_name]
 
@@ -633,6 +670,7 @@ class zest:
                         zest._call_errors += [
                             (e, error_formatted, zest._call_stack.copy())
                         ]
+                        zest._current_error = e
                     finally:
                         stop_time = time.time()
                         if zest._test_stop_callback:

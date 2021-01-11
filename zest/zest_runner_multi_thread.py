@@ -181,10 +181,20 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 if isinstance(zest_result, Exception):
                     raise zest_result
                 assert isinstance(zest_result, ZestResult)
+
+                # The child only knows its pid but we need to know which pool
+                # process that pid maps to. The pids change as the multiprocess
+                # pool logic may kill off child processes and re-use others.
+                # So here we monitor the self.pool._pool which is a list
+                # of Process objects that contain the pids
+                for i, p in enumerate(self.pool._pool):
+                    self.pid_to_worker_i[p.pid] = i
+
                 worker_i = self.pid_to_worker_i.get(zest_result.pid)
-                if worker_i is None:
-                    self.pid_to_worker_i[zest_result.pid] = len(self.pid_to_worker_i)
-                zest_result.worker_i = self.pid_to_worker_i[zest_result.pid]
+                if worker_i is not None:
+                    zest_result.worker_i = self.pid_to_worker_i[zest_result.pid]
+                else:
+                    log("Unknown zest_result.worker_i", zest_result.pid, self.pid_to_worker_i)
                 self.worker_status[zest_result.worker_i] = zest_result
                 if not zest_result.is_running:
                     self.results += [zest_result]

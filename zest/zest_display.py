@@ -53,7 +53,13 @@ _tty_size_cache = None
 def tty_size():
     global _tty_size_cache
     if _tty_size_cache is None:
-        rows, cols = os.popen("stty size", "r").read().split()
+        process = os.popen("stty size", "r")
+        lines = process.read()
+        retcode = process.close()
+        if retcode is None:
+            rows, cols = lines.split()
+        else:
+            rows, cols = 50, 80
         _tty_size_cache = (int(rows), int(cols))
     return _tty_size_cache
 
@@ -148,6 +154,8 @@ def display_start(name, last_depth, curr_depth, add_markers):
 
 
 def display_stop(error, elapsed, skip, last_depth, curr_depth):
+    if elapsed is None:
+        elapsed = 0.0
     if last_depth is not None and curr_depth is not None:
         if curr_depth < last_depth:
             s(f"{'  ' * curr_depth}")
