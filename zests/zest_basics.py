@@ -100,13 +100,8 @@ def zest_basics():
         assert start_was_called == 2 and stop_was_called == 2
 
     def it_recurses():
-        log("it_recurses RUNNING")
-
         def level_one():
-            log("LEVEL ONE RUNNING")
-
             def level_two():
-                log("LEVEL TWO RUNNING")
                 pass
 
             zest()

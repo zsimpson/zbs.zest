@@ -477,6 +477,10 @@ class zest:
         # If some other exception was raised that should just bubble as usual
 
     @staticmethod
+    def current_test_name():
+        return zest._call_stack[-1]
+
+    @staticmethod
     def do(
         *funcs, test_start_callback=None, test_stop_callback=None, allow_to_run=None
     ):
@@ -602,10 +606,8 @@ class zest:
                         and full_name not in zest._allow_to_run
                         and zest._allow_to_run != "__all__"
                     ):
-                        log(f"Skipping {full_name} {zest._allow_to_run}")
+                        zest._call_stack.pop()
                         return
-                    else:
-                        log(f"Running {full_name} {zest._allow_to_run}")
 
                 except Exception as e:
                     log(f"EXCEPTION during allow to check run. NAME {name} e {e}")
@@ -626,7 +628,6 @@ class zest:
                         zest._call_warnings += [s]
 
                 try:
-                    log(f"RUN {full_name}")
                     zest._call_tree += [full_name]
                     zest._call_log += [full_name]
 

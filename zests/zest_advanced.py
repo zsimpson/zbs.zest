@@ -231,7 +231,6 @@ def zest_runner_multi_thread():
     def it_runs_parent_tests():
         ret_code, output = _call_zest_cli("--verbose=2", "level_two")
         found_tests = _get_run_tests(output)
-        log(f"found_tests = {found_tests}")
         assert set(found_tests) == set(
             ["zest_basics", "it_recurses", "level_one", "level_two"]
         )
