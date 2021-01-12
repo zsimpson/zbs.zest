@@ -93,6 +93,8 @@ PAL_LINE = 19
 PAL_STDOUT = 20
 PAL_STDERR = 21
 PAL_STATUS_KEY = 22
+PAL_SUCCESS_BOX = 23
+PAL_ERROR_BOX = 24
 
 pal = [
     # PAL_NONE
@@ -141,6 +143,13 @@ pal = [
     (curses.COLOR_YELLOW, -1, curses.A_BOLD),
     # PAL_STATUS_KEY
     (curses.COLOR_RED, -1, curses.A_BOLD),
+
+    # PAL_SUCCESS_BOX
+    (curses.COLOR_GREEN, curses.COLOR_WHITE, curses.A_BOLD),
+
+    # PAL_ERROR_BOX
+    (curses.COLOR_RED, curses.COLOR_WHITE, curses.A_BOLD),
+
 ]
 
 
@@ -536,6 +545,8 @@ def _run(
     root = kwargs["root"]
     match_string = kwargs["match_string"]
     state_filename = ".zest_state.json"
+    show_result_box = False
+    result_box_msg = ""
 
     def save_state():
         try:
@@ -573,6 +584,31 @@ def _run(
             y + 13, root, zest_results_by_full_name.get(show_result_full_name),
         )
         scr.refresh()
+
+        if show_result_box:
+            scr_h = curses.LINES
+            scr_w = curses.COLS
+            h = 7
+            w = 40
+            y = 10
+            x = (scr_w - w) // 2
+            win2 = scr.subwin(h, w, y, x)
+            win2.clear()
+
+            if n_errors == 0:
+                win2.attrset(curses.color_pair(PAL_SUCCESS_BOX))
+                win2.box()
+                msg = "SUCCESS!"
+                win2.addstr(h // 2, (w - len(msg)) // 2, msg, curses.color_pair(PAL_SUCCESS_BOX))
+                win2.bkgd(' ', curses.color_pair(PAL_SUCCESS_BOX))
+            else:
+                win2.attrset(curses.color_pair(PAL_ERROR_BOX))
+                win2.box()
+                msg = "ERRORS!"
+                win2.addstr(h // 2, (w - len(msg)) // 2, msg, curses.color_pair(PAL_ERROR_BOX))
+                win2.bkgd(' ', curses.color_pair(PAL_ERROR_BOX))
+
+            win2.refresh()
 
     def callback(zest_result):
         nonlocal dirty, current_running_tests_by_worker_i, n_errors, n_success
@@ -661,6 +697,10 @@ def _run(
             running = runner.poll(request_stop)
             time.sleep(0.05)
 
+            if not running:
+                nonlocal show_result_box, result_box_msg
+                show_result_box = True
+
             if not running or request_stop or request_run is not None:
                 new_state(STOPPING)
 
@@ -702,6 +742,11 @@ def _run(
             render()
             if _kbhit():
                 key = scr.getkey()
+
+                if show_result_box:
+                    # Any key to exit box
+                    show_result_box = False
+                    dirty = True
 
                 if key in num_keys:
                     errors = _errors_from_results(zest_results_by_full_name)
@@ -760,6 +805,10 @@ def _run(
                     curses.noecho()
                     match_string = s
                     dirty = True
+
+                # if key == "z":
+                #     show_result_box = not show_result_box
+                #     dirty = True
 
                 if request_run is not None and debug_mode:
                     # This is the special debug mode which returns out of the
