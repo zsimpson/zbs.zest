@@ -306,6 +306,7 @@ You will need the user and password and credentials for Pypi.org
 
 
 # TODO
+* When debug mode is on in ui, and a test runs, you don't see the success increment
 * --ui fails is broken
 * When match string matches nothing it is confusing. Need "nothing was run"
 * Add a "slowest last" to UI

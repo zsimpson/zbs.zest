@@ -345,8 +345,6 @@ def zest_group2():
 
 def zest_slow():
     def it_runs_slowly():
-        # import pudb; pudb.set_trace()
-        # raise Exception("FOOBAR")
         pass
 
     zest()
