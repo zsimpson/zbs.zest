@@ -537,7 +537,7 @@ def _run(
     run_state = STOPPED
     warnings = []
     runner = None
-    debug_mode = False
+    debug_mode = kwargs.get("debug_mode", False)
     request_run = None
     request_stop = False  # Stop the current run
     request_end = False  # Stop current app (is set concurrently with request_stop)

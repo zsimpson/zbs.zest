@@ -78,6 +78,10 @@ def main():
         help="Use console UI.",
     )
 
+    parser.add_argument("--debug_mode", action="store_true",
+        help="Start console in debug_mode.",
+    )
+
     parser.add_argument("--add_markers", action="store_true",
         help="For internal debugging."
     )
