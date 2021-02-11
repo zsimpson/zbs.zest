@@ -14,6 +14,9 @@ from zest.version import __version__
 import subprocess
 
 
+startup_folder = os.getcwd()
+
+
 def zest_runner_single_thread():
     """Test all options under single threaded models"""
 
@@ -34,9 +37,15 @@ def zest_runner_single_thread():
             # log(
             #     f"START call to child runner from {zest._call_stack} ------------- TO_RUN = {to_run} "
             # )
-            output = subprocess.check_output(
-                to_run, shell=True, stderr=subprocess.STDOUT,
-            )
+
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(startup_folder)
+                output = subprocess.check_output(
+                    to_run, shell=True, stderr=subprocess.STDOUT,
+                )
+            finally:
+                os.chdir(orig_cwd)
             ret_code = 0
         except subprocess.CalledProcessError as e:
             ret_code = e.returncode
@@ -150,6 +159,44 @@ def zest_runner_single_thread():
         )
         assert "exception" not in output
 
+    def it_uses_a_different_tmp_folder_per_test_by_default():
+        ret_code, output = _call_zest_cli(
+            "--verbose=2", "--bypass_skip=zest_tmp_folder_per_test", "zest_tmp_folder_per_test"
+        )
+        test1 = re.search(r"test1 (/.*)", output)
+        test2 = re.search(r"test2 (/.*)", output)
+        assert test1 and test2 and test1.group(1) != test2.group(1)
+        assert "exception" not in output
+
+    def it_uses_a_common_tmp_folder():
+        ret_code, output = _call_zest_cli(
+            "--common_tmp=/tmp", "--verbose=2", "--bypass_skip=zest_tmp_folder_per_test", "zest_tmp_folder_per_test"
+        )
+        test1 = re.search(r"test1 (/.*)", output)
+        test2 = re.search(r"test2 (/.*)", output)
+        assert test1 and test2 and test1.group(1) == test2.group(1)
+        assert "exception" not in output
+
+    def it_uses_tmp_root():
+        try:
+            tmp_root = "/tmp/foo"
+            os.mkdir(tmp_root)
+        except FileExistsError:
+            pass
+        ret_code, output = _call_zest_cli(
+            f"--tmp_root={tmp_root}", "--verbose=2", "--bypass_skip=zest_tmp_folder_per_test", "zest_tmp_folder_per_test"
+        )
+        test1 = re.search(r"test1 (/.*)", output)
+        test2 = re.search(r"test2 (/.*)", output)
+        assert (
+            test1
+            and test2
+            and test1.group(1) != test2.group(1)
+            and tmp_root in test1.group(1)
+            and tmp_root in test2.group(1)
+        )
+        assert "exception" not in output
+
     zest()
 
 
@@ -174,9 +221,16 @@ def zest_runner_multi_thread():
             # log(
             #     f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
             # )
-            output = subprocess.check_output(
-                to_run, shell=True, stderr=subprocess.STDOUT,
-            )
+
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(startup_folder)
+                output = subprocess.check_output(
+                    to_run, shell=True, stderr=subprocess.STDOUT,
+                )
+            finally:
+                os.chdir(orig_cwd)
+
             ret_code = 0
         except subprocess.CalledProcessError as e:
             ret_code = e.returncode

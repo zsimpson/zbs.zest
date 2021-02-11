@@ -362,6 +362,17 @@ def zest_no_call_to_before_on_skips():
     zest()
 
 
+@zest.skip(reason="tmp_folder_per_test")
+def zest_tmp_folder_per_test():
+    def test1():
+        print("test1", os.getcwd())
+
+    def test2():
+        print("test2", os.getcwd())
+
+    zest()
+
+
 """
 def zest_parameter_list():
     saw = {1: False, 2: False}

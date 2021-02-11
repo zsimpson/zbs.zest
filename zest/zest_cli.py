@@ -98,6 +98,15 @@ def main():
         help="Optional colon-delimited list of groups to exclude.",
     )
 
+    parser.add_argument("--common_tmp", nargs="?", type=str,
+        help="If specified, use this folder as CWD for all. Default is a folder per-test",
+    )
+
+    parser.add_argument("--tmp_root", nargs="?", type=str, default="/tmp",
+        help="If specified, use this folder as the root for all per-tests",
+    )
+
+
     # fmt: on
 
     kwargs = vars(parser.parse_args())

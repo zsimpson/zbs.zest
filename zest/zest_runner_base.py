@@ -52,6 +52,8 @@ class ZestRunnerBase:
         add_markers=False,
         groups=None,
         exclude_groups=None,
+        common_tmp=None,
+        tmp_root="/tmp",
         **kwargs,
     ):
         """
@@ -92,6 +94,13 @@ class ZestRunnerBase:
             False (default): shuffles zests to root out order dependencies
         add_markers:
             Used for debugging. Ignore.
+        common_tmp:
+            If non-None, use this one folder as the CWD for all tests.
+            Otherwise a tmp folder will be created for each test
+            (and removed if the test passes)
+        tmp_root: (default "/tmp")
+            The root of any auto-generated tmp files
+
         """
         self.callback = callback
         self.output_folder = pathlib.Path(output_folder)
@@ -107,8 +116,10 @@ class ZestRunnerBase:
         self.bypass_skip = bypass_skip
         self.groups = groups
         self.exclude_groups = exclude_groups
+        self.common_tmp = common_tmp
+        self.tmp_root = tmp_root
 
-        zest.reset(disable_shuffle, bypass_skip)
+        zest.reset(disable_shuffle, bypass_skip, common_tmp, tmp_root)
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
