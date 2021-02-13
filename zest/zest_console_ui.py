@@ -266,12 +266,13 @@ def draw_status(y, run_state, match_string, current_running_tests_by_worker_i):
     # y += 1
 
     worker_iz = sorted(current_running_tests_by_worker_i.keys())
+    state_color = PAL_STATUS if run_state == STOPPED else PAL_NAME_SELECTED
     _print(
-        y, 0, PAL_NONE, "Status  : ", PAL_STATUS, run_state_strs[run_state] + " ",
+        y, 0, PAL_NONE, "Status  : ", state_color, run_state_strs[run_state] + " ",
     )
     y += 1
 
-    if len(worker_iz) > 0:
+    if len(worker_iz) > 0 and run_state != STOPPED:
         for worker_i in worker_iz:
             name_stack = (current_running_tests_by_worker_i[worker_i] or "").split(".")
             _print(
