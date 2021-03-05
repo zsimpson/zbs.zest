@@ -373,6 +373,19 @@ def zest_tmp_folder_per_test():
     zest()
 
 
+@zest.skip(reason="captures")
+def zest_captures():
+    def it_captures_stdout():
+        print("To stdout")
+
+    def it_captures_stderr():
+        print("To stderr", file=sys.stderr)
+
+    zest()
+
+
+
+
 """
 def zest_parameter_list():
     saw = {1: False, 2: False}

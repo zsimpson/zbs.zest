@@ -218,7 +218,7 @@ def zest_runner_multi_thread():
                 f"python -m zest.zest_cli --output_folder={tmp_folder} --add_markers --allow_files=zest_basics --n_workers={n_workers} "
                 + " ".join(args)
             )
-            # log(
+            # print(
             #     f"START call to child runner from {zest._call_stack} ------------- to_run = {to_run} "
             # )
 
@@ -237,7 +237,9 @@ def zest_runner_multi_thread():
             output = e.output
         # time.sleep(3.0)  # HACK
         # log(f"RETURN FROM call to child runner ------------- {ret_code}")
-        return ret_code, output.decode("utf-8")
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        output = ansi_escape.sub('', output.decode("utf-8"))
+        return ret_code, output
 
     def _get_run_tests(output):
         found_tests = []
@@ -314,5 +316,21 @@ def zest_runner_multi_thread():
         assert "before all functions were defined" in output
         assert "zest_basics.py:" in output
         assert ret_code != 0
+
+    def it_captures():
+        ret_code, output = _call_zest_cli(
+            "--capture", "--bypass_skip=zest_captures", "zest_captures"
+        )
+        assert "To stdout" not in output
+        assert "To stderr" not in output
+        assert ret_code == 0
+
+    def it_does_not_capture():
+        ret_code, output = _call_zest_cli(
+            "--bypass_skip=zest_captures", "zest_captures"
+        )
+        assert "To stdout" in output
+        assert "To stderr" in output
+        assert ret_code == 0
 
     zest()

@@ -94,6 +94,13 @@ def display_error(root, zest_result):
     formatted_test_name = " . ".join(stack[0:-1]) + colors.bold + " . " + leaf_test_name
 
     s("\n", error_header("=", colors.red, formatted_test_name), "\n")
+
+    if zest_result.error is not None:
+        s("\n", error_header("-", colors.yellow, "STDOUT"))
+        s(zest_result.stdout)
+        s("\n", error_header("-", colors.yellow, "STDERR"))
+        s(zest_result.stderr)
+
     lines = []
     for line in zest_result.error_formatted or [""]:
         lines += [sub_line for sub_line in line.strip().split("\n")]
