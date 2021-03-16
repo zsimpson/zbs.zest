@@ -6,7 +6,10 @@ import traceback
 
 
 def s(*strs):
-    return sys.stdout.write("".join(strs) + colors.reset)
+    for str_ in strs:
+        if str_ is not None:
+            sys.stdout.write(str_)
+    sys.stdout.write(colors.reset)
 
 
 _tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
