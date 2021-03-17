@@ -78,6 +78,10 @@ def main():
         help="Use console UI.",
     )
 
+    parser.add_argument("--go", action="store_true",
+        help="Use console UI and start the run upon entry.",
+    )
+
     parser.add_argument("--debug_mode", action="store_true",
         help="Start console in debug_mode.",
     )
@@ -115,7 +119,7 @@ def main():
         print(__version__)
         sys.exit(0)
 
-    if kwargs.pop("ui", False):
+    if kwargs.pop("ui", False) or kwargs.get("go", False):
         retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:

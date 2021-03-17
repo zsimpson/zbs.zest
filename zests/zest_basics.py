@@ -111,6 +111,18 @@ def zest_basics():
     zest()
 
 
+def zest_retries():
+    t = 0
+
+    @zest.retry(2)
+    def fails_on_first_try():
+        nonlocal t
+        t += 1
+        if t == 1:
+            raise Exception("Fails on first try")
+
+    zest()
+
 @contextmanager
 def some_context():
     yield

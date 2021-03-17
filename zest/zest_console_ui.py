@@ -547,7 +547,7 @@ def _run(
     match_string = kwargs["match_string"]
     state_filename = ".zest_state.json"
     show_result_box = False
-    result_box_msg = ""
+    go = kwargs.get("go", False)
 
     def save_state():
         try:
@@ -569,6 +569,11 @@ def _run(
             pass
 
     load_state()
+
+    if go:
+        clear_output_folder(zest_results_path)
+        request_run = "__all__"
+        dirty = True
 
     def render():
         nonlocal dirty
@@ -698,8 +703,8 @@ def _run(
             running = runner.poll(request_stop)
             time.sleep(0.05)
 
-            if not running:
-                nonlocal show_result_box, result_box_msg
+            if not running and not request_end:
+                nonlocal show_result_box
                 show_result_box = True
 
             if not running or request_stop or request_run is not None:
@@ -861,6 +866,8 @@ def run(**kwargs):
                     kwargs["verbose"] = orig_verbose
                     kwargs["allow_to_run"] = orig_allow_to_run
             else:
+                # Clear screen
+                print("\033c\033[3J\033[2J\033[0m\033[H")
                 break
 
         except Exception as e:

@@ -365,6 +365,23 @@ class zest:
         return decorator
 
     @staticmethod
+    def retry(n_tries):
+        def decorator(fn):
+            @wraps(fn)
+            def wrapper(*args, **kwargs):
+                tries = n_tries
+                while tries > 0:
+                    try:
+                        return fn(*args, **kwargs)
+                    except Exception as e:
+                        tries -= 1
+                        if tries == 0:
+                            raise e
+            return wrapper
+
+        return decorator
+
+    @staticmethod
     def _setup_mock(symbol, substitute_fn=None):
         if not callable(symbol):
             raise AssertionError(f"Unmockable symbol {symbol} (must be callable)")
