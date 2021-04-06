@@ -7,6 +7,9 @@ import os
 import sys
 import argparse
 import pathlib
+import json
+import logging
+import logging.config
 from pathlib import Path
 from zest.zest_runner_single_thread import ZestRunnerSingleThread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread
@@ -110,6 +113,9 @@ def main():
         help="If specified, use this folder as the root for all per-tests",
     )
 
+    parser.add_argument("--logger_config_json", nargs="?", type=str, default=None,
+        help="If specified, load logger config from specified json file",
+    )
 
     # fmt: on
 
@@ -118,6 +124,12 @@ def main():
     if kwargs.pop("version", None):
         print(__version__)
         sys.exit(0)
+
+    log_json = kwargs.get("logger_config_json")
+    if log_json is not None:
+        with open(log_json) as f:
+            contents = json.loads(f.read())
+            logging.config.dictConfig(contents)
 
     if kwargs.pop("ui", False) or kwargs.get("go", False):
         retcode = zest_console_ui.run(**kwargs)
