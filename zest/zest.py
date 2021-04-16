@@ -435,12 +435,14 @@ class zest:
 
     @staticmethod
     @contextmanager
-    def mock(symbol, returns=None):
+    def mock(symbol, returns=None, hook=None):
         old, klass, new = None, None, None
         try:
             old, klass, new = zest._setup_mock(symbol)
             if returns is not None:
                 new.returns(returns)
+            if hook is not None:
+                new.hook(hook)
             yield new
         finally:
             if klass and old:
