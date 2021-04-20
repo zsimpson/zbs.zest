@@ -1,7 +1,8 @@
 """
 Single-threaded runner with abbreviated and verbose display options
 """
-
+import time
+import threading
 import sys
 import os
 import re
@@ -26,14 +27,22 @@ from zest.zest_display import (
 )
 
 
+def watch_s_stream(filename):
+    print(filename)
+    with open(filename) as f:
+        for line in f:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+    log("DONE?!")
+
+
 class ZestRunnerSingleThread(ZestRunnerBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         self.s_stream = None
         if kwargs.get("capture"):
-            print("--capture is set and therefore no trace will show up until after run is complete.")
-            self.s_stream = tempfile.TemporaryFile(mode="w+")
+            self.s_stream = tempfile.NamedTemporaryFile(mode="w+")
             set_s_stream(self.s_stream)
 
         if self.retcode != 0:
@@ -71,6 +80,12 @@ class ZestRunnerSingleThread(ZestRunnerBase):
             elif self.verbose == 1:
                 display_abbreviated(zest_result.error, zest_result.skip)
 
+
+        # Start a thread to watch the logs
+        if self.s_stream is not None:
+            watch_s_thread = threading.Thread(target=watch_s_stream, args=(self.s_stream.name,))
+            watch_s_thread.start()
+
         # LAUNCH root zests
         for (root_name, (module_name, package, full_path)) in self.root_zests.items():
             with open_event_stream(self.output_folder, root_name) as event_stream:
@@ -95,7 +110,9 @@ class ZestRunnerSingleThread(ZestRunnerBase):
         self.retcode = 0 if len(zest._call_errors) == 0 else 1
 
         if self.s_stream is not None:
-            self.s_stream.flush()
-            self.s_stream.seek(0, io.SEEK_SET)
-            captured = self.s_stream.read()
-            print(captured)
+            self.s_stream.join()
+
+            # self.s_stream.flush()
+            # self.s_stream.seek(0, io.SEEK_SET)
+            # captured = self.s_stream.read()
+            # print(captured)

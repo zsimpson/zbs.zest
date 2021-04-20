@@ -621,17 +621,6 @@ class zest:
 
         """
 
-        # # HACK
-        # so = io.BytesIO()
-        # se = io.BytesIO()
-        # with stdio_redirector(so, se):
-        #     print("STDERR SHOULD BE CAPTURED", file=sys.stderr)
-        # print("stdout should see this")
-        # print("stderr should see this", file=sys.stderr)
-        # sys.stdout.flush()
-        # sys.stderr.flush()
-        # return
-
         prev_test_start_callback = None
         prev_test_stop_callback = None
         prev_allow_to_run = None

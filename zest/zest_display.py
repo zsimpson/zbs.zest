@@ -3,6 +3,7 @@ import sys
 import os
 import re
 import traceback
+from zest.zest import log
 
 
 s_stream = sys.stdout
@@ -13,10 +14,12 @@ def set_s_stream(stream):
 
 
 def s(*strs):
+    log("IN s", *strs)
     for str_ in strs:
         if str_ is not None:
             s_stream.write(str_)
     s_stream.write(colors.reset)
+    s_stream.flush()
 
 
 _tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
