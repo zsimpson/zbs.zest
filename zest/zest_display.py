@@ -5,11 +5,18 @@ import re
 import traceback
 
 
+s_stream = sys.stdout
+
+def set_s_stream(stream):
+    global s_stream
+    s_stream = stream
+
+
 def s(*strs):
     for str_ in strs:
         if str_ is not None:
-            sys.stdout.write(str_)
-    sys.stdout.write(colors.reset)
+            s_stream.write(str_)
+    s_stream.write(colors.reset)
 
 
 _tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")

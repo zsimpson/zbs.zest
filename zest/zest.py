@@ -4,6 +4,7 @@ A function-oriented testing framework for Python 3.
 See README.md
 """
 import os
+import sys
 import time
 import inspect
 import types
@@ -13,8 +14,9 @@ import re
 import json
 import tempfile
 import shutil
-from contextlib import redirect_stdout, redirect_stderr
 import dataclasses
+import ctypes
+import tempfile
 from functools import wraps
 from contextlib import contextmanager
 from random import shuffle
@@ -37,6 +39,73 @@ def log(*args):
 
 
 ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
+
+
+# based on https://eli.thegreenplace.net/2015/redirecting-all-kinds-of-stdout-in-python/
+
+libc = ctypes.CDLL(None)
+c_stdout = ctypes.c_void_p.in_dll(libc, 'stdout')
+c_stderr = ctypes.c_void_p.in_dll(libc, 'stderr')
+
+
+@contextmanager
+def stdio_redirector():
+    so = io.BytesIO()
+    se = io.BytesIO()
+
+    original_stdout_fd = sys.stdout.fileno()
+    original_stderr_fd = sys.stderr.fileno()
+
+    def _redirect_stdout(to_fd):
+        """Redirect stdout to the given file descriptor."""
+        # Flush the C-level buffer stdout
+        libc.fflush(c_stdout)
+        # Flush and close sys.stdout - also closes the file descriptor (fd)
+        sys.stdout.close()
+        # Make original_stdout_fd point to the same file as to_fd
+        os.dup2(to_fd, original_stdout_fd)
+        # Create a new sys.stdout that points to the redirected fd
+        sys.stdout = io.TextIOWrapper(os.fdopen(original_stdout_fd, 'wb'))
+
+    def _redirect_stderr(to_fd):
+        """Redirect stderr to the given file descriptor."""
+        # Flush the C-level buffer stderr
+        libc.fflush(c_stderr)
+        # Flush and close sys.stderr - also closes the file descriptor (fd)
+        sys.stderr.close()
+        # Make original_stderr_fd point to the same file as to_fd
+        os.dup2(to_fd, original_stderr_fd)
+        # Create a new sys.stderr that points to the redirected fd
+        sys.stderr = io.TextIOWrapper(os.fdopen(original_stderr_fd, 'wb'))
+
+    saved_stdout_fd = os.dup(original_stdout_fd)
+    saved_stderr_fd = os.dup(original_stderr_fd)
+    stdout_tfile = None
+    stderr_tfile = None
+    try:
+        # Create a temporary file and redirect stdout to it
+        stdout_tfile = tempfile.TemporaryFile(mode='w+b')
+        _redirect_stdout(stdout_tfile.fileno())
+        stderr_tfile = tempfile.TemporaryFile(mode='w+b')
+        _redirect_stderr(stderr_tfile.fileno())
+        # Yield to caller, then redirect stdout back to the saved fd
+        yield so, se
+        _redirect_stdout(saved_stdout_fd)
+        _redirect_stderr(saved_stderr_fd)
+        # Copy contents of temporary file to the given streams
+        stdout_tfile.flush()
+        stdout_tfile.seek(0, io.SEEK_SET)
+        so.write(stdout_tfile.read())
+        stderr_tfile.flush()
+        stderr_tfile.seek(0, io.SEEK_SET)
+        se.write(stderr_tfile.read())
+    finally:
+        if stdout_tfile:
+            stdout_tfile.close()
+        if stderr_tfile:
+            stderr_tfile.close()
+        os.close(saved_stdout_fd)
+        os.close(saved_stderr_fd)
 
 
 def strip_ansi(line):
@@ -281,7 +350,7 @@ class zest:
     _tmp_root = None
 
     @staticmethod
-    def reset(disable_shuffle=False, bypass_skip=None, common_tmp=None, tmp_root=None):
+    def reset(disable_shuffle=False, bypass_skip=None, common_tmp=None, tmp_root=None, capture=None):
         zest._call_log = []
         zest._call_stack = []
         zest._call_errors = []
@@ -291,7 +360,7 @@ class zest:
         zest._test_stop_callback = None
         zest._mock_stack = []
         zest._allow_to_run = None
-        zest._capture = False
+        zest._capture = capture
         zest._disable_shuffle = disable_shuffle
         zest._bypass_skip = [] if bypass_skip is None else bypass_skip.split(":")
         zest._common_tmp = common_tmp
@@ -552,6 +621,17 @@ class zest:
 
         """
 
+        # # HACK
+        # so = io.BytesIO()
+        # se = io.BytesIO()
+        # with stdio_redirector(so, se):
+        #     print("STDERR SHOULD BE CAPTURED", file=sys.stderr)
+        # print("stdout should see this")
+        # print("stderr should see this", file=sys.stderr)
+        # sys.stdout.flush()
+        # sys.stderr.flush()
+        # return
+
         prev_test_start_callback = None
         prev_test_stop_callback = None
         prev_allow_to_run = None
@@ -721,8 +801,8 @@ class zest:
                                     error_formatted,
                                     stop_time - start_time,
                                     skip_reason,
-                                    so.getvalue() if so is not None else None,
-                                    se.getvalue() if se is not None else None,
+                                    so.getvalue().decode() if so is not None else None,
+                                    se.getvalue().decode() if se is not None else None,
                                     func.__code__.co_filename,
                                     os.getpid(),
                                     False,
@@ -753,11 +833,8 @@ class zest:
                             mock_tuple[3].reset()  # Tell the mock to reset
 
                 if zest._capture:
-                    so = io.StringIO()
-                    se = io.StringIO()
-                    with redirect_stdout(so):
-                        with redirect_stderr(se):
-                            _run(name, func, so, se)
+                    with stdio_redirector() as (so, se):
+                        _run(name, func, so, se)
                 else:
                     _run(name, func, None, None)
 

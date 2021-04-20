@@ -9,6 +9,7 @@ import signal
 import multiprocessing
 import traceback
 import pathlib
+from contextlib import contextmanager
 from zest.zest import ZestResult
 from multiprocessing import Queue
 from queue import Empty
@@ -20,8 +21,13 @@ from zest import zest_finder
 from zest import zest_display
 
 
+@contextmanager
 def open_event_stream(output_folder, root_name):
-    return open(f"{output_folder}/{root_name}.evt", "a+b", buffering=0)
+    try:
+        f = open(f"{output_folder}/{root_name}.evt", "a+b", buffering=0)
+        yield f
+    finally:
+        f.close()
 
 
 def emit_zest_result(zest_result, stream):
@@ -119,7 +125,7 @@ class ZestRunnerBase:
         self.common_tmp = common_tmp
         self.tmp_root = tmp_root
 
-        zest.reset(disable_shuffle, bypass_skip, common_tmp, tmp_root)
+        zest.reset(disable_shuffle, bypass_skip, common_tmp, tmp_root, capture)
 
         # zest runner must start in the root of the project
         # so that modules may be loaded appropriately.
