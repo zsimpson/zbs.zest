@@ -132,17 +132,15 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
     found_zests = []
     errors = []
 
+    # if func_name == "zest_runs_inside_context":
+    #     import pudb; pudb.set_trace()
+    #     pass
+
     for i, part in enumerate(body):
         if isinstance(part, ast.With):
-            # At one point I had a bug here where I did this:
-            #   return _recurse_ast(path, part.lineno, part.body, func_name, parent_name)
-            # I'm not sure why I thought I needed to return on that but that
-            # is most definitely wrong as a with statement like:
-            #   with warnings.catch_warnings():
-            #       warnings.simplefilter("ignore")
-            #       from jose import jwt
-            # would early out and fail to pick up later records
-            _recurse_ast(path, part.lineno, part.body, func_name, parent_name)
+            _found_zests, _errors = _recurse_ast(path, part.lineno, part.body, func_name, parent_name)
+            found_zests += _found_zests
+            errors += _errors
 
         if isinstance(part, ast.FunctionDef):
             this_zest_groups = []
