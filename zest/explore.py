@@ -65,41 +65,64 @@ def _redirect_stderr(to_fd):
 
 
 @contextmanager
-def stdio_capture():
-    global redirect_depth
-    global so_root_save_fd, so_curr_tmpfile
-    global se_root_save_fd, se_curr_tmpfile
+def stdio_capture(should_capture):
+    """
+    Capture stdout in a re-entrant manner. See pause_stdio_capture().
 
-    so_save_fd = os.dup(so_orig_fd)
-    se_save_fd = os.dup(se_orig_fd)
-    if redirect_depth == 0:
-        so_root_save_fd = so_save_fd
-        se_root_save_fd = se_save_fd
+    If should_capture is False it simply returns (stdout, stderr)
+    which simplifies conditional "with" clauses. Ie:
 
-    so_tmpfile = NamedTemporaryFile(mode='w+b', delete=False)
-    se_tmpfile = NamedTemporaryFile(mode='w+b', delete=False)
+        with stdio_capture(should_capture) as (so, se):
+            important_stuff(so, se)
 
-    so_prev_tmpfile = so_curr_tmpfile
-    se_prev_tmpfile = se_curr_tmpfile
+    as opposed to:
 
-    so_curr_tmpfile = so_tmpfile
-    se_curr_tmpfile = se_tmpfile
+        if should_capture:
+            with stdio_capture(should_capture) as (so, se):
+                important_stuff(so, se)
+        else:
+            # repeating the above
+            important_stuff(sys.stdout, sys.stderr)
 
-    redirect_depth += 1
-    try:
-        _redirect_stdout(so_tmpfile.fileno())
-        _redirect_stderr(se_tmpfile.fileno())
-        yield (so_tmpfile, se_tmpfile)
-        _redirect_stderr(se_save_fd)
-        _redirect_stdout(so_save_fd)
-    finally:
-        redirect_depth -= 1
-        so_tmpfile.close()
-        se_tmpfile.close()
-        so_curr_tmpfile = so_prev_tmpfile
-        se_curr_tmpfile = se_prev_tmpfile
-        os.close(so_save_fd)
-        os.close(se_save_fd)
+    """
+
+    if not should_capture:
+        yield sys.stdout, sys.stderr
+    else:
+        global redirect_depth
+        global so_root_save_fd, so_curr_tmpfile
+        global se_root_save_fd, se_curr_tmpfile
+
+        so_save_fd = os.dup(so_orig_fd)
+        se_save_fd = os.dup(se_orig_fd)
+        if redirect_depth == 0:
+            so_root_save_fd = so_save_fd
+            se_root_save_fd = se_save_fd
+
+        so_tmpfile = NamedTemporaryFile(mode="w+b")
+        se_tmpfile = NamedTemporaryFile(mode="w+b")
+
+        so_prev_tmpfile = so_curr_tmpfile
+        se_prev_tmpfile = se_curr_tmpfile
+
+        so_curr_tmpfile = so_tmpfile
+        se_curr_tmpfile = se_tmpfile
+
+        redirect_depth += 1
+        try:
+            _redirect_stdout(so_tmpfile.fileno())
+            _redirect_stderr(se_tmpfile.fileno())
+            yield (so_tmpfile, se_tmpfile)
+            _redirect_stderr(se_save_fd)
+            _redirect_stdout(so_save_fd)
+        finally:
+            redirect_depth -= 1
+            so_tmpfile.close()
+            se_tmpfile.close()
+            so_curr_tmpfile = so_prev_tmpfile
+            se_curr_tmpfile = se_prev_tmpfile
+            os.close(so_save_fd)
+            os.close(se_save_fd)
 
 
 @contextmanager
@@ -112,6 +135,8 @@ def pause_stdio_capture():
         log(f"  resume redirect")
         _redirect_stdout(so_curr_tmpfile.fileno())
         _redirect_stderr(se_curr_tmpfile.fileno())
+    else:
+        yield
 
 
 # The tricky thing is that I have to support recursion
@@ -122,7 +147,7 @@ def start_test():
 
     log(f"start_test {depth=}")
 
-    with stdio_capture() as (so, se):
+    with stdio_capture(True) as (so, se):
 
         with pause_stdio_capture():
             print(f"Running {depth}")
@@ -139,10 +164,21 @@ def start_test():
         sys.stderr.flush()
         so.flush()
         se.flush()
-        with open(so.name) as g:
-            captured_so = g.read()
-        with open(se.name) as g:
-            captured_se = g.read()
+        so.seek(0, io.SEEK_SET)
+        se.seek(0, io.SEEK_SET)
+        captured_so = ""
+        try:
+            captured_so = so.read()
+        except io.UnsupportedOperation:
+            # This happens if so is actually sys.stdout
+            pass
+
+        captured_se = ""
+        try:
+            captured_se = se.read()
+        except io.UnsupportedOperation:
+            # This happens if se is actually sys.stderr
+            pass
 
         with pause_stdio_capture():
             print(f"Back {depth}")

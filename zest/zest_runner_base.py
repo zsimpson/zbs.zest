@@ -37,6 +37,7 @@ def emit_zest_result(zest_result, stream):
         stream.write(msg)
         stream.flush()
     except TypeError:
+        import pudb; pudb.set_trace()
         log(f"Serialization error on {zest_result}")
 
 

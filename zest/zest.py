@@ -17,6 +17,7 @@ import shutil
 import dataclasses
 import ctypes
 import tempfile
+from tempfile import NamedTemporaryFile
 from functools import wraps
 from contextlib import contextmanager
 from random import shuffle
@@ -42,122 +43,120 @@ def log(*args):
 ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
 
 
-'''
-Capturing is complicated
-
-To capture I want to redirect the low-level OS files so that I will
-capture even subprocess or C output (not just python).
-But when I do that I won't be able to see the output from zest
-so I have to be able to pause/resume that capture for a brief
-moment so that I can emit progress.
-'''
-
+# Redirection is re-entrant and pauseable
 libc = ctypes.CDLL(None)
-c_stdout = None
-c_stderr = None
-capture_stdout = None
-capture_stderr = None
-orig_fd_stdout = None
-orig_fd_stderr = None
-save_fd_stdout = None
-save_fd_stderr = None
-tmpfile_stdout = None
-tmpfile_stderr = None
+redirect_depth = 0
+
+so_orig_fd = sys.stdout.fileno()  # The root level handle for stdout (typically == 1)
+so_root_save_fd = None  # Will be set for the root level stdout so that it can be used in pause
+so_c_fd = None  # The libc handle so that it can be flushed
+so_curr_tmpfile = None  # The top of the so stack tmpfile which is needed by pause/resume
+
+se_orig_fd = sys.stderr.fileno()  # The root level handle for stderr (typically == 2)
+se_root_save_fd = None  # Will be set for the root level stderr so that it can be used in pause
+se_c_fd = None  # The libc handle se that it can be flushed
+se_curr_tmpfile = None  # The top of the se stack tmpfile which is needed by pause/resume
+
+try:
+    # Linux
+    so_c_fd = ctypes.c_void_p.in_dll(libc, 'stdout')
+except ValueError:
+    # OSX
+    so_c_fd = ctypes.c_void_p.in_dll(libc, '__stdoutp')
+
+try:
+    # Linux
+    se_c_fd = ctypes.c_void_p.in_dll(libc, 'stderr')
+except ValueError:
+    # OSX
+    se_c_fd = ctypes.c_void_p.in_dll(libc, '__stderrp')
 
 
 def _redirect_stdout(to_fd):
-    """Redirect stdout to the given file descriptor."""
-    log(f"  _redirect_stdout {to_fd=} {orig_fd_stdout=} {sys.stdout.fileno()=}")
-    libc.fflush(c_stdout)
+    libc.fflush(so_c_fd)
     sys.stdout.close()
-    os.dup2(to_fd, orig_fd_stdout)
-    sys.stdout = io.TextIOWrapper(os.fdopen(orig_fd_stdout, 'wb'))
+    os.dup2(to_fd, so_orig_fd)
+    sys.stdout = io.TextIOWrapper(os.fdopen(so_orig_fd, "wb"))
 
 
 def _redirect_stderr(to_fd):
-    """Redirect stderr to the given file descriptor."""
-    libc.fflush(c_stderr)
+    libc.fflush(se_c_fd)
     sys.stderr.close()
-    os.dup2(to_fd, orig_fd_stderr)
-    sys.stderr = io.TextIOWrapper(os.fdopen(orig_fd_stderr, 'wb'))
+    os.dup2(to_fd, se_orig_fd)
+    sys.stderr = io.TextIOWrapper(os.fdopen(se_orig_fd, "wb"))
 
 
-def start_stdio_redirect():
-    global c_stdout, c_stderr
-    try:
-        # Linux
-        c_stdout = ctypes.c_void_p.in_dll(libc, 'stdout')
-    except ValueError:
-        # OSX
-        c_stdout = ctypes.c_void_p.in_dll(libc, '__stdoutp')
+@contextmanager
+def stdio_capture(should_capture):
+    """
+    Capture stdout in a re-entrant manner. See pause_stdio_capture().
 
-    try:
-        # Linux
-        c_stderr = ctypes.c_void_p.in_dll(libc, 'stderr')
-    except ValueError:
-        # OSX
-        c_stderr = ctypes.c_void_p.in_dll(libc, '__stderrp')
+    If should_capture is False it simply returns (stdout, stderr)
+    which simplifies conditional "with" clauses. Ie:
 
-    global capture_stdout, capture_stderr
-    capture_stdout = io.BytesIO()
-    capture_stderr = io.BytesIO()
+        with stdio_capture(should_capture) as (so, se):
+            important_stuff(so, se)
 
-    global orig_fd_stdout, orig_fd_stderr
-    orig_fd_stdout = sys.stdout.fileno()
-    orig_fd_stderr = sys.stderr.fileno()
+    as opposed to:
 
-    global save_fd_stdout, save_fd_stderr
-    save_fd_stdout = os.dup(orig_fd_stdout)
-    log(f"start redirect {orig_fd_stdout=} {save_fd_stdout=}")
-    save_fd_stderr = os.dup(orig_fd_stderr)
+        if should_capture:
+            with stdio_capture(should_capture) as (so, se):
+                important_stuff(so, se)
+        else:
+            # repeating the above
+            important_stuff(sys.stdout, sys.stderr)
 
-    global tmpfile_stdout, tmpfile_stderr
-    tmpfile_stdout = tempfile.TemporaryFile(mode='w+b')
-    _redirect_stdout(tmpfile_stdout.fileno())
-    tmpfile_stderr = tempfile.TemporaryFile(mode='w+b')
-    _redirect_stderr(tmpfile_stderr.fileno())
+    """
 
-    return capture_stdout, capture_stderr
+    if not should_capture:
+        yield sys.stdout, sys.stderr
+    else:
+        global redirect_depth
+        global so_root_save_fd, so_curr_tmpfile
+        global se_root_save_fd, se_curr_tmpfile
 
+        so_save_fd = os.dup(so_orig_fd)
+        se_save_fd = os.dup(se_orig_fd)
+        if redirect_depth == 0:
+            so_root_save_fd = so_save_fd
+            se_root_save_fd = se_save_fd
 
-def end_stdio_redirect():
-    global save_fd_stdout, save_fd_stderr
+        so_tmpfile = NamedTemporaryFile(mode="w+")
+        se_tmpfile = NamedTemporaryFile(mode="w+")
 
-    _redirect_stdout(save_fd_stdout)
-    _redirect_stderr(save_fd_stderr)
+        so_prev_tmpfile = so_curr_tmpfile
+        se_prev_tmpfile = se_curr_tmpfile
 
-    # COPY contents of temporary file to the streams created at start
-    if tmpfile_stdout:
-        tmpfile_stdout.flush()
-        tmpfile_stdout.seek(0, io.SEEK_SET)
-        capture_stdout.write(tmpfile_stdout.read())
-        tmpfile_stdout.close()
+        so_curr_tmpfile = so_tmpfile
+        se_curr_tmpfile = se_tmpfile
 
-    if tmpfile_stderr:
-        tmpfile_stderr.flush()
-        tmpfile_stderr.seek(0, io.SEEK_SET)
-        capture_stderr.write(tmpfile_stderr.read())
-        tmpfile_stderr.close()
-
-    log(f"end redirect1 {save_fd_stdout=}")
-    os.close(save_fd_stdout)
-    os.close(save_fd_stderr)
-    save_fd_stdout = None
-    save_fd_stderr = None
+        redirect_depth += 1
+        try:
+            _redirect_stdout(so_tmpfile.fileno())
+            _redirect_stderr(se_tmpfile.fileno())
+            yield (so_tmpfile, se_tmpfile)
+            _redirect_stderr(se_save_fd)
+            _redirect_stdout(so_save_fd)
+        finally:
+            redirect_depth -= 1
+            so_tmpfile.close()
+            se_tmpfile.close()
+            so_curr_tmpfile = so_prev_tmpfile
+            se_curr_tmpfile = se_prev_tmpfile
+            os.close(so_save_fd)
+            os.close(se_save_fd)
 
 
-def pause_stdio_redirect():
-    if save_fd_stdout:
-        log(f"pause redirect1 {save_fd_stdout=}")
-        _redirect_stdout(save_fd_stdout)
-        _redirect_stderr(save_fd_stderr)
-
-
-def resume_stdio_redirect():
-    if save_fd_stdout:
-        log(f"resume redirect1 {tmpfile_stdout.fileno()=}")
-        _redirect_stdout(tmpfile_stdout.fileno())
-        _redirect_stderr(tmpfile_stderr.fileno())
+@contextmanager
+def pause_stdio_capture():
+    if redirect_depth > 0:
+        _redirect_stdout(so_root_save_fd)
+        _redirect_stderr(se_root_save_fd)
+        yield
+        _redirect_stdout(so_curr_tmpfile.fileno())
+        _redirect_stderr(se_curr_tmpfile.fileno())
+    else:
+        yield
 
 
 def strip_ansi(line):
@@ -737,150 +736,160 @@ class zest:
                     "A _begin function was declared. Maybe you meant _before?"
                 )
 
-            def _run(name, func, so, se):
-                # params_list = [tuple()]
-                # if hasattr(func, "params_list"):
-                #     params_list = getattr(func, "params_list")
-
-                zest._call_stack += [name]
-                zest._current_error = None
-
-                try:
-                    full_name = ".".join(zest._call_stack)
-                    if (
-                        zest._allow_to_run is not None
-                        and full_name not in zest._allow_to_run
-                        and zest._allow_to_run != "__all__"
-                    ):
-                        zest._call_stack.pop()
-                        return
-
-                except Exception as e:
-                    log(f"EXCEPTION during allow to check run. NAME {name} e {e}")
-                    zest._call_stack.pop()
-                    return
-
-                pre_cwd = os.getcwd()
-                remove_tmp_dir = None
-                try:
-                    if zest._common_tmp is not None:
-                        cwd = zest._common_tmp
-                    else:
-                        # Create a tmp folder per test
-                        tmp_root = zest._tmp_root or "/tmp"
-                        cwd = tempfile.mkdtemp(dir=tmp_root)
-                        remove_tmp_dir = cwd
-
-                    # Set each test into the correct tmp folder
-                    os.chdir(cwd)
-
-                    # for params in params_list:
-                    _before = callers_special_local_funcs.get("_before")
-                    if _before:
-                        try:
-                            _before()
-                        except Exception as e:
-                            zest._call_errors += [(e, zest._call_stack.copy())]
-                            s = (
-                                f"There was an exception while running '_before()' in test '{name}'. "
-                                f"This may mean that the sub-tests are not enumerated and therefore can not be run."
-                            )
-                            zest._call_warnings += [s]
-
-                    try:
-                        zest._call_tree += [full_name]
-                        zest._call_log += [full_name]
-
-                        if zest._test_start_callback:
-                            zest._test_start_callback(
-                                ZestResult(
-                                    zest._call_stack,
-                                    full_name,
-                                    zest._call_stack[-1],
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    func.__code__.co_filename,
-                                    os.getpid(),
-                                    True,
-                                )
-                            )
-
-                        error = None
-                        error_formatted = None
-                        skip_reason = None
-                        start_time = time.time()
-                        try:
-                            zest._mock_stack += [[]]
-
-                            try:
-                                func()
-                            except SkipException as e:
-                                skip_reason = e.reason
-                            zest._clear_stack_mocks()
-                            zest._mock_stack.pop()
-                        except Exception as e:
-                            error = e
-                            error_formatted = traceback.format_exception(
-                                etype=type(error), value=error, tb=error.__traceback__
-                            )
-                            zest._call_errors += [
-                                (e, error_formatted, zest._call_stack.copy())
-                            ]
-                            zest._current_error = e
-                        finally:
-                            stop_time = time.time()
-                            if zest._test_stop_callback:
-                                zest_result = ZestResult(
-                                    zest._call_stack,
-                                    ".".join(zest._call_stack),
-                                    zest._call_stack[-1],
-                                    error,
-                                    error_formatted,
-                                    stop_time - start_time,
-                                    skip_reason,
-                                    so.getvalue().decode() if so is not None else None,
-                                    se.getvalue().decode() if se is not None else None,
-                                    func.__code__.co_filename,
-                                    os.getpid(),
-                                    False,
-                                )
-                                zest._test_stop_callback(zest_result)
-
-                        _after = callers_special_local_funcs.get("_after")
-                        if _after:
-                            _after()
-                    except Exception as e:
-                        log(f"ZEST EXCEPTION 1 {e}")
-                    finally:
-                        zest._call_stack.pop()
-                finally:
-                    # Clean up tmp folders if needed
-                    if remove_tmp_dir:
-                        try:
-                            shutil.rmtree(remove_tmp_dir)
-                        except OSError as exc:
-                            if exc.errno != errno.ENOENT:  # ENOENT - no such file or directory
-                                raise  # re-raise exception
-                    os.chdir(pre_cwd)
-
             for name, func in funcs_to_call:
                 if len(zest._mock_stack) > 0:
                     for mock_tuple in zest._mock_stack[-1]:
                         if mock_tuple[4]:  # if reset_before_each is set
                             mock_tuple[3].reset()  # Tell the mock to reset
 
-                if zest._capture:
+                with stdio_capture(zest._capture) as (so, se):
+                    zest._call_stack += [name]
+                    zest._current_error = None
+
                     try:
-                        so, se = start_stdio_redirect()
-                        _run(name, func, so, se)
+                        full_name = ".".join(zest._call_stack)
+                        if (
+                            zest._allow_to_run is not None
+                            and full_name not in zest._allow_to_run
+                            and zest._allow_to_run != "__all__"
+                        ):
+                            zest._call_stack.pop()
+                            return
+
+                    except Exception as e:
+                        log(f"EXCEPTION during allow to check run. NAME {name} e {e}")
+                        zest._call_stack.pop()
+                        return
+
+                    pre_cwd = os.getcwd()
+                    remove_tmp_dir = None
+                    try:
+                        if zest._common_tmp is not None:
+                            cwd = zest._common_tmp
+                        else:
+                            # Create a tmp folder per test
+                            tmp_root = zest._tmp_root or "/tmp"
+                            cwd = tempfile.mkdtemp(dir=tmp_root)
+                            remove_tmp_dir = cwd
+
+                        # Set each test into the correct tmp folder
+                        os.chdir(cwd)
+
+                        # for params in params_list:
+                        _before = callers_special_local_funcs.get("_before")
+                        if _before:
+                            try:
+                                _before()
+                            except Exception as e:
+                                zest._call_errors += [(e, zest._call_stack.copy())]
+                                s = (
+                                    f"There was an exception while running '_before()' in test '{name}'. "
+                                    f"This may mean that the sub-tests are not enumerated and therefore can not be run."
+                                )
+                                zest._call_warnings += [s]
+
+                        try:
+                            zest._call_tree += [full_name]
+                            zest._call_log += [full_name]
+
+                            if zest._test_start_callback:
+                                with pause_stdio_capture():
+                                    zest._test_start_callback(
+                                        ZestResult(
+                                            zest._call_stack,
+                                            full_name,
+                                            zest._call_stack[-1],
+                                            None,
+                                            None,
+                                            None,
+                                            None,
+                                            None,
+                                            None,
+                                            func.__code__.co_filename,
+                                            os.getpid(),
+                                            True,
+                                        )
+                                    )
+
+                            error = None
+                            error_formatted = None
+                            skip_reason = None
+                            start_time = time.time()
+                            try:
+                                zest._mock_stack += [[]]
+
+                                try:
+                                    func()
+                                except SkipException as e:
+                                    skip_reason = e.reason
+                                zest._clear_stack_mocks()
+                                zest._mock_stack.pop()
+                            except Exception as e:
+                                error = e
+                                error_formatted = traceback.format_exception(
+                                    etype=type(error), value=error, tb=error.__traceback__
+                                )
+                                zest._call_errors += [
+                                    (e, error_formatted, zest._call_stack.copy())
+                                ]
+                                zest._current_error = e
+                            finally:
+                                stop_time = time.time()
+
+                                sys.stdout.flush()
+                                sys.stderr.flush()
+                                so.flush()
+                                se.flush()
+                                so.seek(0, io.SEEK_SET)
+                                se.seek(0, io.SEEK_SET)
+                                captured_so = None
+                                try:
+                                    captured_so = so.read()
+                                except io.UnsupportedOperation:
+                                    # This happens if so is actually sys.stdout
+                                    pass
+
+                                captured_se = None
+                                try:
+                                    captured_se = se.read()
+                                except io.UnsupportedOperation:
+                                    # This happens if se is actually sys.stderr
+                                    pass
+
+                                if zest._test_stop_callback:
+                                    zest_result = ZestResult(
+                                        zest._call_stack,
+                                        ".".join(zest._call_stack),
+                                        zest._call_stack[-1],
+                                        error,
+                                        error_formatted,
+                                        stop_time - start_time,
+                                        skip_reason,
+                                        captured_so if captured_so is not None else None,
+                                        captured_se if captured_se is not None else None,
+                                        func.__code__.co_filename,
+                                        os.getpid(),
+                                        False,
+                                    )
+                                    with pause_stdio_capture():
+                                        zest._test_stop_callback(zest_result)
+
+                            _after = callers_special_local_funcs.get("_after")
+                            if _after:
+                                _after()
+                        except Exception as e:
+                            log(f"ZEST EXCEPTION 1 {e}")
+                        finally:
+                            zest._call_stack.pop()
                     finally:
-                        end_stdio_redirect()
-                else:
-                    _run(name, func, None, None)
+                        # Clean up tmp folders if needed
+                        if remove_tmp_dir:
+                            try:
+                                shutil.rmtree(remove_tmp_dir)
+                            except OSError as exc:
+                                if exc.errno != errno.ENOENT:  # ENOENT - no such file or directory
+                                    raise  # re-raise exception
+                        os.chdir(pre_cwd)
 
         finally:
             if prev_test_start_callback is not None:
