@@ -29,8 +29,6 @@ class ZestRunnerSingleThread(ZestRunnerBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        log("single thread 1")
-
         if self.retcode != 0:
             # CHECK that zest_find did not fail
             return

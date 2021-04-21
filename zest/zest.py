@@ -754,12 +754,12 @@ class zest:
                             and zest._allow_to_run != "__all__"
                         ):
                             zest._call_stack.pop()
-                            return
+                            continue
 
                     except Exception as e:
                         log(f"EXCEPTION during allow to check run. NAME {name} e {e}")
                         zest._call_stack.pop()
-                        return
+                        continue
 
                     pre_cwd = os.getcwd()
                     remove_tmp_dir = None
@@ -840,10 +840,9 @@ class zest:
                                 sys.stderr.flush()
                                 so.flush()
                                 se.flush()
-                                so.seek(0, io.SEEK_SET)
-                                se.seek(0, io.SEEK_SET)
                                 captured_so = None
                                 try:
+                                    so.seek(0, io.SEEK_SET)
                                     captured_so = so.read()
                                 except io.UnsupportedOperation:
                                     # This happens if so is actually sys.stdout
@@ -851,6 +850,7 @@ class zest:
 
                                 captured_se = None
                                 try:
+                                    se.seek(0, io.SEEK_SET)
                                     captured_se = se.read()
                                 except io.UnsupportedOperation:
                                     # This happens if se is actually sys.stderr

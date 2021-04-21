@@ -23,22 +23,20 @@ from zest import zest_display
 
 @contextmanager
 def open_event_stream(output_folder, root_name):
+    f = None
     try:
         f = open(f"{output_folder}/{root_name}.evt", "a+b", buffering=0)
         yield f
     finally:
-        f.close()
+        if f is not None:
+            f.close()
 
 
 def emit_zest_result(zest_result, stream):
     assert isinstance(zest_result, ZestResult)
-    try:
-        msg = (zest_result.dumps() + "\n").encode()
-        stream.write(msg)
-        stream.flush()
-    except TypeError:
-        import pudb; pudb.set_trace()
-        log(f"Serialization error on {zest_result}")
+    msg = (zest_result.dumps() + "\n").encode()
+    stream.write(msg)
+    stream.flush()
 
 
 class ZestRunnerBase:

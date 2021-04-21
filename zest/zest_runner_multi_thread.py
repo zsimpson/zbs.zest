@@ -94,41 +94,37 @@ def _do_work_order(
 
     zest.reset(disable_shuffle, bypass_skip)
 
-    event_stream = open_event_stream(output_folder, root_name)
+    with open_event_stream(output_folder, root_name) as event_stream:
+        # It may be very slow to have the load_module here in the child
+        # processes as it means that each child will have to load_module
+        # and get no benefit from caching of modules. It might be better
+        # to move this in to the parent process
+        root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
 
-    # It may be very slow to have the load_module here in the child
-    # processes as it means that each child will have to load_module
-    # and get no benefit from caching of modules. It might be better
-    # to move this in to the parent process
-    root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
+        def event_callback(zest_result):
+            """
+            This callback occurs anytime a sub-zest starts or stops.
+            """
+            emit_zest_result(zest_result, event_stream)
+            _do_work_order.queue.put(zest_result)
+            nonlocal zest_result_to_return
+            zest_result_to_return = zest_result
 
-    def event_callback(zest_result):
-        """
-        This callback occurs anytime a sub-zest starts or stops.
-        """
-        emit_zest_result(zest_result, event_stream)
-        _do_work_order.queue.put(zest_result)
-        nonlocal zest_result_to_return
-        zest_result_to_return = zest_result
+        try:
+            event_callback(ZestResult(full_name=root_name, is_starting=True, call_stack=[], short_name=root_name, pid=os.getpid()))
 
-    try:
-        event_callback(ZestResult(full_name=root_name, is_starting=True, call_stack=[], short_name=root_name, pid=os.getpid()))
-
-        zest._capture = capture
-        zest.do(
-            root_zest_func,
-            test_start_callback=event_callback,
-            test_stop_callback=event_callback,
-            allow_to_run=allow_to_run,
-        )
-    except Exception as e:
-        e._formatted = traceback.format_exception(
-            etype=type(e), value=e, tb=e.__traceback__
-        )
-        _do_work_order.queue.put(e)
-
-    finally:
-        event_stream.close()
+            zest._capture = capture
+            zest.do(
+                root_zest_func,
+                test_start_callback=event_callback,
+                test_stop_callback=event_callback,
+                allow_to_run=allow_to_run,
+            )
+        except Exception as e:
+            e._formatted = traceback.format_exception(
+                etype=type(e), value=e, tb=e.__traceback__
+            )
+            _do_work_order.queue.put(e)
 
     return zest_result_to_return
 
@@ -197,7 +193,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 else:
                     log("Unknown zest_result.worker_i", zest_result.pid, self.pid_to_worker_i)
                 self.worker_status[zest_result.worker_i] = zest_result
-                if not zest_result.is_running:
+                if not zest_result.is_running and not zest_result.is_starting:
                     self.results += [zest_result]
 
                     if zest_result.skip is not None:
