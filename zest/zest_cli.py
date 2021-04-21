@@ -20,6 +20,7 @@ from . import __version__
 
 
 def main():
+    # log("CLI MAIN")
     parser = argparse.ArgumentParser()
 
     # fmt: off

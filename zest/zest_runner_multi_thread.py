@@ -175,6 +175,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         try:
             while True:
                 zest_result = self.queue.get_nowait()
+
                 if isinstance(zest_result, Exception):
                     raise zest_result
                 assert isinstance(zest_result, ZestResult)

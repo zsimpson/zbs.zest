@@ -396,8 +396,6 @@ def zest_captures():
     zest()
 
 
-
-
 """
 def zest_parameter_list():
     saw = {1: False, 2: False}

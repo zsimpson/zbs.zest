@@ -324,13 +324,13 @@ class JSONDataClassEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, BaseException):
             return f"{o.__class__.__name__}(\"{str(o)}\")"
-        if isinstance(o, ZestResult):
-            if o.error is not None:
-                try:
-                    dataclasses.asdict(o)
-                except Exception as e:
-                    # If it can not be encoded convert to str
-                    o.error = Exception(f"{o.error.__class__.__name__}: \"{str(o.error)}\"")
+        # if isinstance(o, ZestResult):
+        #     if o.error is not None:
+        #         try:
+        #             dataclasses.asdict(o)
+        #         except Exception as e:
+        #             # If it can not be encoded convert to str
+        #             o.error = Exception(f"{o.error.__class__.__name__}: \"{str(o.error)}\"")
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
@@ -341,7 +341,7 @@ class ZestResult:
     call_stack: list
     full_name: str
     short_name: str
-    error: Exception = None
+    error: str = None
     error_formatted: str = None
     elapsed: float = None
     skip: str = None
@@ -829,9 +829,10 @@ class zest:
                                 error_formatted = traceback.format_exception(
                                     etype=type(error), value=error, tb=error.__traceback__
                                 )
-                                zest._call_errors += [
-                                    (e, error_formatted, zest._call_stack.copy())
-                                ]
+                                zest._call_errors += [1]
+                                # zest._call_errors += [
+                                #     (e, error_formatted, zest._call_stack.copy())
+                                # ]
                                 zest._current_error = e
                             finally:
                                 stop_time = time.time()
@@ -857,6 +858,9 @@ class zest:
                                     pass
 
                                 if zest._test_stop_callback:
+                                    if error is not None:
+                                        error = f"{error.__class__.__name__}: \"{str(error)}\""
+
                                     zest_result = ZestResult(
                                         zest._call_stack,
                                         ".".join(zest._call_stack),
