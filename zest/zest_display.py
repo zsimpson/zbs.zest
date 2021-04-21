@@ -2,8 +2,9 @@ from zest import colors
 import sys
 import os
 import re
+import io
 import traceback
-from zest.zest import log
+from zest.zest import log, pause_stdio_redirect, resume_stdio_redirect
 
 
 s_stream = sys.stdout
@@ -14,12 +15,22 @@ def set_s_stream(stream):
 
 
 def s(*strs):
-    log("IN s", *strs)
     for str_ in strs:
         if str_ is not None:
             s_stream.write(str_)
     s_stream.write(colors.reset)
     s_stream.flush()
+
+
+def dump_s():
+    if s_stream != sys.stdout:
+        s_stream.seek(0, io.SEEK_SET)
+        from_s_stream = s_stream.read()
+        os.write(sys.stdout.fileno(), from_s_stream.encode())
+        sys.stdout.write(from_s_stream)
+        sys.stdout.flush()
+        s_stream.seek(0, io.SEEK_SET)
+        s_stream.truncate()
 
 
 _tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")

@@ -34,78 +34,130 @@ def log(*args):
     if log_last_time is not None:
         delta = time.time() - log_last_time
     log_last_time = time.time()
-    log_fp.write(f"{delta:3.1f} " + "".join([str(i) + " " for i in args]) + "\n")
+    #log_fp.write(f"{delta:3.1f} " + "".join([str(i) + " " for i in args]) + "\n")
+    log_fp.write("".join([str(i) + " " for i in args]) + "\n")
     log_fp.flush()
 
 
 ansi_escape = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
 
 
-# based on https://eli.thegreenplace.net/2015/redirecting-all-kinds-of-stdout-in-python/
+'''
+Capturing is complicated
+
+To capture I want to redirect the low-level OS files so that I will
+capture even subprocess or C output (not just python).
+But when I do that I won't be able to see the output from zest
+so I have to be able to pause/resume that capture for a brief
+moment so that I can emit progress.
+'''
 
 libc = ctypes.CDLL(None)
-c_stdout = ctypes.c_void_p.in_dll(libc, 'stdout')
-c_stderr = ctypes.c_void_p.in_dll(libc, 'stderr')
+c_stdout = None
+c_stderr = None
+capture_stdout = None
+capture_stderr = None
+orig_fd_stdout = None
+orig_fd_stderr = None
+save_fd_stdout = None
+save_fd_stderr = None
+tmpfile_stdout = None
+tmpfile_stderr = None
 
 
-@contextmanager
-def stdio_redirector():
-    so = io.BytesIO()
-    se = io.BytesIO()
+def _redirect_stdout(to_fd):
+    """Redirect stdout to the given file descriptor."""
+    log(f"  _redirect_stdout {to_fd=} {orig_fd_stdout=} {sys.stdout.fileno()=}")
+    libc.fflush(c_stdout)
+    sys.stdout.close()
+    os.dup2(to_fd, orig_fd_stdout)
+    sys.stdout = io.TextIOWrapper(os.fdopen(orig_fd_stdout, 'wb'))
 
-    original_stdout_fd = sys.stdout.fileno()
-    original_stderr_fd = sys.stderr.fileno()
 
-    def _redirect_stdout(to_fd):
-        """Redirect stdout to the given file descriptor."""
-        # Flush the C-level buffer stdout
-        libc.fflush(c_stdout)
-        # Flush and close sys.stdout - also closes the file descriptor (fd)
-        sys.stdout.close()
-        # Make original_stdout_fd point to the same file as to_fd
-        os.dup2(to_fd, original_stdout_fd)
-        # Create a new sys.stdout that points to the redirected fd
-        sys.stdout = io.TextIOWrapper(os.fdopen(original_stdout_fd, 'wb'))
+def _redirect_stderr(to_fd):
+    """Redirect stderr to the given file descriptor."""
+    libc.fflush(c_stderr)
+    sys.stderr.close()
+    os.dup2(to_fd, orig_fd_stderr)
+    sys.stderr = io.TextIOWrapper(os.fdopen(orig_fd_stderr, 'wb'))
 
-    def _redirect_stderr(to_fd):
-        """Redirect stderr to the given file descriptor."""
-        # Flush the C-level buffer stderr
-        libc.fflush(c_stderr)
-        # Flush and close sys.stderr - also closes the file descriptor (fd)
-        sys.stderr.close()
-        # Make original_stderr_fd point to the same file as to_fd
-        os.dup2(to_fd, original_stderr_fd)
-        # Create a new sys.stderr that points to the redirected fd
-        sys.stderr = io.TextIOWrapper(os.fdopen(original_stderr_fd, 'wb'))
 
-    saved_stdout_fd = os.dup(original_stdout_fd)
-    saved_stderr_fd = os.dup(original_stderr_fd)
-    stdout_tfile = None
-    stderr_tfile = None
+def start_stdio_redirect():
+    global c_stdout, c_stderr
     try:
-        # Create a temporary file and redirect stdout to it
-        stdout_tfile = tempfile.TemporaryFile(mode='w+b')
-        _redirect_stdout(stdout_tfile.fileno())
-        stderr_tfile = tempfile.TemporaryFile(mode='w+b')
-        _redirect_stderr(stderr_tfile.fileno())
-        # Yield to caller, then redirect stdout back to the saved fd
-        yield so, se
-        _redirect_stdout(saved_stdout_fd)
-        _redirect_stderr(saved_stderr_fd)
-        # Copy contents of temporary file to the given streams
-        stdout_tfile.flush()
-        stdout_tfile.seek(0, io.SEEK_SET)
-        so.write(stdout_tfile.read())
-        stderr_tfile.flush()
-        stderr_tfile.seek(0, io.SEEK_SET)
-        se.write(stderr_tfile.read())
-    finally:
-        if stdout_tfile:
-            stdout_tfile.close()
-        if stderr_tfile:
-            stderr_tfile.close()
-        os.close(saved_stdout_fd)
-        os.close(saved_stderr_fd)
+        # Linux
+        c_stdout = ctypes.c_void_p.in_dll(libc, 'stdout')
+    except ValueError:
+        # OSX
+        c_stdout = ctypes.c_void_p.in_dll(libc, '__stdoutp')
+
+    try:
+        # Linux
+        c_stderr = ctypes.c_void_p.in_dll(libc, 'stderr')
+    except ValueError:
+        # OSX
+        c_stderr = ctypes.c_void_p.in_dll(libc, '__stderrp')
+
+    global capture_stdout, capture_stderr
+    capture_stdout = io.BytesIO()
+    capture_stderr = io.BytesIO()
+
+    global orig_fd_stdout, orig_fd_stderr
+    orig_fd_stdout = sys.stdout.fileno()
+    orig_fd_stderr = sys.stderr.fileno()
+
+    global save_fd_stdout, save_fd_stderr
+    save_fd_stdout = os.dup(orig_fd_stdout)
+    log(f"start redirect {orig_fd_stdout=} {save_fd_stdout=}")
+    save_fd_stderr = os.dup(orig_fd_stderr)
+
+    global tmpfile_stdout, tmpfile_stderr
+    tmpfile_stdout = tempfile.TemporaryFile(mode='w+b')
+    _redirect_stdout(tmpfile_stdout.fileno())
+    tmpfile_stderr = tempfile.TemporaryFile(mode='w+b')
+    _redirect_stderr(tmpfile_stderr.fileno())
+
+    return capture_stdout, capture_stderr
+
+
+def end_stdio_redirect():
+    global save_fd_stdout, save_fd_stderr
+
+    _redirect_stdout(save_fd_stdout)
+    _redirect_stderr(save_fd_stderr)
+
+    # COPY contents of temporary file to the streams created at start
+    if tmpfile_stdout:
+        tmpfile_stdout.flush()
+        tmpfile_stdout.seek(0, io.SEEK_SET)
+        capture_stdout.write(tmpfile_stdout.read())
+        tmpfile_stdout.close()
+
+    if tmpfile_stderr:
+        tmpfile_stderr.flush()
+        tmpfile_stderr.seek(0, io.SEEK_SET)
+        capture_stderr.write(tmpfile_stderr.read())
+        tmpfile_stderr.close()
+
+    log(f"end redirect1 {save_fd_stdout=}")
+    os.close(save_fd_stdout)
+    os.close(save_fd_stderr)
+    save_fd_stdout = None
+    save_fd_stderr = None
+
+
+def pause_stdio_redirect():
+    if save_fd_stdout:
+        log(f"pause redirect1 {save_fd_stdout=}")
+        _redirect_stdout(save_fd_stdout)
+        _redirect_stderr(save_fd_stderr)
+
+
+def resume_stdio_redirect():
+    if save_fd_stdout:
+        log(f"resume redirect1 {tmpfile_stdout.fileno()=}")
+        _redirect_stdout(tmpfile_stdout.fileno())
+        _redirect_stderr(tmpfile_stderr.fileno())
 
 
 def strip_ansi(line):
@@ -822,8 +874,11 @@ class zest:
                             mock_tuple[3].reset()  # Tell the mock to reset
 
                 if zest._capture:
-                    with stdio_redirector() as (so, se):
+                    try:
+                        so, se = start_stdio_redirect()
                         _run(name, func, so, se)
+                    finally:
+                        end_stdio_redirect()
                 else:
                     _run(name, func, None, None)
 

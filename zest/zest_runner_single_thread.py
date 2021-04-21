@@ -2,14 +2,13 @@
 Single-threaded runner with abbreviated and verbose display options
 """
 import time
-import threading
 import sys
 import os
 import re
 import tempfile
 import io
 from zest import zest
-from zest.zest import log
+from zest.zest import log, pause_stdio_redirect, resume_stdio_redirect
 from zest import zest_finder
 from zest.zest_runner_base import ZestRunnerBase, emit_zest_result, open_event_stream
 from zest import zest_display
@@ -24,22 +23,15 @@ from zest.zest_display import (
     display_stop,
     display_error,
     display_abbreviated,
+    dump_s,
 )
-
-
-def watch_s_stream(filename):
-    print(filename)
-    with open(filename) as f:
-        for line in f:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-    log("DONE?!")
 
 
 class ZestRunnerSingleThread(ZestRunnerBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
+        log("single thread 1")
         self.s_stream = None
         if kwargs.get("capture"):
             self.s_stream = tempfile.NamedTemporaryFile(mode="w+")
@@ -64,6 +56,10 @@ class ZestRunnerSingleThread(ZestRunnerBase):
                 )
                 last_depth = curr_depth
 
+            pause_stdio_redirect()
+            dump_s()
+            resume_stdio_redirect()
+
         def event_test_stop(zest_result):
             nonlocal last_depth, curr_depth
             emit_zest_result(zest_result, event_stream)
@@ -80,11 +76,9 @@ class ZestRunnerSingleThread(ZestRunnerBase):
             elif self.verbose == 1:
                 display_abbreviated(zest_result.error, zest_result.skip)
 
-
-        # Start a thread to watch the logs
-        if self.s_stream is not None:
-            watch_s_thread = threading.Thread(target=watch_s_stream, args=(self.s_stream.name,))
-            watch_s_thread.start()
+            pause_stdio_redirect()
+            dump_s()
+            resume_stdio_redirect()
 
         # LAUNCH root zests
         for (root_name, (module_name, package, full_path)) in self.root_zests.items():
@@ -110,9 +104,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
         self.retcode = 0 if len(zest._call_errors) == 0 else 1
 
         if self.s_stream is not None:
-            self.s_stream.join()
-
-            # self.s_stream.flush()
-            # self.s_stream.seek(0, io.SEEK_SET)
-            # captured = self.s_stream.read()
-            # print(captured)
+            self.s_stream.flush()
+            self.s_stream.seek(0, io.SEEK_SET)
+            captured = self.s_stream.read()
+            print(captured)
