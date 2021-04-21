@@ -40,6 +40,8 @@ class FoundZest:
     skip: str = None
 
 
+debug_hack = False
+
 def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
     """
     TODO
@@ -132,10 +134,15 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
 
     for i, part in enumerate(body):
         if isinstance(part, ast.With):
-            # _children_list_of_zests = _recurse_ast(
-            #     part.body, parent_name, path, part.lineno,
-            # )
-            return _recurse_ast(path, part.lineno, part.body, func_name, parent_name)
+            # At one point I had a bug here where I did this:
+            #   return _recurse_ast(path, part.lineno, part.body, func_name, parent_name)
+            # I'm not sure why I thought I needed to return on that but that
+            # is most definitely wrong as a with statement like:
+            #   with warnings.catch_warnings():
+            #       warnings.simplefilter("ignore")
+            #       from jose import jwt
+            # would early out and fail to pick up later records
+            _recurse_ast(path, part.lineno, part.body, func_name, parent_name)
 
         if isinstance(part, ast.FunctionDef):
             this_zest_groups = []
@@ -312,6 +319,14 @@ def find_zests(
                     continue
 
             path = os.path.join(curr, module_name + ".py")
+
+            # HACK!
+            global debug_hack
+            if path == "/erisyon/internal/internal/edgeauth/zests/zest_authz.py":
+                debug_hack = True
+            else:
+                debug_hack = False
+
             with open(path) as file:
                 source = file.read()
 
