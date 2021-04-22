@@ -40,8 +40,6 @@ class FoundZest:
     skip: str = None
 
 
-debug_hack = False
-
 def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
     """
     TODO
@@ -131,10 +129,6 @@ def _recurse_ast(path, lineno, body, func_name=None, parent_name=None):
     # The zests found in this context
     found_zests = []
     errors = []
-
-    # if func_name == "zest_runs_inside_context":
-    #     import pudb; pudb.set_trace()
-    #     pass
 
     for i, part in enumerate(body):
         if isinstance(part, ast.With):
@@ -310,6 +304,8 @@ def find_zests(
     root_zest_funcs = {}
     errors_to_show = []
 
+    match_string_parts = match_string.split(".") if match_string is not None else []
+
     for curr in _walk_include_dirs(root, include_dirs):
         for _, module_name, _ in pkgutil.iter_modules(path=[curr]):
             if allow_files is not None:
@@ -319,12 +315,12 @@ def find_zests(
             path = os.path.join(curr, module_name + ".py")
 
             # HACK!
-            global debug_hack
-            if path == "/erisyon/internal/internal/edgeauth/zests/zest_authz.py":
-                debug_hack = True
-            else:
-                debug_hack = False
-
+            # global debug_hack
+            # if path == "/erisyon/plaster/plaster/run/sigproc_v2/zests/zest_sigproc_v2_worker.py":
+            #     import pudb; pudb.set_trace()
+            #     debug_hack = True
+            # else:
+            #     debug_hack = False
             with open(path) as file:
                 source = file.read()
 
@@ -336,13 +332,23 @@ def find_zests(
 
             for found_zest in found_zests:
                 full_name = found_zest.name
-                parts = full_name.split(".")
+                full_name_parts = full_name.split(".")
                 package = ".".join(curr.split(os.sep)[n_root_parts:])
 
                 if "__all__" in allow_to_run or full_name in allow_to_run:
-                    # So that you can terminate a match_string like "it_foobars."
-                    # we add an extra "." to the end pf full_name in this comparison
-                    if match_string is None or match_string in full_name:
+                    # If running all or the full_name matches or if the
+                    # match_string contains an ancestor match
+                    # Eg: match_string == "foo.bar" we have to match on
+                    # foo and foo.bar
+
+                    any_parent = all([
+                        match_string_parts[i] == full_name_parts[i]
+                        for i in range( min( len(match_string_parts), len(full_name_parts) ) )
+                    ])
+
+                    if match_string is None or match_string in full_name or any_parent:
+                        # So that you can terminate a match_string like "it_foobars."
+                        # we add an extra "." to the end pf full_name in this comparison
                         if exclude_string is not None and exclude_string in full_name + ".":
                             continue
 
@@ -374,11 +380,11 @@ def find_zests(
                             errors_to_show += [error]
 
                         # Include this and all ancestors in the list
-                        for i in range(len(parts)):
-                            name = ".".join(parts[0 : i + 1])
+                        for i in range(len(full_name_parts)):
+                            name = ".".join(full_name_parts[0 : i + 1])
                             return_allow_to_run.update({name})
 
-                        root_zest_funcs[parts[0]] = (module_name, package, path)
+                        root_zest_funcs[full_name_parts[0]] = (module_name, package, path)
 
     return root_zest_funcs, return_allow_to_run, errors_to_show
 

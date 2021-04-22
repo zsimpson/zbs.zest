@@ -148,6 +148,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # log("START")
     allow_reentrancy = True
     if allow_reentrancy:
         main()

@@ -122,6 +122,14 @@ def zest_runner_single_thread():
         assert "zest_basics.py:" in output
         assert ret_code != 0
 
+    def it_warns_if_no_trailing_zest_on_submatch():
+        ret_code, output = _call_zest_cli(
+            "--verbose=2", "--bypass_skip=zest_bad_zest_1", "zest_bad_zest_1.outer_foobar.inner_foobar"
+        )
+        assert "did not terminate with a call to zest" in output
+        assert "zest_basics.py:" in output
+        assert ret_code != 0
+
     def it_warns_if_zest_not_final():
         ret_code, output = _call_zest_cli(
             "--verbose=2", "--bypass_skip=zest_bad_zest_2", "zest_bad_zest_2"
