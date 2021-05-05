@@ -40,7 +40,11 @@ def traceback_match_filename(root, line):
     return None
 
 
-def error_header(edge, edge_style, label):
+def error_header(edge, edge_style, label, width=None):
+    term_width = tty_size()[1]
+    if width is None:
+        width = term_width
+    width = min(width, term_width)
     return (
         edge_style
         + (edge * 5)
@@ -49,7 +53,7 @@ def error_header(edge, edge_style, label):
         + " "
         + colors.reset
         + edge_style
-        + (edge * (tty_size()[1] - 7 - len(label)))
+        + (edge * (width - 10 - len(label)))
     )
 
 
@@ -99,12 +103,12 @@ def display_error(root, zest_result):
     leaf_test_name = stack[-1]
     formatted_test_name = " . ".join(stack[0:-1]) + colors.bold + " . " + leaf_test_name
 
-    s("\n", error_header("=", colors.red, formatted_test_name), "\n")
+    s("\n\n", error_header("=", colors.cyan, formatted_test_name), "\n")
 
     if zest_result.error is not None:
-        s("\n", error_header("-", colors.yellow, "STDOUT"))
+        s("\n", error_header("-", colors.yellow, "stdout", 40), "\n")
         s(zest_result.stdout)
-        s("\n", error_header("-", colors.yellow, "STDERR"))
+        s("\n", error_header("-", colors.yellow, "stderr", 40), "\n")
         s(zest_result.stderr)
 
     lines = []
