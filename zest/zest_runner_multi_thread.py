@@ -1,3 +1,4 @@
+import logging
 import time
 import json
 import os
@@ -112,7 +113,6 @@ def _do_work_order(
 
         try:
             event_callback(ZestResult(full_name=root_name, is_starting=True, call_stack=[], short_name=root_name, pid=os.getpid()))
-
             zest._capture = capture
             zest.do(
                 root_zest_func,

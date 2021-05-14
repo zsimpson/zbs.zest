@@ -3,6 +3,7 @@ A function-oriented testing framework for Python 3.
 
 See README.md
 """
+import logging
 import os
 import sys
 import time
@@ -86,8 +87,31 @@ def _redirect_stderr(to_fd):
     sys.stderr = io.TextIOWrapper(os.fdopen(se_orig_fd, "wb"))
 
 
+def human_readable_type_and_value(arg):
+    """
+    Examine the type of arg and emit it in friendly ways.
+    """
+    type_str = str(type(arg).__name__)
+    val_str = str(arg)
+    return type_str, val_str
+
+
+class LogTrapFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        if hasattr(record, "spy_variable_name"):
+            # This record contains spy variable fields which are
+            # colorized differently. See def spy() to see how these fields
+            # go into this record.
+            type_str, val_str = human_readable_type_and_value(record.msg)
+            return f"{record.name}] {record.spy_variable_name}:{type_str} = {val_str}\n"
+        else:
+            return f"{record.name}] {record.msg}\n"
+
+log_trap_formatter = LogTrapFormatter()
+
+
 @contextmanager
-def stdio_capture(should_capture):
+def stdio_and_log_capture(should_capture):
     """
     Capture stdout in a re-entrant manner. See pause_stdio_capture().
 
@@ -109,7 +133,7 @@ def stdio_capture(should_capture):
     """
 
     if not should_capture:
-        yield sys.stdout, sys.stderr
+        yield sys.stdout, sys.stderr, None
     else:
         global redirect_depth
         global so_root_save_fd, so_curr_tmpfile
@@ -121,8 +145,9 @@ def stdio_capture(should_capture):
             so_root_save_fd = so_save_fd
             se_root_save_fd = se_save_fd
 
-        so_tmpfile = NamedTemporaryFile(mode="w+")
-        se_tmpfile = NamedTemporaryFile(mode="w+")
+        so_tmpfile = NamedTemporaryFile(mode="w+", delete=False)
+        se_tmpfile = NamedTemporaryFile(mode="w+", delete=False)
+        lg_tmpfile = NamedTemporaryFile(mode="w+", delete=False)
 
         so_prev_tmpfile = so_curr_tmpfile
         se_prev_tmpfile = se_curr_tmpfile
@@ -130,21 +155,31 @@ def stdio_capture(should_capture):
         so_curr_tmpfile = so_tmpfile
         se_curr_tmpfile = se_tmpfile
 
+        root_logger = logging.getLogger("")
+
+        orig_root_logger_handlers = root_logger.handlers
+        trap_handler = logging.StreamHandler(lg_tmpfile)
+        trap_handler.setLevel(0)
+        trap_handler.setFormatter(log_trap_formatter)
+        root_logger.handlers = [trap_handler]
+
         redirect_depth += 1
         try:
             _redirect_stdout(so_tmpfile.fileno())
             _redirect_stderr(se_tmpfile.fileno())
-            yield (so_tmpfile, se_tmpfile)
+            yield (so_tmpfile, se_tmpfile, lg_tmpfile)
             _redirect_stderr(se_save_fd)
             _redirect_stdout(so_save_fd)
         finally:
             redirect_depth -= 1
             so_tmpfile.close()
             se_tmpfile.close()
+            lg_tmpfile.close()
             so_curr_tmpfile = so_prev_tmpfile
             se_curr_tmpfile = se_prev_tmpfile
             os.close(so_save_fd)
             os.close(se_save_fd)
+            root_logger.handlers = orig_root_logger_handlers
 
 
 @contextmanager
@@ -347,6 +382,7 @@ class ZestResult:
     skip: str = None
     stdout: str = None
     stderr: str = None
+    logs: str = None
     source: str = None
     pid: int = None
     is_running: bool = False
@@ -671,7 +707,6 @@ class zest:
         Eg: ["zest_test1.it_does_y"] means that it_does_y1 will run too.
 
         """
-
         prev_test_start_callback = None
         prev_test_stop_callback = None
         prev_allow_to_run = None
@@ -742,7 +777,7 @@ class zest:
                         if mock_tuple[4]:  # if reset_before_each is set
                             mock_tuple[3].reset()  # Tell the mock to reset
 
-                with stdio_capture(zest._capture) as (so, se):
+                with stdio_and_log_capture(zest._capture) as (so, se, lg):
                     zest._call_stack += [name]
                     zest._current_error = None
 
@@ -794,6 +829,7 @@ class zest:
 
                             if zest._test_start_callback:
                                 with pause_stdio_capture():
+
                                     zest._test_start_callback(
                                         ZestResult(
                                             zest._call_stack,
@@ -837,16 +873,24 @@ class zest:
                             finally:
                                 stop_time = time.time()
 
-                                sys.stdout.flush()
-                                sys.stderr.flush()
-                                so.flush()
-                                se.flush()
+                                try:
+                                    sys.stdout.flush()
+                                    sys.stderr.flush()
+                                    so.flush()
+                                    se.flush()
+                                    if lg is not None:
+                                        lg.flush()
+                                except OSError:
+                                    pass
+
                                 captured_so = None
                                 try:
                                     so.seek(0, io.SEEK_SET)
                                     captured_so = so.read()
                                 except io.UnsupportedOperation:
                                     # This happens if so is actually sys.stdout
+                                    pass
+                                except OSError:
                                     pass
 
                                 captured_se = None
@@ -856,6 +900,17 @@ class zest:
                                 except io.UnsupportedOperation:
                                     # This happens if se is actually sys.stderr
                                     pass
+
+                                captured_lg = None
+                                if lg is not None:
+                                    try:
+                                        lg.seek(0, io.SEEK_SET)
+                                        captured_lg = lg.read()
+                                    except io.UnsupportedOperation:
+                                        # This happens if so is actually sys.stdout
+                                        pass
+                                    except OSError:
+                                        pass
 
                                 if zest._test_stop_callback:
                                     if error is not None:
@@ -871,6 +926,7 @@ class zest:
                                         skip_reason,
                                         captured_so if captured_so is not None else None,
                                         captured_se if captured_se is not None else None,
+                                        captured_lg if captured_lg is not None else None,
                                         func.__code__.co_filename,
                                         os.getpid(),
                                         False,

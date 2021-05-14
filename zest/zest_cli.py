@@ -114,9 +114,9 @@ def main():
         help="If specified, use this folder as the root for all per-tests",
     )
 
-    parser.add_argument("--logger_config_json", nargs="?", type=str, default=None,
-        help="If specified, load logger config from specified json file",
-    )
+    # parser.add_argument("--logger_config_json", nargs="?", type=str, default=None,
+    #     help="If specified, load logger config from specified json file",
+    # )
 
     # fmt: on
 
@@ -126,11 +126,24 @@ def main():
         print(__version__)
         sys.exit(0)
 
-    log_json = kwargs.get("logger_config_json")
-    if log_json is not None:
-        with open(log_json) as f:
-            contents = json.loads(f.read())
-            logging.config.dictConfig(contents)
+    # I had the idea that you got to configure the loggers in zest
+    # but as I dealt with all the problems of capturing
+    # this became less feasible. For example, if a logger
+    # is attached to stdout and I try to capture stdout
+    # then the logger will spew out a message about logging
+    # to a closed handle.
+    # I think the correct solution is that the caller of
+    # zest does not get to configure logging but rather
+    # zest runner creates a single root logger that
+    # traps everything and can be viewed like any other
+    # asset of the testing runs.
+
+    # log_json = kwargs.get("logger_config_json")
+    # if log_json is not None:
+    #     with open(log_json) as f:
+    #         contents = json.loads(f.read())
+    #         logging.config.dictConfig(contents)
+    #         # log("LOGGING", json.dumps(contents, indent=4))
 
     if kwargs.pop("ui", False) or kwargs.get("go", False):
         retcode = zest_console_ui.run(**kwargs)

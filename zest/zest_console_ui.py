@@ -11,6 +11,7 @@ import re
 import curses
 import json
 import traceback
+import logging
 from pathlib import Path
 from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
@@ -505,6 +506,12 @@ def draw_result_details(y, root, zest_result):
             y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.stderr))
             y += 1
 
+        if zest_result.logs is not None and zest_result.logs != "":
+            y += 1
+            y, _ = _print(y, 0, PAL_NONE, "Logs:")
+            y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.logs))
+            y += 1
+
     return y
 
 
@@ -663,6 +670,7 @@ def _run(
             kwargs.pop("capture", None)
             kwargs.pop("match_string", None)
             kwargs.pop("allow_to_run", None)
+
             runner = ZestRunnerMultiThread(
                 output_folder=zest_results_path,
                 callback=callback,
