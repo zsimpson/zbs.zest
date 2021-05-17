@@ -11,6 +11,7 @@ import json
 import logging
 import logging.config
 from pathlib import Path
+from zest import zest_finder
 from zest.zest_runner_single_thread import ZestRunnerSingleThread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread
 from zest.zest_display import display_find_errors, display_complete
@@ -114,9 +115,9 @@ def main():
         help="If specified, use this folder as the root for all per-tests",
     )
 
-    # parser.add_argument("--logger_config_json", nargs="?", type=str, default=None,
-    #     help="If specified, load logger config from specified json file",
-    # )
+    parser.add_argument("--hook_start", nargs="?", type=str, default=None,
+        help="If specified, the module.function() will be called before run. Good for log setup. In form full_path/to.py:func()",
+    )
 
     # fmt: on
 
@@ -126,24 +127,13 @@ def main():
         print(__version__)
         sys.exit(0)
 
-    # I had the idea that you got to configure the loggers in zest
-    # but as I dealt with all the problems of capturing
-    # this became less feasible. For example, if a logger
-    # is attached to stdout and I try to capture stdout
-    # then the logger will spew out a message about logging
-    # to a closed handle.
-    # I think the correct solution is that the caller of
-    # zest does not get to configure logging but rather
-    # zest runner creates a single root logger that
-    # traps everything and can be viewed like any other
-    # asset of the testing runs.
 
-    # log_json = kwargs.get("logger_config_json")
-    # if log_json is not None:
-    #     with open(log_json) as f:
-    #         contents = json.loads(f.read())
-    #         logging.config.dictConfig(contents)
-    #         # log("LOGGING", json.dumps(contents, indent=4))
+    # zest needs a way to ask the application to setup logging
+    hook = kwargs.get("hook_start")
+    if hook is not None:
+        hook_file, func_name = hook.split(":")
+        hook_start_func = zest_finder.load_module(func_name, "", hook_file)
+        hook_start_func()
 
     if kwargs.pop("ui", False) or kwargs.get("go", False):
         retcode = zest_console_ui.run(**kwargs)
@@ -161,7 +151,6 @@ def main():
 
 
 if __name__ == "__main__":
-    # log("START")
     allow_reentrancy = True
     if allow_reentrancy:
         main()

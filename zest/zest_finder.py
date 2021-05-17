@@ -8,8 +8,8 @@ import pkgutil
 import sys
 from typing import List
 from dataclasses import dataclass
-from importlib import import_module, util
-from zest.zest import log
+from importlib import util
+from zest.zest import log, check_allow_to_run
 
 
 def _walk_include_dirs(root, include_dirs):
@@ -256,6 +256,7 @@ def find_zests(
         allow_to_run:
             If not None: a list of full test names (dot-delimited) that will be included.
             Plus two specials: "__all__" and "__failed__"
+            If the name ends in "." then all children run too
         allow_files:
             If not None: a list of filenames (without directory) that will be included.
         match_string:
@@ -283,9 +284,6 @@ def find_zests(
             "zest_test1.it_does_y.it_does_y1",
         )
     """
-
-    if allow_to_run is None:
-        allow_to_run = []
 
     if root is None:
         return {}, {}, []
@@ -335,7 +333,8 @@ def find_zests(
                 full_name_parts = full_name.split(".")
                 package = ".".join(curr.split(os.sep)[n_root_parts:])
 
-                if "__all__" in allow_to_run or full_name in allow_to_run:
+                allow = check_allow_to_run(allow_to_run, full_name_parts)
+                if allow:
                     # If running all or the full_name matches or if the
                     # match_string contains an ancestor match
                     # Eg: match_string == "foo.bar" we have to match on

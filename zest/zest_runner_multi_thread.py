@@ -191,8 +191,8 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 worker_i = self.pid_to_worker_i.get(zest_result.pid)
                 if worker_i is not None:
                     zest_result.worker_i = self.pid_to_worker_i[zest_result.pid]
-                else:
-                    log("Unknown zest_result.worker_i", zest_result.pid, self.pid_to_worker_i)
+                # else:
+                #     log("Unknown zest_result.worker_i", zest_result.pid, self.pid_to_worker_i)
                 self.worker_status[zest_result.worker_i] = zest_result
                 if not zest_result.is_running and not zest_result.is_starting:
                     self.results += [zest_result]

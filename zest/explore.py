@@ -145,8 +145,6 @@ depth = 0
 def start_test():
     global depth
 
-    log(f"start_test {depth=}")
-
     with stdio_capture(True) as (so, se):
 
         with pause_stdio_capture():
@@ -185,8 +183,5 @@ def start_test():
             print(f"Capture stdout was '{captured_so}'")
             print(f"Capture stderr was '{captured_se}'")
 
-    log(f"end_test {depth=}")
-
 if __name__ == "__main__":
-    log("BEGIN")
     start_test()

@@ -31,7 +31,7 @@ log_last_time = None
 def log(*args):
     global log_fp, log_last_time
     if log_fp is None:
-        log_fp = open("log.txt", "a")
+        log_fp = open("zest_log.txt", "a")
     delta = 0
     if log_last_time is not None:
         delta = time.time() - log_last_time
@@ -395,6 +395,31 @@ class ZestResult:
     @classmethod
     def loads(cls, s):
         return ZestResult(**json.loads(s))
+
+
+def check_allow_to_run(allow_list, test_name_parts):
+    full_name = ".".join(test_name_parts)
+    if allow_list is None:
+        allow = True
+    else:
+        allow = False
+        for allow_name in allow_list:
+            if allow_name == "__all__":
+                allow = True
+                break
+            elif allow_name.endswith("."):
+                allow_parts = allow_name.split(".")[0:-1]
+                n_allow_parts = len(allow_parts)
+                allow = all([
+                    test_name_parts[i] == allow_parts[i]
+                    for i in range(n_allow_parts)
+                ])
+                if allow:
+                    break
+            elif full_name == allow_name:
+                allow = True
+                break
+    return allow
 
 
 class zest:
@@ -783,11 +808,13 @@ class zest:
 
                     try:
                         full_name = ".".join(zest._call_stack)
-                        if (
-                            zest._allow_to_run is not None
-                            and full_name not in zest._allow_to_run
-                            and zest._allow_to_run != "__all__"
-                        ):
+                        allow = check_allow_to_run(zest._allow_to_run, zest._call_stack)
+                        if not allow:
+                            # if (
+                            #     zest._allow_to_run is not None
+                            #     and full_name not in zest._allow_to_run
+                            #     and zest._allow_to_run != "__all__"
+                            # ):
                             zest._call_stack.pop()
                             continue
 
