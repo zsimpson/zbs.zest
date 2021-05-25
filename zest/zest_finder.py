@@ -322,7 +322,12 @@ def find_zests(
             with open(path) as file:
                 source = file.read()
 
-            module_ast = ast.parse(source)
+            try:
+                module_ast = ast.parse(source)
+            except SyntaxError as e:
+                # parent_name, path, lineno, error_message
+                errors_to_show += [("", curr + "/" + module_name, e.lineno, f"Syntax error in {module_name}")]
+                break
 
             found_zests, errors = _recurse_ast(path, 0, module_ast.body)
             assert len(errors) == 0
