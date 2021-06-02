@@ -309,7 +309,7 @@ def colorful_exception(
                     "File ",
                     colors.yellow,
                     leading,
-                    "/",
+                    "/ ",
                     colors.yellow,
                     colors.bold,
                     basename,
