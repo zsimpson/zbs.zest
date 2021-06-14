@@ -263,7 +263,7 @@ def find_zests(
             If not None then any zest full name that *contains* this string will be included.
             Note that match_string only narrows the scope from allow_to_run
         exclude_string:
-            If not None then any zest full name that *contains* this string will be excluded.
+            If not None then any zest full name that *contains* these strings will be excluded.
         only_groups:
             Run only this (colon delimited set of groups)
         exclude_groups:
@@ -295,6 +295,10 @@ def find_zests(
 
     if exclude_groups is not None:
         exclude_groups = set(exclude_groups)
+
+    exclude_strings = {}
+    if exclude_string is not None:
+        exclude_strings = set([i[0] for i in exclude_string])
 
     return_allow_to_run = set()  # Full names (dot delimited) of all tests to run
 
@@ -352,7 +356,7 @@ def find_zests(
                     if match_string is None or match_string in full_name or any_parent:
                         # So that you can terminate a match_string like "it_foobars."
                         # we add an extra "." to the end pf full_name in this comparison
-                        if exclude_string is not None and exclude_string in full_name + ".":
+                        if any([e in full_name + "." for e in exclude_strings]):
                             continue
 
                         # IGNORE skips
