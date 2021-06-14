@@ -1,3 +1,4 @@
+import glob
 import time
 import json
 import os
@@ -131,10 +132,19 @@ class ZestRunnerBase:
         self.root = root or os.getcwd()
         assert self.root[0] == os.sep
 
+        allow_list = self.allow_to_run.split(":")
+
+        for r in allow_list:
+            if r == "__failed__":
+                # load_previous is a bit slow so we only want to do it if requested
+                prev_fails = self.load_previous()
+                allow_list += prev_fails
+                break
+
         self.root_zests, self.allow_to_run, find_errors = zest_finder.find_zests(
             root,
             include_dirs,
-            self.allow_to_run.split(":"),
+            allow_list,
             allow_files.split(":") if allow_files is not None else None,
             match_string,
             exclude_string,
@@ -161,3 +171,14 @@ class ZestRunnerBase:
             and self.match_string is None
             and self.groups is None
         )
+
+    def load_previous(self):
+        fails = {}
+        for file in glob.glob(str(self.output_folder / "*")):
+            with open(file) as f:
+                for line in f:
+                    res = json.loads(line)
+                    if res.get("error") is not None:
+                        fails[res.get("full_name")] = True
+        return list(set(fails))
+
