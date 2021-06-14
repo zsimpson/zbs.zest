@@ -315,7 +315,6 @@ def find_zests(
             # HACK!
             # global debug_hack
             # if path == "/erisyon/plaster/plaster/run/sigproc_v2/zests/zest_sigproc_v2_worker.py":
-            #     import pudb; pudb.set_trace()
             #     debug_hack = True
             # else:
             #     debug_hack = False
