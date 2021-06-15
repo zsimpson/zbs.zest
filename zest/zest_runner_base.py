@@ -178,7 +178,8 @@ class ZestRunnerBase:
             with open(file) as f:
                 for line in f:
                     res = json.loads(line)
-                    if res.get("error") is not None:
-                        fails[res.get("full_name")] = True
-        return list(set(fails))
+                    # There can be multiple records from previous runs,
+                    # accept the LASt state of the error run
+                    fails[res.get("full_name")] = True if res.get("error") is not None else False
+        return list(set([key for key, val in fails.items() if val]))
 

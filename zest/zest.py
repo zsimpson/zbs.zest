@@ -859,18 +859,13 @@ class zest:
 
                                     zest._test_start_callback(
                                         ZestResult(
-                                            zest._call_stack,
-                                            full_name,
-                                            zest._call_stack[-1],
-                                            None,
-                                            None,
-                                            None,
-                                            None,
-                                            None,
-                                            None,
-                                            func.__code__.co_filename,
-                                            os.getpid(),
-                                            True,
+                                            call_stack=zest._call_stack,
+                                            full_name=full_name,
+                                            short_name=zest._call_stack[-1],
+                                            source=func.__code__.co_filename,
+                                            pid=os.getpid(),
+                                            is_running=True,
+                                            is_starting=False,
                                         )
                                     )
 
@@ -944,19 +939,20 @@ class zest:
                                         error = f"{error.__class__.__name__}: \"{str(error)}\""
 
                                     zest_result = ZestResult(
-                                        zest._call_stack,
-                                        ".".join(zest._call_stack),
-                                        zest._call_stack[-1],
-                                        error,
-                                        error_formatted,
-                                        stop_time - start_time,
-                                        skip_reason,
-                                        captured_so if captured_so is not None else None,
-                                        captured_se if captured_se is not None else None,
-                                        captured_lg if captured_lg is not None else None,
-                                        func.__code__.co_filename,
-                                        os.getpid(),
-                                        False,
+                                        call_stack=zest._call_stack,
+                                        full_name=".".join(zest._call_stack),
+                                        short_name=zest._call_stack[-1],
+                                        error=error,
+                                        error_formatted=error_formatted,
+                                        elapsed=stop_time - start_time,
+                                        skip=skip_reason,
+                                        stdout=captured_so if captured_so is not None else None,
+                                        stderr=captured_se if captured_se is not None else None,
+                                        logs=captured_lg if captured_lg is not None else None,
+                                        source=func.__code__.co_filename,
+                                        pid=os.getpid(),
+                                        is_running=False,
+                                        is_starting=False,
                                     )
                                     with pause_stdio_capture():
                                         zest._test_stop_callback(zest_result)

@@ -628,14 +628,14 @@ def _run(
         dirty = True
         worker_i = zest_result.worker_i
         if zest_result.is_starting:
-            state_message = "STARTING"
+            state_message = "START"
         elif zest_result.is_running:
-            state_message = "RUNNING"
+            state_message = "RUN"
         else:
             state_message = "DONE"
         current_running_tests_by_worker_i[
             worker_i
-        ] = f"{state_message:<9s}: {zest_result.full_name}"
+        ] = f"{state_message:<6s}: {zest_result.full_name}"
         if not zest_result.is_running:
             if zest_result.error is not None:
                 nonlocal zest_results_by_full_name
