@@ -119,6 +119,10 @@ def main():
         help="If specified, the module.function() will be called before run. Good for log setup. In form full_path/to.py:func()",
     )
 
+    parser.add_argument("--preview", action="store_true",
+        help="Show tests that would run.",
+    )
+
     # fmt: on
 
     kwargs = vars(parser.parse_args())

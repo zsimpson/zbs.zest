@@ -880,6 +880,7 @@ class zest:
                                     func()
                                 except SkipException as e:
                                     skip_reason = e.reason
+
                                 zest._clear_stack_mocks()
                                 zest._mock_stack.pop()
                             except Exception as e:

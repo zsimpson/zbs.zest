@@ -60,6 +60,7 @@ class ZestRunnerBase:
         exclude_groups=None,
         common_tmp=None,
         tmp_root="/tmp",
+        preview=False,
         **kwargs,
     ):
         """
@@ -152,6 +153,13 @@ class ZestRunnerBase:
             groups.split(":") if groups is not None else None,
             exclude_groups.split(":") if exclude_groups is not None else None,
         )
+
+        if preview:
+            for i in sorted(self.allow_to_run):
+                print(i)
+            print(f"\nWould have run {len(self.allow_to_run)} tests")
+            self.retcode = 1
+            return
 
         self.handle_find_errors(find_errors)
 

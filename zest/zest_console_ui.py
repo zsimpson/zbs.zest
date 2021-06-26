@@ -12,6 +12,7 @@ import curses
 import json
 import traceback
 import logging
+from collections import OrderedDict
 from pathlib import Path
 from collections import defaultdict
 from zest.zest import log, strip_ansi, zest
@@ -42,7 +43,7 @@ def _kbhit():
     if os.name == "nt":
         return msvcrt._kbhit()
     else:
-        dr, dw, de = select.select([sys.stdin], [], [], 0)
+        dr, dw, de = select.select([sys.stdin], [], [], 0.1)
         return dr != []
 
 
@@ -519,13 +520,14 @@ def load_results(zest_results_path):
     """
     Returns: zest_results_by_full_name
     """
-    zest_results_by_full_name = {}
-    for res_path in os.listdir(zest_results_path):
-        res_path = zest_results_path / res_path
+    zest_results = []
+    paths = sorted(Path(zest_results_path).iterdir(), key=os.path.getmtime)
+    for res_path in paths:
         with open(res_path) as fd:
             for zest_result in read_zest_result_line(fd):
-                zest_results_by_full_name[zest_result.full_name] = zest_result
+                zest_results += [(zest_result.full_name, zest_result)]
 
+    zest_results_by_full_name = OrderedDict(zest_results)
     return zest_results_by_full_name
 
 
@@ -633,10 +635,12 @@ def _run(
             state_message = "RUN"
         else:
             state_message = "DONE"
+
         current_running_tests_by_worker_i[
             worker_i
         ] = f"{state_message:<6s}: {zest_result.full_name}"
-        if not zest_result.is_running:
+
+        if not zest_result.is_running and not zest_result.is_starting:
             if zest_result.error is not None:
                 nonlocal zest_results_by_full_name
                 zest_results_by_full_name = load_results(zest_results_path)
@@ -786,7 +790,7 @@ def _run(
                     show_result_full_name = None
                     dirty = True
 
-                if key == "q":
+                if key == "q" or key == "\x1b":
                     request_stop = True
                     request_end = True
 
@@ -795,6 +799,7 @@ def _run(
                     dirty = True
 
                 if key == "f":
+                    zest_results_by_full_name = {}
                     request_run = "__failed__"
                     dirty = True
 
@@ -855,6 +860,7 @@ def run(**kwargs):
     But, when the _run returns True that means that we are in "debug_mode"
     meaning that we wish to run a test WITHOUT the curses console.
     """
+
     while True:
         try:
             debug_request, match_string = curses.wrapper(_run, **kwargs)
