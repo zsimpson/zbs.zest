@@ -332,15 +332,15 @@ def _errors_from_results(zest_results_by_full_name):
     return [res for res in zest_results_by_full_name.values() if res.error is not None]
 
 
-def draw_fail_lines(y, zest_results_by_full_name, root, show_result_full_name):
+def draw_fail_lines(y, fails_panel_page, zest_results_by_full_name, root, show_result_full_name):
     errors = _errors_from_results(zest_results_by_full_name)
     n_errors = len(errors)
     if n_errors > 0:
         _print(y, 0, PAL_NONE, f"Failed tests:")
         y += 1
 
-        for i, error in enumerate(errors):
-            if i >= 10:
+        for i, error in enumerate(errors[9*fails_panel_page:]):
+            if i >= 9:
                 break
 
             name = error.full_name
@@ -384,7 +384,11 @@ def draw_fail_lines(y, zest_results_by_full_name, root, show_result_full_name):
                 y += 1
 
         if n_errors > 9:
-            _print(y, 0, PAL_ERROR_BASE, f"+ {n_errors - 9} more")
+            _print(
+                y, 0,
+                PAL_ERROR_BASE, f"page {fails_panel_page+1} of {(n_errors // 9) + 1}  ",
+                PAL_STATUS_KEY, "n", PAL_ERROR_BASE, "ext ",
+                PAL_STATUS_KEY, "p", PAL_ERROR_BASE, "revious", )
             y += 1
     return y
 
@@ -398,7 +402,7 @@ def draw_warnings(y, warnings):
     return y
 
 
-def draw_result_details(y, root, zest_result):
+def draw_result_details(y, detail_panel_scroll_top, root, zest_result):
     if zest_result is None:
         return y
 
@@ -431,6 +435,10 @@ def draw_result_details(y, root, zest_result):
         "h",
         PAL_MENU,
         "ide this view   ",
+        PAL_MENU_KEY,
+        "up/down ",
+        PAL_MENU,
+        "scroll below  ",
     )
     draw_menu_fill_to_end_of_line(y, length)
     y += 1
@@ -457,7 +465,7 @@ def draw_result_details(y, root, zest_result):
         y += 1
 
         is_libs = False
-        for line in lines[0:-1]:
+        for line in lines[detail_panel_scroll_top:-1]:
             s = []
             split_line = traceback_match_filename(root, line)
             if split_line is None:
@@ -557,6 +565,8 @@ def _run(
     state_filename = ".zest_state.json"
     show_result_box = False
     go = kwargs.get("go", False)
+    detail_panel_scroll_top = 0
+    fails_panel_page = 0
 
     def save_state():
         try:
@@ -594,9 +604,9 @@ def _run(
         y = draw_status(y, run_state, match_string, current_running_tests_by_worker_i)
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
-        draw_fail_lines(y + 1, zest_results_by_full_name, root, show_result_full_name)
+        draw_fail_lines(y + 1, fails_panel_page, zest_results_by_full_name, root, show_result_full_name)
         y = draw_result_details(
-            y + 13, root, zest_results_by_full_name.get(show_result_full_name),
+            y + 13, detail_panel_scroll_top, root, zest_results_by_full_name.get(show_result_full_name),
         )
         scr.refresh()
 
@@ -769,7 +779,7 @@ def _run(
                 if key in num_keys:
                     errors = _errors_from_results(zest_results_by_full_name)
                     error_i = (
-                        _num_key_to_int(key) - 1
+                        fails_panel_page * 9 + _num_key_to_int(key) - 1
                     )  # Because they press '1' but mean index '0'
                     if 0 <= error_i < len(errors):
                         error = errors[error_i]
@@ -828,6 +838,22 @@ def _run(
                 # if key == "z":
                 #     show_result_box = not show_result_box
                 #     dirty = True
+
+                if key == "KEY_DOWN":
+                    detail_panel_scroll_top += 1
+                    dirty = True
+
+                if key == "KEY_UP":
+                    detail_panel_scroll_top = max(0, detail_panel_scroll_top - 1)
+                    dirty = True
+
+                if key == "n":
+                    fails_panel_page += 1
+                    dirty = True
+
+                if key == "p":
+                    fails_panel_page = max(0, fails_panel_page - 1)
+                    dirty = True
 
                 if request_run is not None and debug_mode:
                     # This is the special debug mode which returns out of the
