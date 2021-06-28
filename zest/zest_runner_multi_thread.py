@@ -100,7 +100,6 @@ def _do_work_order(
         # processes as it means that each child will have to load_module
         # and get no benefit from caching of modules. It might be better
         # to move this in to the parent process
-        root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
 
         def event_callback(zest_result):
             """
@@ -113,6 +112,8 @@ def _do_work_order(
 
         try:
             event_callback(ZestResult(full_name=root_name, is_starting=True, call_stack=[], short_name=root_name, pid=os.getpid()))
+            root_zest_func = zest_finder.load_module(root_name, module_name, full_path)
+
             zest._capture = capture
             zest.do(
                 root_zest_func,
@@ -124,6 +125,7 @@ def _do_work_order(
             e._formatted = traceback.format_exception(
                 etype=type(e), value=e, tb=e.__traceback__
             )
+            e._root_name = root_name
             _do_work_order.queue.put(e)
 
     return zest_result_to_return

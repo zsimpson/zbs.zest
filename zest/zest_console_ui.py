@@ -911,6 +911,7 @@ def run(**kwargs):
                 break
 
         except Exception as e:
+            print("\033c\033[3J\033[2J\033[0m\033[H")
             formatted = traceback.format_exception(
                 etype=type(e), value=e, tb=e.__traceback__
             )

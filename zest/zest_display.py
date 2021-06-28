@@ -282,10 +282,17 @@ def colorful_exception(
     if not compact:
         s("\n")
 
+    if hasattr(error, "_root_name"):
+        s(colors.red, colors.bold, f"DURING ATTEMPT TO RUN {error._root_name}\n")
+
     if formatted is None:
         formatted = traceback.format_exception(
             etype=type(error), value=error, tb=error.__traceback__
         )
+
+    if hasattr(error, "_formatted"):
+        formatted = error._formatted
+
     lines = []
     for line in formatted:
         lines += [sub_line for sub_line in line.strip().split("\n")]
@@ -294,16 +301,16 @@ def colorful_exception(
     for line in lines[1:-1]:
         split_line = _traceback_match_filename(line)
         if split_line is None:
-            s(gray if is_libs else "", line, "\n")
+            s(colors.gray if is_libs else "", line, "\n")
         else:
             leading, basename, lineno, context, is_libs = split_line
             if not gray_libs:
                 is_libs = False
             if is_libs:
-                s(gray, "File ", leading, "/", basename)
-                s(gray, ":", lineno)
-                s(gray, " in function ")
-                s(gray, context, "\n")
+                s(colors.gray, "File ", leading, "/", basename)
+                s(colors.gray, ":", lineno)
+                s(colors.gray, " in function ")
+                s(colors.gray, context, "\n")
             else:
                 s(
                     "File ",
