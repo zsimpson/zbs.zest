@@ -155,6 +155,13 @@ pal = [
 ]
 
 
+def addstr(y, x, txt, mode):
+    try:
+        scr.addstr(y, x, txt, mode)
+    except Exception:
+        pass
+
+
 def _print(y, x, *args):
     def words_and_spaces(s):
         # Inspired by http://stackoverflow.com/a/8769863/262271
@@ -179,20 +186,20 @@ def _print(y, x, *args):
                     break
                 len_line = len(line)
                 if _x + len_line <= width:
-                    scr.addstr(_y, _x, line, mode)
+                    addstr(_y, _x, line, mode)
                     _x += len_line
                 else:
                     # Word-wrap
                     for word in words_and_spaces(line):
                         if len(word) + _x <= width:
-                            scr.addstr(_y, _x, word, mode)
+                            addstr(_y, _x, word, mode)
                         else:
                             _y += 1
                             _x = x
                             if y >= height - 1:
                                 # Can't go down another line
                                 break
-                            scr.addstr(_y, _x, word, mode)
+                            addstr(_y, _x, word, mode)
                         _x += len(word)
                 if line_i > 0:
                     _x = x
@@ -201,10 +208,13 @@ def _print(y, x, *args):
     return _y, _x
 
 
+def _up_to_first_space(s):
+    return s.split(" ", 1)[0]
+
 def draw_menu_fill_to_end_of_line(y, length):
     rows, cols = scr.getmaxyx()
     if cols - length > 0:
-        scr.addstr(y, length, f"{' ':<{cols - length}}", curses.color_pair(PAL_MENU))
+        addstr(y, length, f"{' ':<{cols - length}}", curses.color_pair(PAL_MENU))
 
 
 def draw_title_bar(debug_mode):
@@ -335,8 +345,9 @@ def _errors_from_results(zest_results_by_full_name):
 def draw_fail_lines(y, fails_panel_page, zest_results_by_full_name, root, show_result_full_name):
     errors = _errors_from_results(zest_results_by_full_name)
     n_errors = len(errors)
+
     if n_errors > 0:
-        _print(y, 0, PAL_NONE, f"Failed tests:")
+        _print(y, 0, PAL_NONE, f"Failed tests {fails_panel_page=}:")
         y += 1
 
         for i, error in enumerate(errors[9*fails_panel_page:]):
@@ -349,39 +360,42 @@ def draw_fail_lines(y, fails_panel_page, zest_results_by_full_name, root, show_r
             lines = []
             for line in formatted:
                 lines += [sub_line for sub_line in line.strip().split("\n")]
-            last_filename_line = ""
+
             if len(lines) >= 3:
                 last_filename_line = lines[-3]
-            split_line = traceback_match_filename(root, last_filename_line)
-            if split_line:
-                leading, basename, lineno, context, is_libs = split_line
+                split_line = traceback_match_filename(root, last_filename_line)
 
-                selected = (
-                    show_result_full_name is not None and show_result_full_name == name
-                )
-                _print(
-                    y,
-                    0,
-                    PAL_FAIL_KEY,
-                    str(i + 1),
-                    PAL_NONE,
-                    " ",
-                    PAL_NAME_SELECTED if selected else PAL_NAME,
-                    name,
-                    PAL_ERROR_BASE,
-                    " raised: ",
-                    PAL_ERROR_MESSAGE,
-                    error.error,
-                    PAL_ERROR_BASE,
-                    " ",
-                    PAL_ERROR_PATHNAME,
-                    basename,
-                    PAL_ERROR_BASE,
-                    ":",
-                    PAL_ERROR_PATHNAME,
-                    str(lineno),
-                )
-                y += 1
+            if not split_line:
+                split_line = ("", "", "", "", False)
+
+            leading, basename, lineno, context, is_libs = split_line
+
+            selected = (
+                show_result_full_name is not None and show_result_full_name == name
+            )
+            _print(
+                y,
+                0,
+                PAL_FAIL_KEY,
+                str(i + 1),
+                PAL_NONE,
+                " ",
+                PAL_NAME_SELECTED if selected else PAL_NAME,
+                name,
+                PAL_ERROR_BASE,
+                " raised: ",
+                PAL_ERROR_MESSAGE,
+                _up_to_first_space(error.error),
+                PAL_ERROR_BASE,
+                " ",
+                PAL_ERROR_PATHNAME,
+                basename,
+                PAL_ERROR_BASE,
+                ":",
+                PAL_ERROR_PATHNAME,
+                str(lineno),
+            )
+            y += 1
 
         if n_errors > 9:
             _print(
@@ -459,7 +473,7 @@ def draw_result_details(y, detail_panel_scroll_top, root, zest_result):
             PAL_NONE,
             "raised: ",
             PAL_ERROR_MESSAGE,
-            zest_result.error,
+            _up_to_first_space(zest_result.error),
         ]
         _print(y, 0, *s)
         y += 1
@@ -502,21 +516,21 @@ def draw_result_details(y, detail_panel_scroll_top, root, zest_result):
         if error_message != "":
             _print(y, 2, PAL_ERROR_MESSAGE, error_message)
 
-        y += 1
+        y += 2
         if zest_result.stdout is not None and zest_result.stdout != "":
-            y += 1
+            y += 2
             y, _ = _print(y, 0, PAL_NONE, "Stdout:")
             y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.stdout))
             y += 1
 
         if zest_result.stderr is not None and zest_result.stderr != "":
-            y += 1
+            y += 2
             y, _ = _print(y, 0, PAL_NONE, "Stderr:")
             y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.stderr))
             y += 1
 
         if zest_result.logs is not None and zest_result.logs != "":
-            y += 1
+            y += 2
             y, _ = _print(y, 0, PAL_NONE, "Logs:")
             y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.logs))
             y += 1
