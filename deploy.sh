@@ -15,3 +15,6 @@ pipenv run python setup.py sdist \
 	&& rm -rf zbs.zest.egg-info \
 	&& pipenv run twine check dist/* \
 	&& pipenv run twine upload dist/*
+
+echo "go check https://pypi.org/project/zbs.zest for shas"
+
