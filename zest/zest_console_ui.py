@@ -878,7 +878,7 @@ def _run(
         except KeyboardInterrupt:
             # First press ^C asks for a graceful shutdown of child processes
             # so "request_stop" is set True.
-            # Second press of ^C force-kil all children and exit
+            # Second press of ^C force-kill all children and exit
             if not request_stop:
                 # First press of ^C
                 request_stop = True
@@ -890,7 +890,9 @@ def _run(
                 break
 
     save_state()
-    return None, None  # Not debug_request
+    retcode = n_errors != 0
+    return None, None, retcode  # Not debug_request
+
 
 def run(**kwargs):
     """
@@ -901,9 +903,10 @@ def run(**kwargs):
     meaning that we wish to run a test WITHOUT the curses console.
     """
 
+    retcode = 0
     while True:
         try:
-            debug_request, match_string = curses.wrapper(_run, **kwargs)
+            debug_request, match_string, retcode = curses.wrapper(_run, **kwargs)
             if debug_request:
                 # This is a request to run the test in debug_request without curses
                 # and then start curses back up again
@@ -931,3 +934,5 @@ def run(**kwargs):
             )
             colorful_exception(e, formatted, gray_libs=False)
             break
+
+    return retcode

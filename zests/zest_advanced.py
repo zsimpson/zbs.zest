@@ -257,6 +257,12 @@ def zest_runner_multi_thread():
                     found_tests += [m.group(1).split(".")[-1]]
         return found_tests
 
+    def it_returns_correct_retcode_in_multi_thread_mode():
+        ret_code, _ = _call_zest_cli(
+            "zest_bad_zest_1", "--bypass_skip=zest_bad_zest_1"
+        )
+        assert ret_code == 1
+
     def it_returns_version():
         ret_code, output = _call_zest_cli("--version")
         assert ret_code == 0 and output.strip() == __version__
