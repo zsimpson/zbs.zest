@@ -1,3 +1,4 @@
+.pypirc
 log.txt
 .zest_results/
 .zest_state.json
