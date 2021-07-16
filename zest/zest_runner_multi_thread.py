@@ -285,6 +285,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                     last_draw = time.time()
 
                 if not self.poll(request_stop):
+                    self.retcode = self.n_errors
                     self.run_complete = True
                     break
 
