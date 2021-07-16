@@ -187,15 +187,6 @@ def zest_a_named_group():
 def zest_it_can_handle_keyword_skips():
     pass
 
-def zest_fails_1():
-    raise Exception("FAIL")
-    pass
-
-def zest_fails_2():
-    raise Exception("FAIL")
-    pass
-
-
 def zest_mocks():
     def scope_mocks():
         with zest.mock(pretend_unit_under_test.foo) as m_foo:

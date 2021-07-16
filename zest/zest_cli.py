@@ -83,6 +83,10 @@ def main():
         help="Use console UI.",
     )
 
+    parser.add_argument("--no_ui", action="store_true",
+        help="Suppress the console UI.",
+    )
+
     parser.add_argument("--go", action="store_true",
         help="Use console UI and start the run upon entry.",
     )
@@ -138,7 +142,7 @@ def main():
         hook_start_func = zest_finder.load_module(func_name, "", hook_file)
         hook_start_func()
 
-    if kwargs.pop("ui", False) or kwargs.get("go", False):
+    if not kwargs.pop("no_ui", False) and (kwargs.pop("ui", False) or kwargs.get("go", False)):
         retcode = zest_console_ui.run(**kwargs)
     else:
         if kwargs.get("n_workers") > 1:
