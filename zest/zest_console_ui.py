@@ -257,7 +257,7 @@ def draw_title_bar(debug_mode):
     return y
 
 
-def draw_status(y, run_state, match_string, current_running_tests_by_worker_i):
+def draw_status(y, run_state, match_string, current_running_tests_by_worker_i, n_workers):
     _print(
         y,
         0,
@@ -284,20 +284,20 @@ def draw_status(y, run_state, match_string, current_running_tests_by_worker_i):
     )
     y += 1
 
-    if len(worker_iz) > 0 and run_state != STOPPED:
-        for worker_i in worker_iz:
+    for worker_i in range(n_workers):
+        _print(y, 0, PAL_ERROR_LIB, f"{worker_i:>2}) ")
+        if worker_i < len(current_running_tests_by_worker_i):
             name_stack = (current_running_tests_by_worker_i[worker_i] or "").split(".")
             _print(
                 y,
-                0,
-                PAL_ERROR_LIB,
-                f"{worker_i:>2}) ",
+                4,
                 PAL_NAME_SELECTED,
                 name_stack[0],
                 PAL_NAME,
                 "" if len(name_stack[1:]) == 0 else ("." + ".".join(name_stack[1:])),
             )
-            y += 1
+        y += 1
+
     return y
 
 
@@ -581,6 +581,7 @@ def _run(
     go = kwargs.get("go", False)
     detail_panel_scroll_top = 0
     fails_panel_page = 0
+    n_workers = kwargs.get("n_workers", 1)
 
     def save_state():
         try:
@@ -615,7 +616,7 @@ def _run(
         dirty = False
         scr.clear()
         y = draw_title_bar(debug_mode)
-        y = draw_status(y, run_state, match_string, current_running_tests_by_worker_i)
+        y = draw_status(y, run_state, match_string, current_running_tests_by_worker_i, n_workers)
         y = draw_summary(y, n_success, n_errors, n_skips)
         y = draw_warnings(y, warnings)
         draw_fail_lines(y + 1, fails_panel_page, zest_results_by_full_name, root, show_result_full_name)
