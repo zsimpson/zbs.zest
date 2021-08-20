@@ -123,7 +123,7 @@ def display_error(root, zest_result):
         else:
             leading, basename, lineno, context, is_libs = split_line
             if is_libs:
-                s(colors.gray, "File ", leading, "/", basename)
+                s(colors.gray, "File ", leading, "/ ", basename)
                 s(colors.gray, ":", lineno)
                 s(colors.gray, " in function ")
                 s(colors.gray, context, "\n")
@@ -132,7 +132,7 @@ def display_error(root, zest_result):
                     "File ",
                     colors.yellow,
                     leading,
-                    "/",
+                    "/ ",
                     colors.yellow,
                     colors.bold,
                     basename,
@@ -307,7 +307,7 @@ def colorful_exception(
             if not gray_libs:
                 is_libs = False
             if is_libs:
-                s(colors.gray, "File ", leading, "/", basename)
+                s(colors.gray, "File ", leading, "/ ", basename)
                 s(colors.gray, ":", lineno)
                 s(colors.gray, " in function ")
                 s(colors.gray, context, "\n")

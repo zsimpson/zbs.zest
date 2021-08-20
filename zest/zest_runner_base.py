@@ -109,6 +109,8 @@ class ZestRunnerBase:
             The root of any auto-generated tmp files
 
         """
+        zest._bubble_exceptions = False
+
         self.callback = callback
         self.output_folder = pathlib.Path(output_folder)
         self.n_run = 0

@@ -461,6 +461,11 @@ class zest:
     _common_tmp = None
     _tmp_root = None
 
+    # _bubble_exceptions must default to True so that if you naively call
+    # a zest from outside of the zest runner errors will bubble
+    # the zest_runner will overload this to False
+    _bubble_exceptions = True
+
     @staticmethod
     def reset(disable_shuffle=False, bypass_skip=None, common_tmp=None, tmp_root=None, capture=None):
         zest._call_log = []
@@ -849,6 +854,8 @@ class zest:
                                     f"This may mean that the sub-tests are not enumerated and therefore can not be run."
                                 )
                                 zest._call_warnings += [s]
+                                if zest._bubble_exceptions:
+                                    raise e
 
                         try:
                             zest._call_tree += [full_name]
@@ -893,6 +900,9 @@ class zest:
                                 #     (e, error_formatted, zest._call_stack.copy())
                                 # ]
                                 zest._current_error = e
+
+                                if zest._bubble_exceptions:
+                                    raise e
                             finally:
                                 stop_time = time.time()
 
@@ -961,8 +971,6 @@ class zest:
                             _after = callers_special_local_funcs.get("_after")
                             if _after:
                                 _after()
-                        except Exception as e:
-                            log(f"ZEST EXCEPTION 1 {e}")
                         finally:
                             zest._call_stack.pop()
                     finally:
