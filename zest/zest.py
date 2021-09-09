@@ -522,6 +522,33 @@ class zest:
     #     return decorator
 
     @staticmethod
+    def run_in_subprocess():
+        """
+        Use this decorator when the child zest might die or get killed
+        abnormaly such as if a C module were to exit without allowing
+        python to do proper exit handling.
+        """
+        def decorator(fn):
+            @wraps(fn)
+            def wrapper(*args, **kwargs):
+                log("START WRAPPER")
+                child_pid = os.fork()
+                if child_pid == 0:
+                    # child process
+                    fn(*args, **kwargs)
+                    sys.exit(0)
+
+                log(f"WAITPID {child_pid=} {os.getpid()=}")
+                pid, ret_code = os.waitpid(child_pid, 0)
+                if ret_code != 0:
+                    full_name = ".".join(zest._call_stack)
+                    raise Exception(f"Child subprocess '{full_name}' died unexpectedly")
+
+            return wrapper
+
+        return decorator
+
+    @staticmethod
     def skip(reason=None):
         def decorator(fn):
             @wraps(fn)
@@ -891,6 +918,7 @@ class zest:
                                 zest._clear_stack_mocks()
                                 zest._mock_stack.pop()
                             except Exception as e:
+                                log(f"HANDLED THE UNEXEPTED DATH {os.getpid()}")
                                 error = e
                                 error_formatted = traceback.format_exception(
                                     etype=type(error), value=error, tb=error.__traceback__

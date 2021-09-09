@@ -21,7 +21,7 @@ from . import __version__
 
 
 def main():
-    # log("CLI MAIN")
+    log("CLI MAIN")
     parser = argparse.ArgumentParser()
 
     # fmt: off

@@ -91,6 +91,7 @@ def _do_work_order(
     disable_shuffle,
     bypass_skip,
 ):
+    log(f"do work order {root_name=}")
     zest_result_to_return = None
 
     zest.reset(disable_shuffle, bypass_skip)

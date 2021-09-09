@@ -344,4 +344,21 @@ def zest_runner_multi_thread():
         assert "To stderr" in output
         assert ret_code == 0
 
+    def it_handles_hard_exit_of_child_process():
+        it_ran = False
+
+        def _before():
+            print("before")
+            ret_code, output = _call_zest_cli(
+                "--bypass_skip=zest_hard_exit", "zest_hard_exit"
+            )
+            print(ret_code)
+            print(output)
+
+        def it_should_still_run_this():
+            print("did this run?")
+
+        zest()
+
+
     zest()

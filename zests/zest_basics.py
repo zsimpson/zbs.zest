@@ -10,6 +10,7 @@ import time
 import re
 import os
 import sys
+import signal
 from contextlib import contextmanager
 from zest import zest, TrappedException
 from zest.zest import log, strip_ansi
@@ -393,6 +394,12 @@ def zest_captures():
         print("To stderr", file=sys.stderr)
 
     zest()
+
+
+#@zest.skip(reason="zest_hard_exit")
+@zest.run_in_subprocess()
+def zest_hard_exit():
+    os.kill(os.getpid(), signal.SIGKILL)
 
 
 """
