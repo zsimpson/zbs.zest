@@ -346,17 +346,18 @@ def zest_runner_multi_thread():
 
     def it_handles_hard_exit_of_child_process():
         it_ran = False
+        ret_code = None
+        output = None
 
         def _before():
-            print("before")
+            nonlocal ret_code, output
             ret_code, output = _call_zest_cli(
                 "--bypass_skip=zest_hard_exit", "zest_hard_exit"
             )
-            print(ret_code)
-            print(output)
 
         def it_should_still_run_this():
-            print("did this run?")
+            assert ret_code == 1
+            assert "Child subprocess 'zest_hard_exit' died unexpectedly" in output
 
         zest()
 

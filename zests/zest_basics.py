@@ -396,7 +396,7 @@ def zest_captures():
     zest()
 
 
-#@zest.skip(reason="zest_hard_exit")
+@zest.skip(reason="zest_hard_exit")
 @zest.run_in_subprocess()
 def zest_hard_exit():
     os.kill(os.getpid(), signal.SIGKILL)

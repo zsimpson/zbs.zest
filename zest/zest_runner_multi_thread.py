@@ -91,9 +91,10 @@ def _do_work_order(
     disable_shuffle,
     bypass_skip,
 ):
-    log(f"do work order {root_name=}")
     zest_result_to_return = None
 
+    # In a new process, reset the _bubble_exceptions
+    zest._bubble_exceptions = False
     zest.reset(disable_shuffle, bypass_skip)
 
     with open_event_stream(output_folder, root_name) as event_stream:
