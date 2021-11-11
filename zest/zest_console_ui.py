@@ -582,6 +582,7 @@ def _run(
     detail_panel_scroll_top = 0
     fails_panel_page = 0
     n_workers = kwargs.get("n_workers", 1)
+    n_allowed_to_run = 0
 
     def save_state():
         try:
@@ -614,6 +615,7 @@ def _run(
         if not dirty:
             return
         dirty = False
+        n_run = n_success + n_errors + n_skips
         scr.clear()
         y = draw_title_bar(debug_mode)
         y = draw_status(y, run_state, match_string, current_running_tests_by_worker_i, n_workers)
@@ -635,10 +637,16 @@ def _run(
             win2 = scr.subwin(h, w, y, x)
             win2.clear()
 
-            if n_errors == 0:
+            if n_allowed_to_run != n_run:
+                win2.attrset(curses.color_pair(PAL_ERROR_BOX))
+                win2.box()
+                msg = f"WARNING! {n_allowed_to_run-n_run} failed to run."
+                win2.addstr(h // 2, (w - len(msg)) // 2, msg, curses.color_pair(PAL_ERROR_BOX))
+                win2.bkgd(' ', curses.color_pair(PAL_ERROR_BOX))
+            elif n_errors == 0:
                 win2.attrset(curses.color_pair(PAL_SUCCESS_BOX))
                 win2.box()
-                msg = "SUCCESS!"
+                msg = f"SUCCESS!"
                 win2.addstr(h // 2, (w - len(msg)) // 2, msg, curses.color_pair(PAL_SUCCESS_BOX))
                 win2.bkgd(' ', curses.color_pair(PAL_SUCCESS_BOX))
             else:
@@ -716,6 +724,7 @@ def _run(
 
         nonlocal request_run, request_stop, runner
         nonlocal zest_results_by_full_name
+        nonlocal n_allowed_to_run
         if run_state == STOPPED:
             # Tests are done. The runner_thread should be stopped
             # Ways out:
@@ -753,6 +762,7 @@ def _run(
             #   * The runner has terminated. Goto STOPPED
             running = runner.poll(True)
             if not running:
+                n_allowed_to_run = len(runner.allow_to_run)
                 runner = None
                 new_state(STOPPED)
                 zest_results_by_full_name = load_results(zest_results_path)

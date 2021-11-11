@@ -380,6 +380,7 @@ class ZestResult:
     error_formatted: str = None
     elapsed: float = None
     skip: str = None
+    child_skip: bool = False
     stdout: str = None
     stderr: str = None
     logs: str = None
@@ -762,6 +763,8 @@ class zest:
         Eg: ["zest_test1.it_does_y"] means that it_does_y1 will run too.
 
         """
+        # log(f"STARTING ZEST {zest._test_stop_callback=}")
+
         prev_test_start_callback = None
         prev_test_stop_callback = None
         prev_allow_to_run = None
@@ -790,8 +793,23 @@ class zest:
                 frame = inspect.currentframe()
                 try:
                     zest_module_name = inspect.getmodule(frame).__name__
-                    while inspect.getmodule(frame).__name__ == zest_module_name:
-                        frame = frame.f_back
+                    try:
+                        while inspect.getmodule(frame).__name__ == zest_module_name:
+                            frame = frame.f_back
+                    except AttributeError:
+                        # Handle the case in a notebook of running a test directly
+                        # such as:
+                        #   from zest import zest
+                        #   def zest_centering():
+                        #       def it_centers_no_noise():
+                        #           print("RAN1")
+                        #
+                        #       zest()
+                        #   zest_centering()
+                        #
+                        # This raises AttribubteError when the __name__ is examined
+                        # from a None module.
+                        pass
 
                     context = frame.f_locals
 
@@ -992,6 +1010,31 @@ class zest:
                                     )
                                     with pause_stdio_capture():
                                         zest._test_stop_callback(zest_result)
+
+                                    # If a test was skipped we need to mark it's possible
+                                    # allowed children as skipped too
+                                    if skip_reason is not None:
+                                        for allowed in allow_to_run:
+                                            if allowed.startswith(full_name + "."):
+                                                zest_result = ZestResult(
+                                                    call_stack=allowed.split("."),
+                                                    full_name=allowed,
+                                                    short_name=allowed.split(".")[-1],
+                                                    error=None,
+                                                    error_formatted=None,
+                                                    elapsed=0.0,
+                                                    skip=f"parent was skipped",
+                                                    child_skip=True,
+                                                    stdout=None,
+                                                    stderr=None,
+                                                    logs=None,
+                                                    source=func.__code__.co_filename,
+                                                    pid=os.getpid(),
+                                                    is_running=False,
+                                                    is_starting=False,
+                                                )
+                                                with pause_stdio_capture():
+                                                    zest._test_stop_callback(zest_result)
 
                             _after = callers_special_local_funcs.get("_after")
                             if _after:

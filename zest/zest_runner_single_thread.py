@@ -53,7 +53,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
             emit_zest_result(zest_result, event_stream)
             self.results += [zest_result]
             curr_depth = len(zest_result.call_stack) - 1
-            if self.verbose >= 2:
+            if self.verbose >= 2 and not zest_result.child_skip:
                 display_stop(
                     zest_result.error,
                     zest_result.elapsed,
@@ -77,7 +77,7 @@ class ZestRunnerSingleThread(ZestRunnerBase):
 
         # COMPLETE
         if self.verbose > 0:
-            display_complete(self.root, self.results)
+            display_complete(self.root, self.results, self.allow_to_run)
 
         if self.verbose > 1:
             display_timings(self.results)

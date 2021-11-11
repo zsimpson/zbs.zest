@@ -93,6 +93,7 @@ def zest_basics():
         def test2():
             pass
 
+        # By overloading, the real counter will lose them
         zest(
             test_start_callback=_test_start_callback,
             test_stop_callback=_test_stop_callback,

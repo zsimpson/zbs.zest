@@ -202,7 +202,7 @@ def display_abbreviated(error, skip):
         s(colors.green, ".")
 
 
-def display_complete(root, zest_results):
+def display_complete(root, zest_results, allow_to_run):
     results_with_errors = [res for res in zest_results if res.error]
 
     n_errors = len(results_with_errors)
@@ -211,11 +211,21 @@ def display_complete(root, zest_results):
         for res in results_with_errors:
             display_error(root, res)
 
-    s(f"\nRan {len(zest_results)} tests. ")
+    s(f"\nRan {len(zest_results)} tests of the {len(allow_to_run)} that were allowed to run. ")
     if n_errors == 0:
         s(colors.green, "SUCCESS\n")
     else:
         s(colors.red, colors.bold, f"{n_errors} ERROR(s)\n")
+
+    if len(allow_to_run) != len(zest_results):
+        s(colors.red, colors.bold, f"WARNING: some allowed tests did not run.\n")
+        ran_names = {
+            res.full_name
+            for res in zest_results
+        }
+        for allowed in allow_to_run:
+            if allowed not in ran_names:
+                print(f"{allowed} did not run")
 
 
 def display_timings(results):

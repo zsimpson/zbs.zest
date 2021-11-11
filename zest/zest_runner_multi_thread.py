@@ -259,7 +259,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         cursor_move_up(len(self.worker_status) + 1)
 
     def draw_complete(self):
-        display_complete("", self.results)
+        display_complete("", self.results, self.allow_to_run)
 
         if self.verbose > 1:
             # When verbose then AFTER the multithreads have all had a chance
@@ -269,6 +269,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
             for result in self.results:
                 display_start(result.full_name, None, None, self.add_markers)
                 display_stop(result.error, result.elapsed, result.skip, None, None)
+
 
     def message_pump(self):
         if self.retcode != 0:
