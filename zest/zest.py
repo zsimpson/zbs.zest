@@ -1013,8 +1013,8 @@ class zest:
 
                                     # If a test was skipped we need to mark it's possible
                                     # allowed children as skipped too
-                                    if skip_reason is not None:
-                                        for allowed in allow_to_run:
+                                    if skip_reason is not None: #and allow_to_run is not None:
+                                        for allowed in zest._allow_to_run:
                                             if allowed.startswith(full_name + "."):
                                                 zest_result = ZestResult(
                                                     call_stack=allowed.split("."),
