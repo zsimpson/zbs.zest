@@ -569,6 +569,7 @@ def _run(
     run_state = STOPPED
     warnings = []
     runner = None
+    failed_to_run = []
     debug_mode = kwargs.get("debug_mode", False)
     request_run = None
     request_stop = False  # Stop the current run
@@ -632,16 +633,31 @@ def _run(
             scr_w = curses.COLS
             h = 7
             w = 40
-            y = 10
+            y = 11
             x = (scr_w - w) // 2
             win2 = scr.subwin(h, w, y, x)
             win2.clear()
 
+            n_failed_to_run = len(failed_to_run)
             if n_allowed_to_run != n_run:
+                assert n_failed_to_run == n_allowed_to_run - n_run
+                h = n_failed_to_run + 7
+                w = 80
+                y = 11
+                x = (scr_w - w) // 2
+                win2 = scr.subwin(h, w, y, x)
+                win2.clear()
+
                 win2.attrset(curses.color_pair(PAL_ERROR_BOX))
                 win2.box()
+
                 msg = f"WARNING! {n_allowed_to_run-n_run} failed to run."
-                win2.addstr(h // 2, (w - len(msg)) // 2, msg, curses.color_pair(PAL_ERROR_BOX))
+                win2.addstr(2, (w - len(msg)) // 2, msg, curses.color_pair(PAL_ERROR_BOX))
+
+                for i, fail in enumerate(failed_to_run):
+                    msg = fail
+                    win2.addstr(4 + i, 4, msg, curses.color_pair(PAL_ERROR_BOX))
+
                 win2.bkgd(' ', curses.color_pair(PAL_ERROR_BOX))
             elif n_errors == 0:
                 win2.attrset(curses.color_pair(PAL_SUCCESS_BOX))
@@ -724,7 +740,7 @@ def _run(
 
         nonlocal request_run, request_stop, runner
         nonlocal zest_results_by_full_name
-        nonlocal n_allowed_to_run
+        nonlocal n_allowed_to_run, failed_to_run
         if run_state == STOPPED:
             # Tests are done. The runner_thread should be stopped
             # Ways out:
@@ -749,10 +765,6 @@ def _run(
             running = runner.poll(request_stop)
             time.sleep(0.05)
 
-            if not running and not request_end:
-                nonlocal show_result_box
-                show_result_box = True
-
             if not running or request_stop or request_run is not None:
                 new_state(STOPPING)
 
@@ -762,10 +774,25 @@ def _run(
             #   * The runner has terminated. Goto STOPPED
             running = runner.poll(True)
             if not running:
+                ran_names = {
+                    result.full_name
+                    for result in runner.results
+                }
+                failed_to_run = [
+                    name
+                    for name in runner.allow_to_run
+                    if name not in ran_names
+                ]
+
                 n_allowed_to_run = len(runner.allow_to_run)
                 runner = None
                 new_state(STOPPED)
                 zest_results_by_full_name = load_results(zest_results_path)
+
+            if not request_end:
+                nonlocal show_result_box
+                show_result_box = True
+
 
         # elif run_state == WATCHING:
         #     if watch_timestamp != os.path.getmtime(watch_file):
