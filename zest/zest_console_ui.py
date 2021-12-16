@@ -177,6 +177,18 @@ def _print(y, x, *args):
     for arg in args:
         if isinstance(arg, int):
             mode = pal[arg][2] | curses.color_pair(arg)
+        elif isinstance(arg, tuple):
+            # this is a single line with formatting, so no word wrapping
+            _x = x
+            for a in arg:
+                if isinstance(a, int):
+                    mode = pal[a][2] | curses.color_pair(a)
+                else:
+                    a = strip_ansi(str(a))
+                    addstr(_y, _x, a, mode)
+                    _x += len(a)
+            _y += 1
+            _x = x
         else:
             arg = str(arg)
             lines = arg.split("\n")
@@ -417,6 +429,8 @@ def draw_warnings(y, warnings):
 
 
 def draw_result_details(y, detail_panel_scroll_top, root, zest_result):
+    log(f"IN draw_result_details {detail_panel_scroll_top=}")
+
     if zest_result is None:
         return y
 
@@ -465,21 +479,21 @@ def draw_result_details(y, detail_panel_scroll_top, root, zest_result):
         y += 1
     else:
         formatted = zest_result.error_formatted
-        lines = []
-        for line in formatted:
-            lines += [sub_line for sub_line in line.strip().split("\n")]
 
-        s = [
-            PAL_NONE,
-            "raised: ",
-            PAL_ERROR_MESSAGE,
-            _up_to_first_space(zest_result.error),
-        ]
-        _print(y, 0, *s)
-        y += 1
+        # Render all of the details lines list
+        # Some of those lines will be tuples when we want _print to
+        # render with formatting otherwise they will be strings
+        # when the _print is stripping out escape characters
+
+        lines = []
+
+        formatted_split_lines = []
+        for line in formatted:
+            formatted_split_lines += [sub_line for sub_line in line.strip().split("\n")]
 
         is_libs = False
-        for line in lines[detail_panel_scroll_top:-1]:
+        for line in formatted_split_lines:
+            # s is a single line with formatting
             s = []
             split_line = traceback_match_filename(root, line)
             if split_line is None:
@@ -508,31 +522,35 @@ def draw_result_details(y, detail_panel_scroll_top, root, zest_result):
                         PAL_ERROR_BASE,
                         " in function ",
                     ]
-                    s += [PAL_ERROR_MESSAGE, context]
-            _print(y, 2, *s)
-            y += 1
+                    s += [(PAL_ERROR_MESSAGE, context)]
+
+            lines += [tuple(s)]
 
         error_message = str(zest_result.error).strip()
         if error_message != "":
-            _print(y, 2, PAL_ERROR_MESSAGE, error_message)
+            lines += [(PAL_ERROR_MESSAGE, error_message)]
 
-        y += 2
         if zest_result.stdout is not None and zest_result.stdout != "":
-            y += 2
-            y, _ = _print(y, 0, PAL_NONE, "Stdout:")
-            y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.stdout))
-            y += 1
+            lines += [(PAL_NONE, "\n")]
+            lines += [(PAL_NONE, "Stdout:")]
+            for l in zest_result.stdout.split("\n"):
+                lines += [(PAL_STDOUT, l)]
 
         if zest_result.stderr is not None and zest_result.stderr != "":
-            y += 2
-            y, _ = _print(y, 0, PAL_NONE, "Stderr:")
-            y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.stderr))
-            y += 1
+            lines += [(PAL_NONE, "\n")]
+            lines += [(PAL_NONE, "Stderr:")]
+            for l in zest_result.stderr.split("\n"):
+                lines += [(PAL_STDERR, l)]
 
         if zest_result.logs is not None and zest_result.logs != "":
-            y += 2
-            y, _ = _print(y, 0, PAL_NONE, "Logs:")
-            y, _ = _print(y, 0, PAL_STDOUT, "".join(zest_result.logs))
+            lines += [(PAL_NONE, "\n")]
+            lines += [(PAL_NONE, "Logs:")]
+            for l in zest_result.logs.split("\n"):
+                lines += [(PAL_STDERR, l)]
+
+        # RENDER those lines starting at scroll offset
+        for line in lines[detail_panel_scroll_top:-1]:
+            _print(y, 0, line)
             y += 1
 
     return y
@@ -823,6 +841,8 @@ def _run(
             if _kbhit():
                 key = scr.getkey()
 
+                log(f"{key=}")
+
                 if show_result_box:
                     # Any key to exit box
                     show_result_box = False
@@ -891,13 +911,30 @@ def _run(
                 #     show_result_box = not show_result_box
                 #     dirty = True
 
+                # TODO Set this correctly
+                page_size = 20
+
                 if key == "KEY_DOWN":
                     detail_panel_scroll_top += 1
                     dirty = True
 
                 if key == "KEY_UP":
-                    detail_panel_scroll_top = max(0, detail_panel_scroll_top - 1)
+                    detail_panel_scroll_top -= 1
                     dirty = True
+
+                if key == "KEY_NPAGE":
+                    # Page down
+                    detail_panel_scroll_top += page_size
+                    dirty = True
+
+                if key == "KEY_PPAGE":
+                    detail_panel_scroll_top -= page_size
+                    dirty = True
+
+                # BOUND scroll
+                # TODO: Defer this in render time?
+                # detail_panel_scroll_top = max(0, detail_panel_scroll_top - 1)
+
 
                 if key == "n":
                     fails_panel_page += 1
