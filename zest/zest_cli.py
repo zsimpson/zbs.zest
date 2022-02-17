@@ -14,14 +14,14 @@ from pathlib import Path
 from zest import zest_finder
 from zest.zest_runner_single_thread import ZestRunnerSingleThread
 from zest.zest_runner_multi_thread import ZestRunnerMultiThread
-from zest.zest_display import display_find_errors, display_complete
+from zest.zest_display import display_find_errors, display_complete, set_allow_colors
 from zest import zest_console_ui
 from zest.zest import log
 from . import __version__
 
 
 def main():
-    log("CLI MAIN START")
+    # log("CLI MAIN START")
     parser = argparse.ArgumentParser()
 
     # fmt: off
@@ -127,6 +127,10 @@ def main():
         help="Show tests that would run.",
     )
 
+    parser.add_argument("--allow_colors", action="store_true",
+        help="Allow console colors",
+    )
+
     # fmt: on
 
     kwargs = vars(parser.parse_args())
@@ -145,6 +149,8 @@ def main():
     if not kwargs.pop("no_ui", False) and (kwargs.pop("ui", False) or kwargs.get("go", False)):
         retcode = zest_console_ui.run(**kwargs)
     else:
+        if kwargs.get("allow_colors"):
+            set_allow_colors(True)
         if kwargs.get("n_workers") > 1:
             runner = ZestRunnerMultiThread(**kwargs)
             from zest.zest import zest

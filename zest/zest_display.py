@@ -7,10 +7,19 @@ import traceback
 from zest.zest import log
 
 
+allow_colors = False
+
+
+def set_allow_colors(_allow_colors):
+    global allow_colors
+    allow_colors = _allow_colors
+
+
 def s(*strs):
     for str_ in strs:
         if str_ is not None:
-            sys.stdout.write(str_)
+            if isinstance(str_, str) and (not str_.startswith("\u001b") or allow_colors):
+                sys.stdout.write(str_)
     sys.stdout.write(colors.reset)
     sys.stdout.flush()
 
