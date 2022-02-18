@@ -18,9 +18,10 @@ def set_allow_colors(_allow_colors):
 def s(*strs):
     for str_ in strs:
         if str_ is not None:
-            if isinstance(str_, str) and (not str_.startswith("\u001b") or allow_colors):
+            if isinstance(str_, str) and (allow_colors or not str_.startswith("\u001b")):
                 sys.stdout.write(str_)
-    sys.stdout.write(colors.reset)
+    if allow_colors:
+        sys.stdout.write(colors.reset)
     sys.stdout.flush()
 
 
@@ -261,12 +262,6 @@ def colorful_exception(
     compact=False,
     gray_libs=True,
 ):
-    accum = ""
-
-    def s(*strs):
-        nonlocal accum
-        accum += "".join(strs) + colors.reset
-
     tb_pat = re.compile(r"^.*File \"([^\"]+)\", line (\d+), in (.*)")
 
     def _traceback_match_filename(line):
@@ -356,8 +351,3 @@ def colorful_exception(
         error_message = str(error).strip()
         if error_message != "":
             s(colors.red, error_message, "\n")
-
-    if write_to_stderr:
-        sys.stderr.write(accum)
-
-    return accum
