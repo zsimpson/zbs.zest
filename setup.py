@@ -1,3 +1,5 @@
+# TODO: Deprecate and replace with poetry or similar
+
 import pathlib
 from setuptools import setup
 

@@ -33,6 +33,7 @@ from zest.zest_display import (
     display_stop,
     display_error,
     error_header,
+    allow_ansi,
 )
 
 # Nondaemonic
@@ -231,15 +232,18 @@ class ZestRunnerMultiThread(ZestRunnerBase):
         """
 
         def cursor_move_up(n_lines):
-            sys.stdout.write(f"\033[{n_lines}A")
+            if allow_ansi:
+                sys.stdout.write(f"\033[{n_lines}A")
 
         def cursor_clear_to_eol_and_newline():
-            sys.stdout.write("\033[K\n")
+            if allow_ansi:
+                sys.stdout.write("\033[K")
+            sys.stdout.write("\n")
 
-        def write_line(line):
-            if len(line) > 0:
-                assert line[-1] != "\n"
-                sys.stdout.write(line)
+        def write_line(*lines):
+            if len(lines) > 0 and len(lines[0]) > 0:
+                assert lines[0][-1] != "\n"
+                s(lines)
             cursor_clear_to_eol_and_newline()
 
         for i, worker in enumerate(self.worker_status):
@@ -253,7 +257,7 @@ class ZestRunnerMultiThread(ZestRunnerBase):
                 else:
                     write_line(f"{i:2d}: NOT STARTED")
         write_line(
-            f"{colors.green}{self.n_successes} {colors.red}{self.n_errors} {colors.yellow}{self.n_skips} {colors.reset}"
+            colors.green, str(self.n_successes), colors.red, str(self.n_errors), colors.yellow, str(self.n_skips)
         )
 
         cursor_move_up(len(self.worker_status) + 1)
